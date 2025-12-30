@@ -1,0 +1,36 @@
+{
+  "name": "evalscope-jsonl-viewer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "format": "prettier --write \"src/**/*.{js,ts,vue,json,css,scss,md}\""
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "chart.js": "^4.5.1",
+    "element-plus": "^2.11.2",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.27",
+    "markdown-it": "^14.1.0",
+    "markdown-it-katex": "^2.0.3",
+    "openai": "^6.15.0",
+    "rehype-katex": "^7.0.1",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5",
+    "vue": "^3.5.18",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "prettier": "^3.7.4",
+    "vite": "^7.1.2"
+  }
+}

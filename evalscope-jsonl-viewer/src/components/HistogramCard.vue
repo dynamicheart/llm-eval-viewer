@@ -1,0 +1,257 @@
+<!--
+  Copyright (c) 2025 dynamicheart
+  Licensed under the MIT License.
+-->
+
+<template>
+  <div v-if="tableData.length" class="result-distribution-card">
+    <div class="title">Token 分布统计</div>
+
+    <div class="charts-row">
+      <div v-for="field in fields" :key="field.key" class="chart-col">
+        <div class="chart-card">
+          <div class="chart-title">
+            {{ field.label }}
+          </div>
+
+          <div class="chart-wrapper">
+            <canvas :ref="(el) => setCanvas(el, field.key)" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="total-count">样本数：{{ tableData.length }}</div>
+  </div>
+</template>
+
+<script setup>
+import { ref, nextTick, onMounted, watch } from 'vue';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+
+const props = defineProps({
+  tableData: { type: Array, required: true },
+  fields: { type: Array, required: true }, // [{ key, label, color }]
+});
+
+const canvasMap = new Map();
+const chartMap = new Map();
+
+function setCanvas(el, key) {
+  if (el) canvasMap.set(key, el);
+}
+
+/* ========= 核心：等宽、取整分桶 ========= */
+
+function niceStep(step) {
+  if (step <= 0 || !Number.isFinite(step)) {
+    return 1;
+  }
+
+  const pow = Math.pow(10, Math.floor(Math.log10(step)));
+  const frac = step / pow;
+  if (frac <= 1) return pow;
+  if (frac <= 2) return 2 * pow;
+  if (frac <= 5) return 5 * pow;
+  return 10 * pow;
+}
+
+function buildBuckets(values, targetBins = 6) {
+  const max = Math.max(...values, 0);
+
+  // 全 0 的特殊情况
+  if (max === 0) {
+    return [[0, 1]];
+  }
+
+  const rawStep = max / targetBins;
+  const step = niceStep(rawStep);
+
+  const bucketCount = Math.max(1, Math.ceil(max / step));
+  const buckets = [];
+
+  for (let i = 0; i < bucketCount; i++) {
+    buckets.push([i * step, (i + 1) * step]);
+  }
+  return buckets;
+}
+
+function histogram(values, buckets) {
+  const counts = Array(buckets.length).fill(0);
+  const step = buckets[0][1] - buckets[0][0] || 1;
+
+  values.forEach((v) => {
+    const idx = Math.min(Math.floor(v / step), counts.length - 1);
+    counts[idx]++;
+  });
+
+  return counts;
+}
+
+function renderOne(field) {
+  const values = props.tableData
+    .map((r) => r[field.key])
+    .filter((v) => typeof v === 'number' && v >= 0);
+
+  if (!values.length) return;
+
+  const buckets = buildBuckets(values);
+  const labels = buckets.map(([a, b]) => `${a}-${b}`);
+
+  const data = histogram(values, buckets);
+
+  const old = chartMap.get(field.key);
+  if (old) old.destroy();
+
+  const chart = new Chart(canvasMap.get(field.key), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: field.label,
+          data,
+          backgroundColor: field.color,
+
+          barPercentage: 0.65,
+          categoryPercentage: 0.85,
+          borderRadius: 4,
+          maxBarThickness: 36,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#303133',
+          titleFont: { size: 12, weight: '600' },
+          bodyFont: { size: 12 },
+          padding: 8,
+
+          callbacks: {
+            // title 用 bucket 区间（你现在已经是 50-100 这种）
+            title(items) {
+              return items[0].label;
+            },
+
+            // 核心：只显示 count
+            label(context) {
+              return `Count: ${context.parsed.y}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: {
+            display: false,
+          },
+          ticks: {
+            color: '#606266',
+            font: {
+              size: 12,
+            },
+          },
+        },
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: 'rgba(0,0,0,0.05)',
+          },
+          ticks: {
+            color: '#909399',
+            font: {
+              size: 12,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  chartMap.set(field.key, chart);
+}
+
+async function renderAll() {
+  await nextTick();
+  props.fields.forEach(renderOne);
+}
+
+onMounted(renderAll);
+watch(() => props.tableData, renderAll, { deep: true });
+</script>
+
+<style scoped>
+.result-distribution-card {
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  padding: 16px 24px;
+  margin-bottom: 20px;
+  user-select: none;
+}
+
+.result-distribution-card .title {
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: #303133;
+}
+
+/* ===== charts layout ===== */
+
+.charts-row {
+  display: flex;
+  gap: 24px;
+}
+
+.chart-col {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ===== chart card ===== */
+
+.chart-card {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.08);
+  transition: all 0.2s ease-in-out;
+}
+
+.chart-card:hover {
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  transform: translateY(-2px);
+}
+
+/* ===== title ===== */
+
+.chart-title {
+  text-align: center;
+  font-weight: 600;
+  font-size: 14px;
+  color: #606266;
+  margin-bottom: 8px;
+}
+
+/* ===== chart ===== */
+
+.chart-wrapper {
+  height: 220px;
+  padding: 4px;
+}
+
+/* ===== footer ===== */
+
+.total-count {
+  margin-top: 16px;
+  font-weight: 500;
+  color: #909399;
+  font-size: 13px;
+}
+</style>
