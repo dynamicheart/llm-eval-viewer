@@ -26,7 +26,7 @@
       style="width: 100%; margin-top: 20px"
       border
     >
-      <el-table-column prop="index" label="#" width="100" sortable />
+      <el-table-column prop="index" label="#" width="80" sortable />
       <el-table-column prop="id" label="ID" width="200" />
       <el-table-column prop="prompt" label="Prompt" width="500">
         <template #default="{ row }">
@@ -35,10 +35,14 @@
       </el-table-column>
       <el-table-column prop="pred" label="Pred">
         <template #default="{ row }">
-          <span>{{ truncateText(row.pred, 100) }}</span>
+          <span>{{ truncateText(row.pred, 10) }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="gold" label="Golden" />
+      <el-table-column prop="gold" label="Golden">
+        <template #default="{ row }">
+          <span>{{ truncateText(row.gold, 10) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column
         prop="result"
         label="Result"
@@ -60,7 +64,7 @@
           >
         </template>
       </el-table-column>
-      <el-table-column label="Extracted Prediction">
+      <el-table-column label="Extracted Pred">
         <template #default="{ row }">
           <el-button type="text" @click="showDialog(row.pred || '')"
             >查看</el-button
@@ -188,7 +192,17 @@ export default {
         };
       }
 
-      // 3. 兜底
+      // 3. score
+      const metadata = json?.sample_score?.score?.metadata;
+      if (metadata && Object.keys(metadata).length > 0) {
+        return {
+          type: 'metadata',
+          content: JSON.stringify(metadata, null, 2),
+          render: 'json',
+        };
+      }
+
+      // 4. 兜底
       return {
         type: 'empty',
         content: '未提供 solution（sample_metadata 中也未找到可展示内容）',

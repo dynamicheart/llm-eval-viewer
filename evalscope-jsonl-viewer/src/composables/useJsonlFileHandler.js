@@ -6,11 +6,17 @@
 // composables/useJsonlFileHandler.js
 import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage } from 'element-plus';
+import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
-import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
+import javascript from 'highlight.js/lib/languages/javascript';
+import python from 'highlight.js/lib/languages/python';
+import plaintext from 'highlight.js/lib/languages/plaintext';
 
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('python', python);
 hljs.registerLanguage('json', json);
+hljs.registerLanguage('plaintext', plaintext);
 
 export function useJsonlFileHandler(options) {
   const {
@@ -170,15 +176,46 @@ export function useJsonlFileHandler(options) {
     localStorage.removeItem(storageKey);
   };
 
+  const showStrDialog = async (data) => {
+    // 非对象，显示两个tab：markdown 和 txt
+    const text = String(data || '');
+
+    const mdContent = await renderMathMarkdown(normalizeLatex(text));
+
+    let txtHighlighted;
+    try {
+      txtHighlighted = hljs.highlight(text, { language: 'plaintext' }).value;
+    } catch {
+      txtHighlighted = hljs.highlightAuto(text).value;
+    }
+
+    const txtContent = `<pre><code class="hljs plaintext">${txtHighlighted}</code></pre>`;
+
+    dialogHasTabs.value = true;
+    dialogTabsData.value = [
+      {
+        name: 'txt',
+        label: 'Text',
+        content: txtContent,
+        rawText: text,
+      },
+      {
+        name: 'markdown',
+        label: 'Markdown',
+        content: mdContent,
+        rawText: text,
+      },
+    ];
+
+    dialogContent.value = '';
+    dialogRawText.value = '';
+    dialogVisible.value = true;
+    return;
+  };
+
   const showDialog = async (data) => {
     if (!data || typeof data !== 'object') {
-      // 不是对象，直接当作纯文本处理
-      const text = String(data || '');
-      dialogHasTabs.value = false;
-      dialogTabsData.value = [];
-      dialogContent.value = await renderMathMarkdown(normalizeLatex(text));
-      dialogRawText.value = text;
-      dialogVisible.value = true;
+      showStrDialog(data);
       return;
     }
 
@@ -204,18 +241,13 @@ export function useJsonlFileHandler(options) {
       ];
       dialogContent.value = '';
       dialogRawText.value = '';
+      dialogVisible.value = true;
     } else {
-      // 只有一个或都为空，单内容展示，优先展示reasoning，再展示text
-      dialogHasTabs.value = false;
-      const singleContent = reasoning || text || '';
-      dialogContent.value = await renderMathMarkdown(
-        normalizeLatex(singleContent)
-      );
-      dialogRawText.value = singleContent;
-      dialogTabsData.value = [];
+      // 只有一个或都为空，单内容展示，优先展示text，再展示reasoning
+      const singleContent = text || reasoning || '';
+      showStrDialog(singleContent);
+      return;
     }
-
-    dialogVisible.value = true;
   };
 
   const showSolutionDialog = async (row) => {
