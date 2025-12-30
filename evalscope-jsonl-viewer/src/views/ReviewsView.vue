@@ -17,7 +17,11 @@
       @reset-file="resetFile"
     />
 
-    <ResultDistribution :tableData="tableData" />
+    <DistributionCard
+      :tableData="tableData"
+      fieldName="result"
+      fieldLabel="Result"
+    />
 
     <!-- 表格 -->
     <el-table
@@ -96,7 +100,7 @@
       v-if="totalItems > 0"
       v-model:current-page="currentPage"
       v-model:page-size="pageSize"
-      :page-sizes="[10, 20, 50, 100]"
+      :page-sizes="[10, 20, 50, 100, 1000]"
       :total="totalItems"
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 20px; text-align: right"
@@ -124,7 +128,7 @@ import { ref, computed } from 'vue';
 
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
-import ResultDistribution from '@/components/ResultDistribution.vue';
+import DistributionCard from '@/components/DistributionCard.vue';
 import CurlInvokeDialog from '@/components/CurlInvokeDialog.vue';
 
 import {
@@ -140,7 +144,7 @@ export default {
   components: {
     FileToolbar,
     DetailDialog,
-    ResultDistribution,
+    DistributionCard,
     CurlInvokeDialog,
   },
   setup() {

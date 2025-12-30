@@ -4,20 +4,20 @@
 -->
 
 <template>
-  <div v-if="tableData.length" class="result-distribution-card">
-    <div class="title">Result 分布统计</div>
+  <div v-if="tableData.length" class="distribution-card">
+    <div class="title">{{ fieldLabel }} 分布统计</div>
     <div class="distribution-list">
       <div
-        v-for="item in resultDistribution"
-        :key="item.result"
+        v-for="item in itemDistribution"
+        :key="item.key"
         class="distribution-item"
       >
         <span
           class="color-dot"
-          :style="{ backgroundColor: getColor(item.result) }"
+          :style="{ backgroundColor: getColor(item.key) }"
         ></span>
         <span>
-          <span class="result-text">{{ item.result }}</span
+          <span class="text">{{ item.key }}</span
           >:
           <span class="count-text"
             >{{ item.count }} ({{ item.percentage }}%)</span
@@ -37,6 +37,16 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+
+  fieldName: {
+    type: String,
+    required: true,
+  },
+
+  fieldLabel: {
+    type: String,
+    required: true,
+  },
 });
 
 // 颜色池
@@ -53,27 +63,27 @@ const colorPool = [
 
 const colorMap = ref({});
 
-function getColor(result) {
-  if (!colorMap.value[result]) {
+function getColor(key) {
+  if (!colorMap.value[key]) {
     const keys = Object.keys(colorMap.value);
     const nextIndex = keys.length % colorPool.length;
-    colorMap.value[result] = colorPool[nextIndex];
+    colorMap.value[key] = colorPool[nextIndex];
   }
-  return colorMap.value[result];
+  return colorMap.value[key];
 }
 
-const resultDistribution = computed(() => {
+const itemDistribution = computed(() => {
   const total = props.tableData.length;
   if (total === 0) return [];
 
   const countMap = {};
   props.tableData.forEach((item) => {
-    const key = item.result ?? '未知';
+    const key = item[props.fieldName] ?? '未知';
     countMap[key] = (countMap[key] || 0) + 1;
   });
 
-  return Object.entries(countMap).map(([result, count]) => ({
-    result,
+  return Object.entries(countMap).map(([key, count]) => ({
+    key,
     count,
     percentage: ((count / total) * 100).toFixed(1),
   }));
@@ -81,7 +91,7 @@ const resultDistribution = computed(() => {
 </script>
 
 <style scoped>
-.result-distribution-card {
+.distribution-card {
   background-color: #fff;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
@@ -90,7 +100,7 @@ const resultDistribution = computed(() => {
   user-select: none;
 }
 
-.result-distribution-card .title {
+.distribution-card .title {
   font-weight: 600;
   font-size: 16px;
   margin-bottom: 12px;
@@ -126,7 +136,7 @@ const resultDistribution = computed(() => {
   font-size: 13px;
 }
 
-.result-text {
+.text {
   font-weight: 700;
   font-size: 16px;
   color: #303133;

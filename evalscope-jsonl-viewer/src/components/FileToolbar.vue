@@ -1,5 +1,5 @@
 <template>
-  <div style="margin-bottom: 8px; color: #e6a23c; font-weight: 600">
+  <div style="margin-bottom: 0px; color: #e6a23c; font-weight: 600">
     {{ hintText }}
   </div>
 
