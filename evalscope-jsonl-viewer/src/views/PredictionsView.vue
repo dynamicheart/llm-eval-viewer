@@ -15,6 +15,7 @@
       @open-recent-file="openRecentFile"
       @clear-recent-files="clearRecentFiles"
       @reset-file="resetFile"
+      @remove-recent-file="removeRecentFile"
     />
 
     <el-button-group class="toggle-buttons" style="margin: 12px 0">
@@ -300,6 +301,7 @@ export default {
       openRecentFile,
       handleFileSelect,
       resetFile,
+      removeRecentFile,
       currentFileName,
       tableData,
       dialogVisible,
@@ -340,6 +342,7 @@ export default {
       formatTime,
       clearRecentFiles,
       recentFiles,
+      removeRecentFile,
       openRecentFile,
       handleFileSelect,
       resetFile,

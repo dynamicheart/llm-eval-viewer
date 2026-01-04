@@ -15,6 +15,7 @@
       @open-recent-file="openRecentFile"
       @clear-recent-files="clearRecentFiles"
       @reset-file="resetFile"
+      @remove-recent-file="removeRecentFile"
     />
 
     <DistributionCard
@@ -294,6 +295,7 @@ export default {
       openRecentFile,
       handleFileSelect,
       resetFile,
+      removeRecentFile,
       currentFileName,
       tableData,
       dialogVisible,
@@ -334,6 +336,7 @@ export default {
       openRecentFile,
       handleFileSelect,
       resetFile,
+      removeRecentFile,
       currentFileName,
       tableData,
       dialogVisible,

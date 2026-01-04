@@ -176,6 +176,11 @@ export function useJsonlFileHandler(options) {
     localStorage.removeItem(storageKey);
   };
 
+  const removeRecentFile = (file) => {
+    recentFiles.value = recentFiles.value.filter((f) => f.id !== file.id);
+    deleteFile(file.id);
+  };
+
   const showStrDialog = async (data) => {
     // 非对象，显示两个tab：markdown 和 txt
     const text = String(data || '');
@@ -306,6 +311,7 @@ export function useJsonlFileHandler(options) {
     openRecentFile,
     handleFileSelect,
     resetFile,
+    removeRecentFile,
     currentFileName,
     tableData,
     dialogVisible,

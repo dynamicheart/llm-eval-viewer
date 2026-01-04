@@ -25,17 +25,25 @@
               :key="f.id"
               @click="openRecentFile(f)"
             >
-              <div class="recent-item">
-                <div class="name">📄 {{ f.name }}</div>
-                <el-tooltip
-                  :content="new Date(f.lastOpen).toLocaleString()"
-                  placement="right"
-                  effect="dark"
+              <div class="recent-item-row">
+                <div class="recent-item">
+                  <div class="name">📄 {{ f.name }}</div>
+                  <el-tooltip
+                    :content="new Date(f.lastOpen).toLocaleString()"
+                    placement="right"
+                    effect="dark"
+                  >
+                    <div class="meta">
+                      {{ formatSize(f.size) }} · {{ formatTime(f.lastOpen) }}
+                    </div>
+                  </el-tooltip>
+                </div>
+                <el-icon
+                  class="delete-icon"
+                  @click.stop="emits('remove-recent-file', f)"
                 >
-                  <div class="meta">
-                    {{ formatSize(f.size) }} · {{ formatTime(f.lastOpen) }}
-                  </div>
-                </el-tooltip>
+                  <Close />
+                </el-icon>
               </div>
             </el-dropdown-item>
 
@@ -68,7 +76,7 @@
 
 <script setup>
 import { defineProps, defineEmits, computed } from 'vue';
-import { ArrowDown } from '@element-plus/icons-vue';
+import { ArrowDown, Close } from '@element-plus/icons-vue';
 
 const props = defineProps({
   hintText: { type: String, required: true },
@@ -83,6 +91,7 @@ const emits = defineEmits([
   'open-recent-file',
   'clear-recent-files',
   'reset-file',
+  'remove-recent-file',
 ]);
 
 function handleFileSelect(file) {
@@ -136,5 +145,22 @@ const totalCacheSize = computed(() => {
 .recent-item .meta {
   font-size: 11px;
   color: #909399;
+}
+
+.recent-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.delete-icon {
+  font-size: 14px;
+  color: #c0c4cc;
+  cursor: pointer;
+}
+
+.delete-icon:hover {
+  color: #f56c6c;
 }
 </style>
