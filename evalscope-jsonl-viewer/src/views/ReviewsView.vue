@@ -29,6 +29,7 @@
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
+      @filter-change="onTableFilterChange"
       border
     >
       <el-table-column prop="index" label="#" width="80" sortable />
@@ -51,9 +52,8 @@
       <el-table-column
         prop="result"
         label="Result"
+        column-key="result"
         :filters="resultFilters"
-        :filter-method="filterByResult"
-        filter-placement="bottom-start"
       />
       <el-table-column label="Prompt">
         <template #default="{ row }">
@@ -102,7 +102,7 @@
       v-model:current-page="currentPage"
       v-model:page-size="pageSize"
       :page-sizes="[10, 20, 50, 100, 1000]"
-      :total="totalItems"
+      :total="totalVisibleItems"
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 20px; text-align: right"
     />
@@ -140,6 +140,7 @@ import {
   deleteFile,
 } from '@/utils/fileDB';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
+import { useTableModel } from '@/composables/useTableModel';
 
 export default {
   components: {
@@ -277,14 +278,22 @@ export default {
         });
     };
 
-    const resultFilters = computed(() =>
-      [...new Set(tableData.value.map((d) => d.result))].map((v) => ({
-        text: String(v),
-        value: v,
-      }))
-    );
+    const tableModel = useTableModel();
 
-    const filterByResult = (value, row) => row.result === value;
+    const {
+      tableData,
+      currentPage,
+      pageSize,
+      filteredData,
+      paginatedData,
+      totalItems,
+      totalVisibleItems,
+      createColumnFilter,
+      onTableFilterChange,
+      reset,
+    } = tableModel;
+
+    const { filters: resultFilters } = createColumnFilter('result');
 
     const {
       hintText,
@@ -297,7 +306,6 @@ export default {
       resetFile,
       removeRecentFile,
       currentFileName,
-      tableData,
       dialogVisible,
       dialogHasTabs,
       dialogTabsData,
@@ -306,10 +314,6 @@ export default {
       showDialog,
       showSolutionDialog,
       showRawJsonDialog,
-      currentPage,
-      pageSize,
-      totalItems,
-      paginatedData,
       truncateText,
     } = useJsonlFileHandler({
       storageNamespace: 'evalscope_reviews',
@@ -320,6 +324,7 @@ export default {
       clearFiles: clearFiles,
       deleteFile: deleteFile,
       parseJsonl: parseJsonlReviews,
+      tableModel,
       hintText: '⚠️ 请上传 reviews 目录下的 JSONL 文件',
     });
 
@@ -338,7 +343,6 @@ export default {
       resetFile,
       removeRecentFile,
       currentFileName,
-      tableData,
       dialogVisible,
       dialogHasTabs,
       dialogTabsData,
@@ -347,13 +351,18 @@ export default {
       showDialog,
       showSolutionDialog,
       showRawJsonDialog,
-      resultFilters,
-      filterByResult,
       truncateText,
+      tableData,
       currentPage,
       pageSize,
-      totalItems,
+      filteredData,
       paginatedData,
+      totalItems,
+      totalVisibleItems,
+      createColumnFilter,
+      onTableFilterChange,
+      reset,
+      resultFilters,
     };
   },
 };

@@ -18,20 +18,12 @@
       @remove-recent-file="removeRecentFile"
     />
 
-    <el-button-group class="toggle-buttons" style="margin: 12px 0">
-      <el-button
-        :type="showHistogram ? 'primary' : 'default'"
-        @click="showHistogram = !showHistogram"
-      >
-        {{ showHistogram ? '隐藏' : '显示' }} Token 分布统计
-      </el-button>
-      <el-button
-        :type="showDistribution ? 'primary' : 'default'"
-        @click="showDistribution = !showDistribution"
-      >
-        {{ showDistribution ? '隐藏' : '显示' }} Stop Reason 分布统计
-      </el-button>
-    </el-button-group>
+    <div>
+      <el-checkbox v-model="showHistogram"> Token 分布统计 </el-checkbox>
+      <el-checkbox v-model="showDistribution">
+        Stop Reason 分布统计
+      </el-checkbox>
+    </div>
 
     <HistogramCard
       v-if="showHistogram"
@@ -63,6 +55,7 @@
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
+      @filter-change="onTableFilterChange"
       border
     >
       <el-table-column prop="index" label="#" width="100" sortable />
@@ -89,11 +82,10 @@
         </template>
       </el-table-column>
       <el-table-column
+        column-key="stop_reason"
         prop="stop_reason"
         label="Stop Reason"
         :filters="stopReasonFilters"
-        :filter-method="filterByStopReason"
-        filter-placement="bottom-start"
       />
       <el-table-column label="Completion">
         <template #default="{ row }">
@@ -116,7 +108,7 @@
       v-model:current-page="currentPage"
       v-model:page-size="pageSize"
       :page-sizes="[10, 20, 50, 100, 1000]"
-      :total="totalItems"
+      :total="totalVisibleItems"
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 20px; text-align: right"
     />
@@ -134,7 +126,7 @@
 </template>
 
 <script>
-import { computed, ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import HistogramCard from '@/components/HistogramCard.vue';
@@ -148,6 +140,7 @@ import {
   deleteFile,
 } from '@/utils/fileDB';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
+import { useTableModel } from '@/composables/useTableModel';
 
 export default {
   components: {
@@ -160,14 +153,6 @@ export default {
   setup() {
     const showHistogram = ref(true);
     const showDistribution = ref(false);
-
-    function toggleHistogram() {
-      showHistogram.value = !showHistogram.value;
-    }
-
-    function toggleDistribution() {
-      showDistribution.value = !showDistribution.value;
-    }
 
     onMounted(() => {
       const histCache = localStorage.getItem('showHistogram');
@@ -183,15 +168,6 @@ export default {
     watch(showDistribution, (val) => {
       localStorage.setItem('showDistribution', val);
     });
-
-    const stopReasonFilters = computed(() =>
-      [...new Set(tableData.value.map((d) => d.stop_reason))].map((v) => ({
-        text: String(v),
-        value: v,
-      }))
-    );
-
-    const filterByStopReason = (value, row) => row.stop_reason === value;
 
     const getSampleId = (json, idx) => {
       const meta = json?.metadata || {};
@@ -292,6 +268,23 @@ export default {
         });
     };
 
+    const tableModel = useTableModel();
+
+    const {
+      tableData,
+      currentPage,
+      pageSize,
+      filteredData,
+      paginatedData,
+      totalItems,
+      totalVisibleItems,
+      createColumnFilter,
+      onTableFilterChange,
+      reset,
+    } = tableModel;
+
+    const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
+
     const {
       hintText,
       recentFiles,
@@ -303,7 +296,6 @@ export default {
       resetFile,
       removeRecentFile,
       currentFileName,
-      tableData,
       dialogVisible,
       dialogHasTabs,
       dialogTabsData,
@@ -312,10 +304,6 @@ export default {
       showDialog,
       _,
       showRawJsonDialog,
-      currentPage,
-      pageSize,
-      totalItems,
-      paginatedData,
       truncateText,
     } = useJsonlFileHandler({
       storageNamespace: 'evalscope_predictions',
@@ -326,16 +314,13 @@ export default {
       clearFiles: clearFiles,
       deleteFile: deleteFile,
       parseJsonl: parseJsonlPredictions,
+      tableModel: tableModel,
       hintText: '⚠️ 请上传 predictions 目录下的 JSONL 文件',
     });
 
     return {
       showHistogram,
       showDistribution,
-      toggleHistogram,
-      toggleDistribution,
-      stopReasonFilters,
-      filterByStopReason,
       formatContentLength,
       hintText,
       formatSize,
@@ -347,7 +332,6 @@ export default {
       handleFileSelect,
       resetFile,
       currentFileName,
-      tableData,
       dialogVisible,
       dialogHasTabs,
       dialogTabsData,
@@ -356,10 +340,17 @@ export default {
       showDialog,
       showRawJsonDialog,
       truncateText,
+      tableData,
       currentPage,
       pageSize,
-      totalItems,
+      filteredData,
       paginatedData,
+      totalItems,
+      totalVisibleItems,
+      createColumnFilter,
+      onTableFilterChange,
+      reset,
+      stopReasonFilters,
     };
   },
 };

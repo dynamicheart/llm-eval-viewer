@@ -29,26 +29,37 @@
         </el-menu-item>
       </el-menu>
 
-      <a
-        class="github-link"
-        href="https://github.com/dynamicheart/llm-eval-viewer"
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label="GitHub Repository"
-      >
-        <svg
-          height="24"
-          width="24"
-          viewBox="0 0 16 16"
-          fill="#409eff"
-          xmlns="http://www.w3.org/2000/svg"
+      <div class="nav-right">
+        <a
+          class="example-link"
+          href="https://github.com/dynamicheart/llm-eval-viewer/tree/main/docs/examples"
+          target="_blank"
+          rel="noopener noreferrer"
         >
-          <path
-            fill-rule="evenodd"
-            d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2 .37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 012-.27c.68.01 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"
-          />
-        </svg>
-      </a>
+          示例文件
+        </a>
+
+        <a
+          class="github-link"
+          href="https://github.com/dynamicheart/llm-eval-viewer"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="GitHub Repository"
+        >
+          <svg
+            height="24"
+            width="24"
+            viewBox="0 0 16 16"
+            fill="#409eff"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2 .37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 012-.27c.68.01 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+        </a>
+      </div>
     </div>
 
     <header class="page-header">
@@ -142,5 +153,22 @@ export default {
   color: #171819;
   user-select: none;
   margin: 0;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.example-link {
+  font-size: 14px;
+  color: #409eff;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.example-link:hover {
+  text-decoration: underline;
 }
 </style>

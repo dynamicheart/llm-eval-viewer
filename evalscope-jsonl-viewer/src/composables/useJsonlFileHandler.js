@@ -28,35 +28,29 @@ export function useJsonlFileHandler(options) {
     clearFiles,
     deleteFile,
     parseJsonl,
+    tableModel,
     hintText = '',
   } = options;
 
-  const tableData = ref([]);
+  const { tableData } = tableModel;
+
+  const currentFileName = ref('');
+
   const dialogVisible = ref(false);
   const dialogHasTabs = ref(false);
   const dialogTabsData = ref([]);
   const dialogContent = ref('');
   const dialogRawText = ref('');
 
-  const currentPage = ref(1);
-  const pageSize = ref(10);
-  const currentFileName = ref('');
-  const totalItems = computed(() => tableData.value.length);
   const MAX_FILES = 5;
-
   const recentFiles = ref([]);
-
-  const paginatedData = computed(() => {
-    const start = (currentPage.value - 1) * pageSize.value;
-    const end = start + pageSize.value;
-    return tableData.value.slice(start, end);
-  });
 
   const formatSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
   };
+
   const formatTime = (ts) => {
     const diff = Date.now() - ts;
     const minute = 60 * 1000;
@@ -140,10 +134,6 @@ export function useJsonlFileHandler(options) {
     item.lastOpen = Date.now();
     localStorage.setItem(storageKey, item.id);
   };
-
-  watch([pageSize], () => {
-    currentPage.value = 1;
-  });
 
   const loadJSONLFile = async (file) => {
     const text = await file.text();
@@ -313,7 +303,6 @@ export function useJsonlFileHandler(options) {
     resetFile,
     removeRecentFile,
     currentFileName,
-    tableData,
     dialogVisible,
     dialogHasTabs,
     dialogTabsData,
@@ -322,10 +311,6 @@ export function useJsonlFileHandler(options) {
     showDialog,
     showSolutionDialog,
     showRawJsonDialog,
-    currentPage,
-    pageSize,
-    totalItems,
-    paginatedData,
     truncateText,
   };
 }
