@@ -32,7 +32,7 @@
       @filter-change="onTableFilterChange"
       border
     >
-      <el-table-column prop="index" label="Index" width="80" sortable />
+      <el-table-column prop="index" label="Index" width="100" sortable />
       <el-table-column prop="id" label="ID" width="200" />
       <el-table-column prop="prompt" label="Prompt" width="500">
         <template #default="{ row }">
