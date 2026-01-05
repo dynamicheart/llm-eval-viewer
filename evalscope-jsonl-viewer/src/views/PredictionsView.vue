@@ -56,6 +56,7 @@
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
       @filter-change="onTableFilterChange"
+      @sort-change="onTableSortChange"
       border
     >
       <el-table-column prop="index" label="Index" width="100" sortable />
@@ -280,6 +281,7 @@ export default {
       totalVisibleItems,
       createColumnFilter,
       onTableFilterChange,
+      onTableSortChange,
       reset,
     } = tableModel;
 
@@ -349,6 +351,7 @@ export default {
       totalVisibleItems,
       createColumnFilter,
       onTableFilterChange,
+      onTableSortChange,
       reset,
       stopReasonFilters,
     };

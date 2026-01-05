@@ -53,9 +53,42 @@ export function useTableModel(options = {}) {
     );
   });
 
+  const sortProp = ref('');
+  const sortOrder = ref(''); // 'ascending' | 'descending' | ''
+
+  function onTableSortChange({ prop, order }) {
+    sortProp.value = prop || '';
+    sortOrder.value = order || '';
+    currentPage.value = 1;
+  }
+
+  const sortedData = computed(() => {
+    if (!sortProp.value || !sortOrder.value) {
+      return filteredData.value;
+    }
+
+    const data = [...filteredData.value];
+    const factor = sortOrder.value === 'ascending' ? 1 : -1;
+
+    data.sort((a, b) => {
+      const va = a[sortProp.value];
+      const vb = b[sortProp.value];
+
+      if (va == null && vb == null) return 0;
+      if (va == null) return -1 * factor;
+      if (vb == null) return 1 * factor;
+
+      if (va > vb) return factor;
+      if (va < vb) return -factor;
+      return 0;
+    });
+
+    return data;
+  });
+
   const paginatedData = computed(() => {
     const start = (currentPage.value - 1) * pageSize.value;
-    return filteredData.value.slice(start, start + pageSize.value);
+    return sortedData.value.slice(start, start + pageSize.value);
   });
 
   const totalItems = computed(() => tableData.value.length);
@@ -63,6 +96,8 @@ export function useTableModel(options = {}) {
 
   function reset() {
     activeFilters.value = {};
+    sortProp.value = '';
+    sortOrder.value = '';
     currentPage.value = 1;
   }
 
@@ -76,6 +111,7 @@ export function useTableModel(options = {}) {
     totalVisibleItems,
     createColumnFilter,
     onTableFilterChange,
+    onTableSortChange,
     reset,
   };
 }
