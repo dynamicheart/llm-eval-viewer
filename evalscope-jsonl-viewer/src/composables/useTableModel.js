@@ -8,8 +8,15 @@ import { ref, computed, watch } from 'vue';
 export function useTableModel(options = {}) {
   const { pageSize: defaultPageSize = 10 } = options;
 
+  // ===== 基础状态 =====
   const tableData = ref([]);
-  const activeFilters = ref({});
+
+  const activeFilters = ref({}); // el-table filter
+  const keywordFilters = ref({}); // header search
+
+  const sortProp = ref('');
+  const sortOrder = ref(''); // 'ascending' | 'descending' | ''
+
   const currentPage = ref(1);
   const pageSize = ref(defaultPageSize);
 
@@ -17,6 +24,7 @@ export function useTableModel(options = {}) {
     currentPage.value = 1;
   });
 
+  // ===== filter =====
   function createColumnFilter(key, formatter) {
     const filters = computed(() =>
       [...new Set(tableData.value.map((d) => d[key]))]
@@ -44,23 +52,42 @@ export function useTableModel(options = {}) {
     currentPage.value = 1;
   }
 
-  const filteredData = computed(() => {
-    return tableData.value.filter((row) =>
-      Object.entries(activeFilters.value).every(
-        ([key, values]) =>
-          !values || values.length === 0 || values.includes(row[key])
-      )
-    );
-  });
+  function setKeywordFilter(key, keyword) {
+    if (!keyword) {
+      delete keywordFilters.value[key];
+    } else {
+      keywordFilters.value[key] = keyword;
+    }
+    currentPage.value = 1;
+  }
 
-  const sortProp = ref('');
-  const sortOrder = ref(''); // 'ascending' | 'descending' | ''
-
+  // ===== sort =====
   function onTableSortChange({ prop, order }) {
     sortProp.value = prop || '';
     sortOrder.value = order || '';
     currentPage.value = 1;
   }
+
+  // ===== 数据流水线 =====
+  const filteredData = computed(() => {
+    return tableData.value.filter((row) => {
+      // enum filter
+      const enumOk = Object.entries(activeFilters.value).every(
+        ([key, values]) => values.includes(row[key])
+      );
+      if (!enumOk) return false;
+
+      // keyword filter
+      const keywordOk = Object.entries(keywordFilters.value).every(
+        ([key, keyword]) =>
+          String(row[key] ?? '')
+            .toLowerCase()
+            .includes(keyword.toLowerCase())
+      );
+
+      return keywordOk;
+    });
+  });
 
   const sortedData = computed(() => {
     if (!sortProp.value || !sortOrder.value) {
@@ -91,27 +118,40 @@ export function useTableModel(options = {}) {
     return sortedData.value.slice(start, start + pageSize.value);
   });
 
+  // ===== 统计 =====
   const totalItems = computed(() => tableData.value.length);
   const totalVisibleItems = computed(() => filteredData.value.length);
 
+  // ===== reset =====
   function reset() {
     activeFilters.value = {};
+    keywordFilters.value = {};
     sortProp.value = '';
     sortOrder.value = '';
     currentPage.value = 1;
   }
 
   return {
+    // data
     tableData,
-    currentPage,
-    pageSize,
     filteredData,
     paginatedData,
+
+    // page
+    currentPage,
+    pageSize,
+
+    // stats
     totalItems,
     totalVisibleItems,
+
+    // filter / sort
     createColumnFilter,
     onTableFilterChange,
+    setKeywordFilter,
     onTableSortChange,
+
+    // control
     reset,
   };
 }

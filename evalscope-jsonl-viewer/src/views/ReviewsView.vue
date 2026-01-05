@@ -34,7 +34,16 @@
       border
     >
       <el-table-column prop="index" label="Index" width="100" sortable />
-      <el-table-column prop="id" label="ID" width="200" />
+      <el-table-column prop="id" label="ID" width="200">
+        <template #header>
+          <TableHeaderSearch
+            label="ID"
+            v-model="idKeyword"
+            placeholder="Search ID"
+            @change="(v) => setKeywordFilter('id', v)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column prop="prompt" label="Prompt" width="500">
         <template #default="{ row }">
           <span>{{ truncateText(row.prompt, 100) }}</span>
@@ -55,7 +64,19 @@
         label="Result"
         column-key="result"
         :filters="resultFilters"
-      />
+      >
+        <template #default="{ row }">
+          <span
+            v-if="meta = formatResultMeta(row.result)"
+            :style="{
+              color: meta.status === 'error' ? '#f56c6c' : undefined,
+              fontWeight: meta.status === 'error' ? 600 : undefined,
+            }"
+          >
+            {{ meta.text }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="Prompt">
         <template #default="{ row }">
           <el-button type="text" @click="showDialog(row.prompt || '')"
@@ -132,6 +153,7 @@ import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import CurlInvokeDialog from '@/components/CurlInvokeDialog.vue';
+import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 
 import {
   saveFile,
@@ -149,10 +171,13 @@ export default {
     DetailDialog,
     DistributionCard,
     CurlInvokeDialog,
+    TableHeaderSearch,
   },
   setup() {
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
+
+    const idKeyword = ref('');
 
     function openCurlDialog(row) {
       currentRow.value = row;
@@ -283,14 +308,15 @@ export default {
 
     const {
       tableData,
-      currentPage,
-      pageSize,
       filteredData,
       paginatedData,
+      currentPage,
+      pageSize,
       totalItems,
       totalVisibleItems,
       createColumnFilter,
       onTableFilterChange,
+      setKeywordFilter,
       onTableSortChange,
       reset,
     } = tableModel;
@@ -317,6 +343,7 @@ export default {
       showSolutionDialog,
       showRawJsonDialog,
       truncateText,
+      formatResultMeta,
     } = useJsonlFileHandler({
       storageNamespace: 'evalscope_reviews',
       storageKey: 'evalscope_reviews_cache',
@@ -333,6 +360,7 @@ export default {
     return {
       curlDialogVisible,
       currentRow,
+      idKeyword,
       openCurlDialog,
       resultDistribution,
       hintText,
@@ -354,6 +382,7 @@ export default {
       showSolutionDialog,
       showRawJsonDialog,
       truncateText,
+      formatResultMeta,
       tableData,
       currentPage,
       pageSize,
@@ -366,6 +395,7 @@ export default {
       onTableSortChange,
       reset,
       resultFilters,
+      setKeywordFilter,
     };
   },
 };

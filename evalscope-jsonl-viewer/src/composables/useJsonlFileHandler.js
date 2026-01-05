@@ -292,6 +292,17 @@ export function useJsonlFileHandler(options) {
   const truncateText = (text, length) =>
     text.length > length ? `${text.slice(0, length)}...` : text;
 
+  const formatResultMeta = (value) => {
+    if (value === 0 || value === false) {
+      return { text: String(value), status: 'error' };
+    }
+
+    return {
+      text: String(value),
+      status: 'default',
+    };
+  };
+
   return {
     hintText,
     recentFiles,
@@ -312,5 +323,6 @@ export function useJsonlFileHandler(options) {
     showSolutionDialog,
     showRawJsonDialog,
     truncateText,
+    formatResultMeta,
   };
 }

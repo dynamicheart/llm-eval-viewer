@@ -60,7 +60,16 @@
       border
     >
       <el-table-column prop="index" label="Index" width="100" sortable />
-      <el-table-column prop="id" label="ID" width="200" />
+      <el-table-column prop="id" label="ID" width="200">
+        <template #header>
+          <TableHeaderSearch
+            label="ID"
+            v-model="idKeyword"
+            placeholder="Search ID"
+            @change="(v) => setKeywordFilter('id', v)"
+          />
+        </template>
+      </el-table-column>
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
           <span>{{ truncateText(row.content.text, 100) }}</span>
@@ -132,6 +141,7 @@ import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import HistogramCard from '@/components/HistogramCard.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
+import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 
 import {
   saveFile,
@@ -149,11 +159,13 @@ export default {
     DetailDialog,
     HistogramCard,
     DistributionCard,
+    TableHeaderSearch,
   },
 
   setup() {
     const showHistogram = ref(true);
     const showDistribution = ref(false);
+    const idKeyword = ref('');
 
     onMounted(() => {
       const histCache = localStorage.getItem('showHistogram');
@@ -273,14 +285,15 @@ export default {
 
     const {
       tableData,
-      currentPage,
-      pageSize,
       filteredData,
       paginatedData,
+      currentPage,
+      pageSize,
       totalItems,
       totalVisibleItems,
       createColumnFilter,
       onTableFilterChange,
+      setKeywordFilter,
       onTableSortChange,
       reset,
     } = tableModel;
@@ -321,6 +334,7 @@ export default {
     });
 
     return {
+      idKeyword,
       showHistogram,
       showDistribution,
       formatContentLength,
@@ -354,6 +368,7 @@ export default {
       onTableSortChange,
       reset,
       stopReasonFilters,
+      setKeywordFilter,
     };
   },
 };
