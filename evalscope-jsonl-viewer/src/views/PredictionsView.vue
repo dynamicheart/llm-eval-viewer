@@ -58,7 +58,7 @@
       @filter-change="onTableFilterChange"
       border
     >
-      <el-table-column prop="index" label="#" width="100" sortable />
+      <el-table-column prop="index" label="Index" width="100" sortable />
       <el-table-column prop="id" label="ID" width="200" />
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
