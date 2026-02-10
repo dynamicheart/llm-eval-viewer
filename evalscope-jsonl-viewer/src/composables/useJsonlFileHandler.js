@@ -214,61 +214,146 @@ export function useJsonlFileHandler(options) {
       return;
     }
 
-    const reasoning = data.reasoning || null;
-    const text = data.text || null;
+    const reasoning = data.reasoning || '';
+    const text = data.text || '';
 
+    // 同时存在 reasoning + text → 两层结构
     if (reasoning && text) {
-      // 两个tab都存在，显示tabs
+      // ===== text =====
+      const textMdContent = await renderMathMarkdown(normalizeLatex(text));
+
+      let textTxtHighlighted;
+      try {
+        textTxtHighlighted = hljs.highlight(text, {
+          language: 'plaintext',
+        }).value;
+      } catch {
+        textTxtHighlighted = hljs.highlightAuto(text).value;
+      }
+
+      const textTxtContent = `<pre><code class="hljs plaintext">${textTxtHighlighted}</code></pre>`;
+
+      // ===== reasoning =====
+      const reasoningMdContent = await renderMathMarkdown(
+        normalizeLatex(reasoning)
+      );
+
+      let reasoningTxtHighlighted;
+      try {
+        reasoningTxtHighlighted = hljs.highlight(reasoning, {
+          language: 'plaintext',
+        }).value;
+      } catch {
+        reasoningTxtHighlighted = hljs.highlightAuto(reasoning).value;
+      }
+
+      const reasoningTxtContent = `<pre><code class="hljs plaintext">${reasoningTxtHighlighted}</code></pre>`;
+
       dialogHasTabs.value = true;
+
       dialogTabsData.value = [
-        {
-          name: 'reasoning',
-          label: 'Reasoning',
-          content: await renderMathMarkdown(normalizeLatex(reasoning)),
-          rawText: reasoning,
-        },
         {
           name: 'text',
           label: 'Text',
-          content: await renderMathMarkdown(normalizeLatex(text)),
-          rawText: text,
+          type: 'content',
+          views: [
+            {
+              name: 'txt',
+              label: 'Text',
+              content: textTxtContent,
+              rawText: text,
+            },
+            {
+              name: 'markdown',
+              label: 'Markdown',
+              content: textMdContent,
+              rawText: text,
+            },
+          ],
+        },
+        {
+          name: 'reasoning',
+          label: 'Reasoning',
+          type: 'reasoning',
+          views: [
+            {
+              name: 'txt',
+              label: 'Text',
+              content: reasoningTxtContent,
+              rawText: reasoning,
+            },
+            {
+              name: 'markdown',
+              label: 'Markdown',
+              content: reasoningMdContent,
+              rawText: reasoning,
+            },
+          ],
         },
       ];
-      dialogContent.value = '';
-      dialogRawText.value = '';
+
       dialogVisible.value = true;
-    } else {
-      // 只有一个或都为空，单内容展示，优先展示text，再展示reasoning
-      const singleContent = text || reasoning || '';
-      showStrDialog(singleContent);
       return;
+    }
+    // 只有 text → 退化为原 showStrDialog（无第一层）
+    if (text) {
+      await showStrDialog(text);
+      return;
+    }
+
+    // 只有 reasoning
+    if (reasoning) {
+      dialogHasTabs.value = false;
+      dialogTabsData.value = [];
+      dialogContent.value = await renderMathMarkdown(normalizeLatex(reasoning));
+      dialogRawText.value = reasoning;
+      dialogVisible.value = true;
     }
   };
 
   const showSolutionDialog = async (row) => {
-    const s = row.solution;
+    const s = row?.solution;
 
-    if (!s) {
+    // 1️. 没有 solution
+    if (!s || !s.content) {
+      dialogHasTabs.value = false;
+      dialogTabsData.value = [];
       dialogRawText.value = '未提供 solution';
       dialogContent.value = '<p>未提供 solution</p>';
-    } else {
-      dialogRawText.value = s.content || '';
-
-      if (s.render === 'markdown') {
-        const text = normalizeLatex(s.content);
-        dialogContent.value = await renderMathMarkdown(text);
-      } else if (s.render === 'json') {
-        const highlighted = hljs.highlight(s.content, {
-          language: 'json',
-        }).value;
-        dialogContent.value = `<pre><code class="hljs json">${highlighted}</code></pre>`;
-      } else {
-        dialogContent.value = `<pre>${s.content}</pre>`;
-      }
+      dialogVisible.value = true;
+      return;
     }
 
+    const content = String(s.content);
+
+    // 2. markdown：直接复用 showStrDialog（自动 txt + markdown 双 tab）
+    if (s.render === 'markdown') {
+      await showStrDialog(content);
+      return;
+    }
+
+    // 3. json
+    if (s.render === 'json') {
+      let highlighted;
+      try {
+        highlighted = hljs.highlight(content, { language: 'json' }).value;
+      } catch {
+        highlighted = hljs.highlightAuto(content).value;
+      }
+
+      dialogHasTabs.value = false;
+      dialogTabsData.value = [];
+      dialogRawText.value = content;
+      dialogContent.value = `<pre><code class="hljs json">${highlighted}</code></pre>`;
+      dialogVisible.value = true;
+      return;
+    }
+
+    // 4. 兜底：普通文本
     dialogHasTabs.value = false;
     dialogTabsData.value = [];
+    dialogRawText.value = content;
+    dialogContent.value = `<pre>${content}</pre>`;
     dialogVisible.value = true;
   };
 

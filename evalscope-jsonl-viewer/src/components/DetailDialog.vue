@@ -38,18 +38,41 @@
         :label="tab.label"
         :name="tab.name"
       >
-        <div
-          v-html="tab.content"
-          class="markdown-body"
-          style="max-height: 60vh; overflow: auto"
-        />
+        <!-- 第一层：Text（有 views） -->
+        <template v-if="tab.views">
+          <el-radio-group v-model="contentView" size="small">
+            <el-radio-button
+              v-for="v in tab.views"
+              :key="v.name"
+              :label="v.name"
+            >
+              {{ v.label }}
+            </el-radio-button>
+          </el-radio-group>
+
+          <div
+            v-if="currentView && currentView.content"
+            v-html="currentView.content"
+            class="markdown-body"
+            style="max-height: 60vh; overflow: auto"
+          />
+        </template>
+
+        <!-- Reasoning -->
+        <template v-else>
+          <div
+            v-html="tab.content"
+            class="markdown-body"
+            style="max-height: 60vh; overflow: auto; opacity: 0.85"
+          />
+        </template>
       </el-tab-pane>
     </el-tabs>
   </el-dialog>
 </template>
 
 <script>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { ElMessage } from 'element-plus';
 
 export default {
@@ -78,29 +101,61 @@ export default {
   },
   emits: ['update:dialogVisible'],
   setup(props, { emit }) {
-    const dialogTab = ref(props.tabs.length > 0 ? props.tabs[0].name : '');
+    const dialogTab = ref('');
+    const contentView = ref('');
+    const syncContentView = () => {
+      const tab = props.tabs.find((t) => t.name === dialogTab.value);
+      if (tab?.views?.length) {
+        contentView.value ||= tab.views[0].name;
+      } else {
+        contentView.value = '';
+      }
+    };
+
+    const currentView = computed(() => {
+      const tab = props.tabs.find((t) => t.name === dialogTab.value);
+      if (!tab?.views?.length) return null;
+
+      return (
+        tab.views.find((v) => v.name === contentView.value) || tab.views[0]
+      );
+    });
 
     watch(
       () => props.tabs,
-      (newTabs) => {
-        dialogTab.value = newTabs.length > 0 ? newTabs[0].name : '';
+      (tabs) => {
+        dialogTab.value = tabs?.[0]?.name || '';
+        syncContentView();
       },
       { immediate: true }
     );
 
+    watch(
+      () => dialogTab.value,
+      () => {
+        syncContentView();
+      }
+    );
+
+    const getCurrentRawText = () => {
+      if (!props.hasTabs) {
+        return props.rawText || '';
+      }
+
+      const tab = props.tabs.find((t) => t.name === dialogTab.value);
+      if (!tab) return '';
+
+      if (tab.views?.length) {
+        const view = tab.views.find((v) => v.name === contentView.value);
+        return view?.rawText || '';
+      }
+
+      return tab.rawText || '';
+    };
+
     const copyDialogContent = async () => {
       try {
-        let textToCopy = '';
-
-        if (props.hasTabs) {
-          const currentTab = props.tabs.find(
-            (tab) => tab.name === dialogTab.value
-          );
-          // 假设 tabs 里面每个对象有 rawText 字段
-          textToCopy = currentTab ? currentTab.rawText || '' : '';
-        } else {
-          textToCopy = props.rawText || '';
-        }
+        const textToCopy = getCurrentRawText();
 
         if (!textToCopy) {
           ElMessage.warning('没有内容可复制');
@@ -117,6 +172,8 @@ export default {
 
     return {
       dialogTab,
+      contentView,
+      currentView,
       copyDialogContent,
     };
   },
