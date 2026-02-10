@@ -4,7 +4,7 @@
 -->
 
 <template>
-  <div>
+  <div class="app-root">
     <div class="nav-wrapper">
       <el-menu
         mode="horizontal"
@@ -80,6 +80,9 @@
     </header>
 
     <router-view />
+    <footer class="page-footer">
+      <span> Build: {{ buildTime }} </span>
+    </footer>
   </div>
 </template>
 
@@ -95,6 +98,13 @@ export default {
   methods: {
     handleSelect(index) {
       this.$router.push(index);
+    },
+  },
+  computed: {
+    buildTime() {
+      return typeof __BUILD_TIME__ !== 'undefined'
+        ? new Date(__BUILD_TIME__).toLocaleString()
+        : 'unknown';
     },
   },
 };
@@ -170,5 +180,20 @@ export default {
 
 .example-link:hover {
   text-decoration: underline;
+}
+
+.page-footer {
+  margin-top: auto;
+  padding: 12px 0;
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
+  user-select: none;
+}
+
+.app-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 </style>
