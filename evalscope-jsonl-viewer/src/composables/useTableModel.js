@@ -39,16 +39,13 @@ export function useTableModel(options = {}) {
   }
 
   function onTableFilterChange(filters) {
-    console.log('[filters]', filters);
-
-    activeFilters.value = {};
-
     Object.entries(filters).forEach(([key, values]) => {
       if (values && values.length > 0) {
         activeFilters.value[key] = values;
+      } else {
+        delete activeFilters.value[key];
       }
     });
-
     currentPage.value = 1;
   }
 

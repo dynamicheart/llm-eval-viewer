@@ -6,6 +6,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import ReviewsView from '@/views/ReviewsView.vue';
 import PredictionsView from '@/views/PredictionsView.vue';
+import MevalView from '@/views/MevalView.vue';
 
 const routes = [
   {
@@ -21,6 +22,11 @@ const routes = [
     path: '/predictions',
     name: 'Predictions',
     component: PredictionsView,
+  },
+  {
+    path: '/meval',
+    name: 'Meval',
+    component: MevalView,
   },
 ];
 

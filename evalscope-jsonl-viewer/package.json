@@ -18,6 +18,7 @@
     "markdown-it": "^14.1.0",
     "markdown-it-katex": "^2.0.3",
     "openai": "^6.15.0",
+    "papaparse": "^5.5.3",
     "rehype-katex": "^7.0.1",
     "rehype-stringify": "^10.0.1",
     "remark-gfm": "^4.0.1",

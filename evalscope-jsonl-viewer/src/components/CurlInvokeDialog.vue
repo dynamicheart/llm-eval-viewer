@@ -108,6 +108,15 @@
               size="small"
             />
           </div>
+
+          <div class="tri-item">
+            <span class="tri-label">reasoning_effort</span>
+            <el-segmented
+              v-model="form.chat_template_kwargs.reasoning_effort"
+              :options="reasoningEffortOptions"
+              size="small"
+            />
+          </div>
         </div>
       </el-form-item>
 
@@ -182,6 +191,7 @@ const form = reactive({
   chat_template_kwargs: {
     enable_thinking: cache.chat_template_kwargs?.enable_thinking ?? 'none', // 'none' | 'true' | 'false'
     thinking: cache.chat_template_kwargs?.thinking ?? 'none',
+    reasoning_effort: cache.chat_template_kwargs?.reasoning_effort ?? 'none', // 'none' | 'high' | 'low' | 'no_think'
   },
 
   repetition_penalty_enabled: cache.repetition_penalty_enabled ?? false,
@@ -192,6 +202,13 @@ const triOptions = [
   { label: 'none', value: 'none' },
   { label: 'false', value: 'false' },
   { label: 'true', value: 'true' },
+];
+
+const reasoningEffortOptions = [
+  { label: 'none', value: 'none' },
+  { label: 'high', value: 'high' },
+  { label: 'low', value: 'low' },
+  { label: 'no_think', value: 'no_think' },
 ];
 
 watch(
@@ -226,7 +243,12 @@ function buildPayload() {
   if (form.chat_template_kwargs_enabled) {
     const kwargs: any = {};
     for (const [k, v] of Object.entries(form.chat_template_kwargs)) {
-      if (v !== 'none') kwargs[k] = v === 'true';
+      if (v === 'none') continue;
+      if (k === 'reasoning_effort') {
+        kwargs[k] = v; // string value: 'high' | 'low' | 'no_think'
+      } else {
+        kwargs[k] = v === 'true'; // boolean value
+      }
     }
     if (Object.keys(kwargs).length) {
       optionalPayloadFields.extra_body = { chat_template_kwargs: kwargs };

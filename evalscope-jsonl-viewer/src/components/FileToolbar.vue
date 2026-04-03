@@ -8,9 +8,9 @@
       <el-upload
         :before-upload="handleFileSelect"
         :show-file-list="false"
-        accept=".jsonl"
+        :accept="accept"
       >
-        <el-button type="primary">选择 JSONL 文件</el-button>
+        <el-button type="primary">{{ buttonText }}</el-button>
       </el-upload>
 
       <el-dropdown v-if="recentFiles.length" popper-class="recent-dropdown">
@@ -84,6 +84,8 @@ const props = defineProps({
   currentFileName: { type: String, default: '' },
   formatSize: { type: Function, required: true },
   formatTime: { type: Function, required: true },
+  accept: { type: String, default: '.jsonl' },
+  buttonText: { type: String, default: '选择 JSONL 文件' },
 });
 
 const emits = defineEmits([

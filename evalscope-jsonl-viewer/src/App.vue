@@ -19,13 +19,19 @@
           <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
             <Document />
           </el-icon>
-          Reviews
+          Evalscope Review
         </el-menu-item>
         <el-menu-item index="/predictions" class="has-icon">
           <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
             <DataAnalysis />
           </el-icon>
-          Predictions
+          Evalscope Pred
+        </el-menu-item>
+        <el-menu-item index="/meval" class="has-icon">
+          <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
+            <DataAnalysis />
+          </el-icon>
+          MEval
         </el-menu-item>
       </el-menu>
 
@@ -70,11 +76,13 @@
       />
       <h1 class="page-title">
         {{
-          $route.path === '/reviews'
-            ? 'Reviews JSONL 查看器'
-            : $route.path === '/predictions'
-              ? 'Predictions JSONL 查看器'
-              : 'Evalscope JSONL 查看器'
+          $route.path === '/meval'
+            ? 'MEval - 样本查看器'
+            : $route.path === '/reviews'
+              ? 'Evalscope Review JSONL 查看器'
+              : $route.path === '/predictions'
+                ? 'Evalscope Pred JSONL 查看器'
+                : 'Evalscope JSONL 查看器'
         }}
       </h1>
     </header>
