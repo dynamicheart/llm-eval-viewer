@@ -8,6 +8,7 @@
       :format-time="formatTime"
       accept=".csv"
       button-text="选择 CSV 文件"
+      :enable-dir-picker="false"
       @handle-file-select="handleFileSelect"
       @open-recent-file="openRecentFile"
       @clear-recent-files="clearRecentFiles"
@@ -22,6 +23,7 @@
     <div>
       <el-checkbox v-model="showHistogram">Token 分布统计</el-checkbox>
       <el-checkbox v-model="showDistribution">标注结果分布</el-checkbox>
+      <el-checkbox v-model="showFinishReasonDist">Finish Reason 分布</el-checkbox>
       <el-checkbox v-model="showDatasetStats">数据集统计</el-checkbox>
     </div>
 
@@ -35,12 +37,23 @@
       ]"
     />
 
-    <DistributionCard
-      v-if="showDistribution"
-      :tableData="tableData"
-      fieldName="result"
-      fieldLabel="标注结果"
-    />
+    <div class="distribution-row">
+      <DistributionCard
+        v-if="showDistribution"
+        :tableData="tableData"
+        fieldName="result"
+        fieldLabel="标注结果"
+        @filter="quickFilterResult"
+      />
+
+      <DistributionCard
+        v-if="showFinishReasonDist"
+        :tableData="tableData"
+        fieldName="finishReason"
+        fieldLabel="Finish Reason"
+        @filter="quickFilterFinishReason"
+      />
+    </div>
 
     <DatasetStatsCard v-if="showDatasetStats" :tableData="tableData" />
 
@@ -106,6 +119,7 @@
         label="数据集"
         column-key="dataset"
         :filters="datasetFilters"
+        :filtered-value="activeFilters['dataset'] || []"
         width="140"
       />
       <el-table-column
@@ -113,6 +127,7 @@
         label="标注结果"
         column-key="result"
         :filters="resultFilters"
+        :filtered-value="activeFilters['result'] || []"
         width="90"
       >
         <template #default="{ row }">
@@ -139,8 +154,15 @@
         label="Finish Reason"
         column-key="finishReason"
         :filters="finishReasonFilters"
+        :filtered-value="activeFilters['finishReason'] || []"
         width="100"
-      />
+      >
+        <template #default="{ row }">
+          <span :style="{ color: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? '#f56c6c' : undefined, fontWeight: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 600 : undefined }">
+            {{ row.finishReason }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="问题" width="70">
         <template #default="{ row }">
           <el-button type="text" @click="showDialog(row.question || '')">查看</el-button>
@@ -245,6 +267,7 @@ export default {
     const modelName = ref('');
     const showHistogram = ref(false);
     const showDistribution = ref(true);
+    const showFinishReasonDist = ref(false);
     const showDatasetStats = ref(true);
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
@@ -367,9 +390,11 @@ export default {
       pageSize,
       totalItems,
       totalVisibleItems,
+      activeFilters,
       createColumnFilter,
       onTableFilterChange,
       setKeywordFilter,
+      setColumnFilter,
       onTableSortChange,
       reset,
     } = tableModel;
@@ -418,12 +443,21 @@ export default {
       showRawJsonDialog({ rawJson: row.resultDetailJson || '{}' });
     };
 
+    function quickFilterResult(value) {
+      setColumnFilter('result', [value]);
+    }
+
+    function quickFilterFinishReason(value) {
+      setColumnFilter('finishReason', [value]);
+    }
+
     return {
       idKeyword,
       traceIdKeyword,
       modelName,
       showHistogram,
       showDistribution,
+      showFinishReasonDist,
       showDatasetStats,
       curlDialogVisible,
       currentRow,
@@ -463,13 +497,25 @@ export default {
       datasetFilters,
       finishReasonFilters,
       resultFilters,
+      activeFilters,
       setKeywordFilter,
+      setColumnFilter,
+      quickFilterResult,
+      quickFilterFinishReason,
     };
   },
 };
 </script>
 
 <style scoped>
+.distribution-row {
+  display: flex;
+  gap: 16px;
+}
+.distribution-row > * {
+  flex: 1;
+  min-width: 0;
+}
 .copyable {
   cursor: pointer;
 }

@@ -4,24 +4,40 @@
 -->
 
 <template>
-  <div class="container">
+  <div class="container" :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0', transition: 'margin-left 0.3s' }">
+    <DirBrowserDrawer
+      :visible="showSidebar"
+      :dir-tree="dirTree"
+      :current-node-key="currentNodeKey"
+      @select-run="onSelectRun"
+      @resize="w => sidebarWidth = w"
+    />
+
     <FileToolbar
       :hint-text="hintText"
       :recent-files="recentFiles"
       :current-file-name="currentFileName"
       :format-size="formatSize"
       :format-time="formatTime"
-      @handle-file-select="handleFileSelect"
+      :supports-dir-picker="supportsDirectoryPicker"
+      :browse-mode="browseMode"
+      :dir-name="dirName"
+      :recent-dirs="recentDirs"
+      @handle-file-select="onHandleFileSelect"
       @open-recent-file="openRecentFile"
       @clear-recent-files="clearRecentFiles"
       @reset-file="resetFile"
       @remove-recent-file="removeRecentFile"
+      @open-directory="onOpenDirectory"
+      @restore-directory="onRestoreDirectory"
+      @remove-recent-dir="onRemoveRecentDir"
     />
 
     <DistributionCard
       :tableData="tableData"
       fieldName="result"
       fieldLabel="Result"
+      @filter="quickFilterResult"
     />
 
     <!-- 表格 -->
@@ -64,6 +80,7 @@
         label="Result"
         column-key="result"
         :filters="resultFilters"
+        :filtered-value="activeFilters['result'] || []"
       >
         <template #default="{ row }">
           <span
@@ -147,13 +164,15 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
 
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import CurlInvokeDialog from '@/components/CurlInvokeDialog.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
+import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 
 import {
   saveFile,
@@ -164,6 +183,7 @@ import {
 } from '@/utils/fileDB';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
+import { useDirBrowser } from '@/composables/useDirBrowser';
 
 export default {
   components: {
@@ -172,12 +192,17 @@ export default {
     DistributionCard,
     CurlInvokeDialog,
     TableHeaderSearch,
+    DirBrowserDrawer,
   },
   setup() {
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
 
     const idKeyword = ref('');
+
+    const sidebarWidth = ref(
+      Number(localStorage.getItem('dir_sidebar_width')) || 380
+    );
 
     function openCurlDialog(row) {
       currentRow.value = row;
@@ -188,14 +213,12 @@ export default {
       const total = tableData.value.length;
       if (total === 0) return [];
 
-      // 统计数量
       const countMap = {};
       tableData.value.forEach((item) => {
         const key = item.result ?? '未知';
         countMap[key] = (countMap[key] || 0) + 1;
       });
 
-      // 转成数组并计算占比
       return Object.entries(countMap).map(([result, count]) => ({
         result,
         count,
@@ -206,7 +229,6 @@ export default {
     const getSolutionFromSample = (json) => {
       const meta = json?.sample_score?.sample_metadata;
 
-      // 1. 真 solution：markdown
       if (typeof meta?.solution === 'string' && meta.solution.trim() !== '') {
         return {
           type: 'solution',
@@ -215,7 +237,6 @@ export default {
         };
       }
 
-      // 2. fallback：sample_metadata JSON
       if (meta && Object.keys(meta).length > 0) {
         return {
           type: 'metadata',
@@ -224,7 +245,6 @@ export default {
         };
       }
 
-      // 3. score
       const metadata = json?.sample_score?.score?.metadata;
       if (metadata && Object.keys(metadata).length > 0) {
         return {
@@ -234,7 +254,6 @@ export default {
         };
       }
 
-      // 4. 兜底
       return {
         type: 'empty',
         content: '未提供 solution（sample_metadata 中也未找到可展示内容）',
@@ -282,7 +301,7 @@ export default {
               result: getPriorityValue(score.value, ['acc', 'pass']),
               content: score.prediction ?? '',
               solution: getSolutionFromSample(json),
-              rawJson: JSON.stringify(json, null, 2), // 格式化的字符串
+              rawJson: JSON.stringify(json, null, 2),
             };
           } catch {
             return {
@@ -314,14 +333,113 @@ export default {
       pageSize,
       totalItems,
       totalVisibleItems,
+      activeFilters,
       createColumnFilter,
       onTableFilterChange,
       setKeywordFilter,
+      setColumnFilter,
       onTableSortChange,
       reset,
     } = tableModel;
 
     const { filters: resultFilters } = createColumnFilter('result');
+
+    // ===== 共享目录浏览器 =====
+    const {
+      dirTree,
+      activeFileKey,
+      hasDir,
+      showSidebar,
+      selectedRunInfo,
+
+      browseMode,
+      dirName,
+      recentDirs,
+      supportsDirectoryPicker,
+      openDirectory,
+      setBrowseMode,
+      setSelectedRun,
+      clearSelectedRun,
+      findSelectedNode,
+      readRunFile,
+      buildFileKey,
+      tryRestoreCachedHandle,
+      restoreCachedDirectory,
+      removeCachedHandle,
+    } = useDirBrowser();
+
+    const currentNodeKey = computed(() =>
+      selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
+    );
+
+    /** 每个文件的解析数据缓存（内存中，不持久化） */
+    const dataCache = new Map();
+
+    async function onOpenDirectory() {
+      clearSelectedRun();
+      await openDirectory();
+      if (browseMode.value === 'directory') {
+        tableData.value = [];
+        reset();
+        currentFileName.value = '';
+      }
+    }
+
+    async function onRestoreDirectory(dirNameArg) {
+      clearSelectedRun();
+      const ok = await restoreCachedDirectory(dirNameArg);
+      if (ok) {
+        tableData.value = [];
+        reset();
+        currentFileName.value = '';
+        const node = findSelectedNode();
+        if (node) await onSelectRun(node);
+      }
+    }
+
+    function onRemoveRecentDir(name) {
+      removeCachedHandle(name);
+    }
+
+    async function onSelectRun(node) {
+      const fileKey = buildFileKey(node, 'reviews');
+
+      activeFileKey.value = fileKey;
+      setSelectedRun(node.runDir, node.datasetName);
+
+      if (dataCache.has(fileKey)) {
+        tableData.value = dataCache.get(fileKey);
+      } else {
+        const text = await readRunFile(node.handle, 'reviews');
+        if (!text) {
+          ElMessage.warning('未找到 reviews JSONL 文件');
+          return;
+        }
+        parseJsonlReviews(text);
+        dataCache.set(fileKey, [...tableData.value]);
+      }
+
+      currentFileName.value = `${node.datasetName} / ${node.label}`;
+      idKeyword.value = '';
+      reset();
+    }
+
+    /** 单文件选择时切换回 file 模式 */
+    function onHandleFileSelect(file) {
+      setBrowseMode('file');
+      activeFileKey.value = '';
+      handleFileSelect(file);
+    }
+
+    function openRecentFile(file) {
+      setBrowseMode('file');
+      activeFileKey.value = '';
+      openRecentFileRaw(file);
+    }
+
+    function quickFilterResult(value) {
+      setColumnFilter('result', [value]);
+    }
 
     const {
       hintText,
@@ -329,7 +447,7 @@ export default {
       formatSize,
       formatTime,
       clearRecentFiles,
-      openRecentFile,
+      openRecentFile: openRecentFileRaw,
       handleFileSelect,
       resetFile,
       removeRecentFile,
@@ -354,7 +472,27 @@ export default {
       deleteFile: deleteFile,
       parseJsonl: parseJsonlReviews,
       tableModel,
+      dirModeAware: true,
       hintText: '⚠️ 请上传 reviews 目录下的 JSONL 文件',
+    });
+
+    // 模式切换时清空当前视图的单文件状态
+    watch(browseMode, (mode) => {
+      if (mode === 'directory') {
+        tableData.value = [];
+        idKeyword.value = '';
+        reset();
+        currentFileName.value = '';
+      }
+    });
+
+    // 页面加载时尝试恢复目录，并自动加载上次选中的文件
+    onMounted(async () => {
+      const restored = await tryRestoreCachedHandle();
+      if (restored) {
+        const node = findSelectedNode();
+        if (node) await onSelectRun(node);
+      }
     });
 
     return {
@@ -362,14 +500,30 @@ export default {
       currentRow,
       idKeyword,
       openCurlDialog,
+      sidebarWidth,
       resultDistribution,
+      // dir browser (共享)
+      dirTree,
+      activeFileKey,
+      hasDir,
+      showSidebar,
+      currentNodeKey,
+      browseMode,
+      dirName,
+      recentDirs,
+      supportsDirectoryPicker,
+      onOpenDirectory,
+      onRestoreDirectory,
+      onRemoveRecentDir,
+      onSelectRun,
+      onHandleFileSelect,
+      // file handler
       hintText,
       formatSize,
       formatTime,
       clearRecentFiles,
       recentFiles,
       openRecentFile,
-      handleFileSelect,
       resetFile,
       removeRecentFile,
       currentFileName,
@@ -395,7 +549,10 @@ export default {
       onTableSortChange,
       reset,
       resultFilters,
+      activeFilters,
       setKeywordFilter,
+      setColumnFilter,
+      quickFilterResult,
     };
   },
 };

@@ -6,6 +6,15 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
+import { execSync } from 'node:child_process'
+
+function getGitCommitHash() {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    return ''
+  }
+}
 
 export default defineConfig({
   plugins: [vue()],
@@ -16,6 +25,7 @@ export default defineConfig({
   },
   define: {
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __COMMIT_HASH__: JSON.stringify(getGitCommitHash()),
   },
   base: '/llm-eval-viewer/',
 })

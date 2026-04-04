@@ -9,15 +9,16 @@
     <div class="distribution-list">
       <div
         v-for="item in itemDistribution"
-        :key="item.key"
+        :key="item.label"
         class="distribution-item"
+        @click="emit('filter', item.key)"
       >
         <span
           class="color-dot"
           :style="{ backgroundColor: getColor(item.key) }"
         ></span>
         <span>
-          <span class="text">{{ item.key }}</span
+          <span class="text">{{ item.label }}</span
           >:
           <span class="count-text"
             >{{ item.count }} ({{ item.percentage }}%)</span
@@ -30,7 +31,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 
 const props = defineProps({
   tableData: {
@@ -49,44 +50,72 @@ const props = defineProps({
   },
 });
 
-// 颜色池
-const colorPool = [
-  '#409EFF',
-  '#67C23A',
-  '#E6A23C',
-  '#F56C6C',
-  '#909399',
-  '#5A5A5A',
-  '#00C0FF',
-  '#FF9F7F',
-];
+const emit = defineEmits(['filter']);
 
-const colorMap = ref({});
+// 正向值（绿色，排前面）和负向值（红色，排后面）
+const POSITIVE_KEYS = new Set([1, '1', true, 'true', 100, '100']);
+const NEGATIVE_KEYS = new Set([0, '0', false, 'false']);
+const POSITIVE_LABELS = ['stop'];
+const NEGATIVE_LABELS = ['length', 'max_tokens'];
+
+function normalizeLabel(key) {
+  return String(key).toLowerCase().trim();
+}
+
+function isPositive(key) {
+  if (POSITIVE_KEYS.has(key)) return true;
+  return POSITIVE_LABELS.includes(normalizeLabel(key));
+}
+
+function isNegative(key) {
+  if (NEGATIVE_KEYS.has(key)) return true;
+  return NEGATIVE_LABELS.includes(normalizeLabel(key));
+}
 
 function getColor(key) {
-  if (!colorMap.value[key]) {
-    const keys = Object.keys(colorMap.value);
-    const nextIndex = keys.length % colorPool.length;
-    colorMap.value[key] = colorPool[nextIndex];
+  if (isPositive(key)) return '#67C23A';
+  if (isNegative(key)) return '#F56C6C';
+  const label = String(key);
+  if (!_colorMap[label]) {
+    const idx = Object.keys(_colorMap).length % defaultColorPool.length;
+    _colorMap[label] = defaultColorPool[idx];
   }
-  return colorMap.value[key];
+  return _colorMap[label];
+}
+
+const _colorMap = {};
+const defaultColorPool = [
+  '#409EFF', '#E6A23C', '#909399', '#5A5A5A', '#00C0FF', '#FF9F7F',
+];
+
+/**
+ * 排序权重：正向值 → 0（最前），负向值 → 2（最后），其他 → 1（中间）
+ */
+function sortWeight(key) {
+  if (isPositive(key)) return 0;
+  if (isNegative(key)) return 2;
+  return 1;
 }
 
 const itemDistribution = computed(() => {
   const total = props.tableData.length;
   if (total === 0) return [];
 
-  const countMap = {};
+  const countMap = new Map();
   props.tableData.forEach((item) => {
     const key = item[props.fieldName] ?? '未知';
-    countMap[key] = (countMap[key] || 0) + 1;
+    countMap.set(key, (countMap.get(key) || 0) + 1);
   });
 
-  return Object.entries(countMap).map(([key, count]) => ({
+  const items = Array.from(countMap.entries()).map(([key, count]) => ({
     key,
+    label: String(key),
     count,
     percentage: ((count / total) * 100).toFixed(1),
   }));
+
+  items.sort((a, b) => sortWeight(a.key) - sortWeight(b.key));
+  return items;
 });
 </script>
 

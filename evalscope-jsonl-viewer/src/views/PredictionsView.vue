@@ -4,18 +4,33 @@
 -->
 
 <template>
-  <div class="container">
+  <div class="container" :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0', transition: 'margin-left 0.3s' }">
+    <DirBrowserDrawer
+      :visible="showSidebar"
+      :dir-tree="dirTree"
+      :current-node-key="currentNodeKey"
+      @select-run="onSelectRun"
+      @resize="w => sidebarWidth = w"
+    />
+
     <FileToolbar
       :hint-text="hintText"
       :recent-files="recentFiles"
       :current-file-name="currentFileName"
       :format-size="formatSize"
       :format-time="formatTime"
-      @handle-file-select="handleFileSelect"
+      :supports-dir-picker="supportsDirectoryPicker"
+      :browse-mode="browseMode"
+      :dir-name="dirName"
+      :recent-dirs="recentDirs"
+      @handle-file-select="onHandleFileSelect"
       @open-recent-file="openRecentFile"
       @clear-recent-files="clearRecentFiles"
       @reset-file="resetFile"
       @remove-recent-file="removeRecentFile"
+      @open-directory="onOpenDirectory"
+      @restore-directory="onRestoreDirectory"
+      @remove-recent-dir="onRemoveRecentDir"
     />
 
     <div>
@@ -48,6 +63,7 @@
       :tableData="tableData"
       fieldName="stop_reason"
       fieldLabel="Stop Reason"
+      @filter="quickFilterStopReason"
     />
 
     <!-- 表格 -->
@@ -96,7 +112,14 @@
         prop="stop_reason"
         label="Stop Reason"
         :filters="stopReasonFilters"
-      />
+        :filtered-value="activeFilters['stop_reason'] || []"
+      >
+        <template #default="{ row }">
+          <span :style="{ color: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? '#f56c6c' : undefined, fontWeight: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 600 : undefined }">
+            {{ row.stop_reason }}
+          </span>
+        </template>
+      </el-table-column>
       <el-table-column label="Completion">
         <template #default="{ row }">
           <el-button type="text" @click="showDialog(row.content || {})"
@@ -136,12 +159,14 @@
 </template>
 
 <script>
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
+import { ElMessage } from 'element-plus';
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import HistogramCard from '@/components/HistogramCard.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
+import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 
 import {
   saveFile,
@@ -152,6 +177,7 @@ import {
 } from '@/utils/fileDB';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
+import { useDirBrowser } from '@/composables/useDirBrowser';
 
 export default {
   components: {
@@ -160,6 +186,7 @@ export default {
     HistogramCard,
     DistributionCard,
     TableHeaderSearch,
+    DirBrowserDrawer,
   },
 
   setup() {
@@ -167,14 +194,24 @@ export default {
     const showDistribution = ref(false);
     const idKeyword = ref('');
 
-    onMounted(() => {
+    const sidebarWidth = ref(
+      Number(localStorage.getItem('dir_sidebar_width')) || 380
+    );
+
+    onMounted(async () => {
       const histCache = localStorage.getItem('showHistogram');
       const distCache = localStorage.getItem('showDistribution');
       if (histCache !== null) showHistogram.value = histCache === 'true';
       if (distCache !== null) showDistribution.value = distCache === 'true';
+
+      // 尝试恢复目录，并自动加载上次选中的文件
+      const restored = await tryRestoreCachedHandle();
+      if (restored) {
+        const node = findSelectedNode();
+        if (node) await onSelectRun(node);
+      }
     });
 
-    // 监听变化并写入缓存
     watch(showHistogram, (val) => {
       localStorage.setItem('showHistogram', val);
     });
@@ -213,11 +250,9 @@ export default {
       }
 
       if (Array.isArray(rawContent)) {
-        // 找第一个 reasoning 类型
         const reasoningItem = rawContent.find(
           (item) => item.type === 'reasoning'
         );
-        // 找第一个 text 类型
         const textItem = rawContent.find((item) => item.type === 'text');
 
         return {
@@ -226,7 +261,6 @@ export default {
         };
       }
 
-      // 其它情况，没找到，兜底
       return { reasoning: null, text: '' };
     };
 
@@ -252,9 +286,9 @@ export default {
               index: json.index ?? idx + 1,
               id: getSampleId(json, idx),
               prompt: json.input || '',
-              pred: '', // 原数据里没有，这里先空着
-              gold: '', // 同上
-              result: '', // 同上
+              pred: '',
+              gold: '',
+              result: '',
               content: parseContent(content),
               input_tokens: inputTokens,
               output_tokens: outputTokens,
@@ -291,14 +325,112 @@ export default {
       pageSize,
       totalItems,
       totalVisibleItems,
+      activeFilters,
       createColumnFilter,
       onTableFilterChange,
       setKeywordFilter,
+      setColumnFilter,
       onTableSortChange,
       reset,
     } = tableModel;
 
     const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
+
+    // ===== 共享目录浏览器 =====
+    const {
+      dirTree,
+      activeFileKey,
+      hasDir,
+      showSidebar,
+      selectedRunInfo,
+
+      browseMode,
+      dirName,
+      recentDirs,
+      supportsDirectoryPicker,
+      openDirectory,
+      setBrowseMode,
+      setSelectedRun,
+      clearSelectedRun,
+      findSelectedNode,
+      readRunFile,
+      buildFileKey,
+      tryRestoreCachedHandle,
+      restoreCachedDirectory,
+      removeCachedHandle,
+    } = useDirBrowser();
+
+    const currentNodeKey = computed(() =>
+      selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
+    );
+
+    const dataCache = new Map();
+
+    async function onOpenDirectory() {
+      clearSelectedRun();
+      await openDirectory();
+      if (browseMode.value === 'directory') {
+        tableData.value = [];
+        reset();
+        currentFileName.value = '';
+      }
+    }
+
+    async function onRestoreDirectory(dirNameArg) {
+      clearSelectedRun();
+      const ok = await restoreCachedDirectory(dirNameArg);
+      if (ok) {
+        tableData.value = [];
+        reset();
+        currentFileName.value = '';
+        const node = findSelectedNode();
+        if (node) await onSelectRun(node);
+      }
+    }
+
+    function onRemoveRecentDir(name) {
+      removeCachedHandle(name);
+    }
+
+    async function onSelectRun(node) {
+      const fileKey = buildFileKey(node, 'predictions');
+
+      activeFileKey.value = fileKey;
+      setSelectedRun(node.runDir, node.datasetName);
+
+      if (dataCache.has(fileKey)) {
+        tableData.value = dataCache.get(fileKey);
+      } else {
+        const text = await readRunFile(node.handle, 'predictions');
+        if (!text) {
+          ElMessage.warning('未找到 predictions JSONL 文件');
+          return;
+        }
+        parseJsonlPredictions(text);
+        dataCache.set(fileKey, [...tableData.value]);
+      }
+
+      currentFileName.value = `${node.datasetName} / ${node.label}`;
+      idKeyword.value = '';
+      reset();
+    }
+
+    /** 单文件选择时切换回 file 模式 */
+    function onHandleFileSelect(file) {
+      setBrowseMode('file');
+      activeFileKey.value = '';
+      handleFileSelect(file);
+    }
+
+    function openRecentFile(file) {
+      setBrowseMode('file');
+      activeFileKey.value = '';
+      openRecentFileRaw(file);
+    }
+
+    function quickFilterStopReason(value) {
+      setColumnFilter('stop_reason', [value]);
+    }
 
     const {
       hintText,
@@ -306,7 +438,7 @@ export default {
       formatSize,
       formatTime,
       clearRecentFiles,
-      openRecentFile,
+      openRecentFile: openRecentFileRaw,
       handleFileSelect,
       resetFile,
       removeRecentFile,
@@ -330,14 +462,42 @@ export default {
       deleteFile: deleteFile,
       parseJsonl: parseJsonlPredictions,
       tableModel: tableModel,
+      dirModeAware: true,
       hintText: '⚠️ 请上传 predictions 目录下的 JSONL 文件',
+    });
+
+    // 模式切换时清空当前视图的单文件状态
+    watch(browseMode, (mode) => {
+      if (mode === 'directory') {
+        tableData.value = [];
+        idKeyword.value = '';
+        reset();
+        currentFileName.value = '';
+      }
     });
 
     return {
       idKeyword,
       showHistogram,
       showDistribution,
+      sidebarWidth,
       formatContentLength,
+      // dir browser (共享)
+      dirTree,
+      activeFileKey,
+      hasDir,
+      showSidebar,
+      currentNodeKey,
+      browseMode,
+      dirName,
+      recentDirs,
+      supportsDirectoryPicker,
+      onOpenDirectory,
+      onRestoreDirectory,
+      onRemoveRecentDir,
+      onSelectRun,
+      onHandleFileSelect,
+      // file handler
       hintText,
       formatSize,
       formatTime,
@@ -345,7 +505,6 @@ export default {
       recentFiles,
       removeRecentFile,
       openRecentFile,
-      handleFileSelect,
       resetFile,
       currentFileName,
       dialogVisible,
@@ -368,7 +527,9 @@ export default {
       onTableSortChange,
       reset,
       stopReasonFilters,
+      activeFilters,
       setKeywordFilter,
+      quickFilterStopReason,
     };
   },
 };

@@ -39,13 +39,15 @@ export function useTableModel(options = {}) {
   }
 
   function onTableFilterChange(filters) {
+    const updated = { ...activeFilters.value };
     Object.entries(filters).forEach(([key, values]) => {
       if (values && values.length > 0) {
-        activeFilters.value[key] = values;
+        updated[key] = values;
       } else {
-        delete activeFilters.value[key];
+        delete updated[key];
       }
     });
+    activeFilters.value = updated;
     currentPage.value = 1;
   }
 
@@ -55,6 +57,17 @@ export function useTableModel(options = {}) {
     } else {
       keywordFilters.value[key] = keyword;
     }
+    currentPage.value = 1;
+  }
+
+  function setColumnFilter(key, values) {
+    const updated = { ...activeFilters.value };
+    if (!values || values.length === 0) {
+      delete updated[key];
+    } else {
+      updated[key] = values;
+    }
+    activeFilters.value = updated;
     currentPage.value = 1;
   }
 
@@ -128,6 +141,31 @@ export function useTableModel(options = {}) {
     currentPage.value = 1;
   }
 
+  // ===== state snapshot (用于目录浏览器的文件切换) =====
+  function saveState() {
+    return {
+      activeFilters: JSON.parse(JSON.stringify(activeFilters.value)),
+      keywordFilters: JSON.parse(JSON.stringify(keywordFilters.value)),
+      sortProp: sortProp.value,
+      sortOrder: sortOrder.value,
+      currentPage: currentPage.value,
+      pageSize: pageSize.value,
+    };
+  }
+
+  function restoreState(snapshot) {
+    if (!snapshot) {
+      reset();
+      return;
+    }
+    activeFilters.value = snapshot.activeFilters || {};
+    keywordFilters.value = snapshot.keywordFilters || {};
+    sortProp.value = snapshot.sortProp || '';
+    sortOrder.value = snapshot.sortOrder || '';
+    currentPage.value = snapshot.currentPage || 1;
+    pageSize.value = snapshot.pageSize || defaultPageSize;
+  }
+
   return {
     // data
     tableData,
@@ -143,12 +181,16 @@ export function useTableModel(options = {}) {
     totalVisibleItems,
 
     // filter / sort
+    activeFilters,
     createColumnFilter,
     onTableFilterChange,
     setKeywordFilter,
+    setColumnFilter,
     onTableSortChange,
 
     // control
     reset,
+    saveState,
+    restoreState,
   };
 }

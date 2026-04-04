@@ -15,23 +15,12 @@
         text-color="#606266"
         active-text-color="#409eff"
       >
-        <el-menu-item index="/reviews" class="has-icon">
-          <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
-            <Document />
-          </el-icon>
-          Evalscope Review
+        <el-menu-item index="/reviews">
+          <span class="nav-group-tag">Evalscope</span>Review
         </el-menu-item>
-        <el-menu-item index="/predictions" class="has-icon">
-          <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
-            <DataAnalysis />
-          </el-icon>
-          Evalscope Pred
-        </el-menu-item>
-        <el-menu-item index="/meval" class="has-icon">
-          <el-icon style="margin-right: 6px; color: #409eff; font-size: 18px">
-            <DataAnalysis />
-          </el-icon>
-          MEval
+        <el-menu-item index="/predictions">Predictions</el-menu-item>
+        <el-menu-item index="/meval">
+          <span class="nav-group-tag">MEval</span>MEval
         </el-menu-item>
       </el-menu>
 
@@ -68,6 +57,8 @@
       </div>
     </div>
 
+    <div class="nav-spacer"></div>
+
     <header class="page-header">
       <img
         src="/evalscope_icon.png"
@@ -81,7 +72,7 @@
             : $route.path === '/reviews'
               ? 'Evalscope Review JSONL 查看器'
               : $route.path === '/predictions'
-                ? 'Evalscope Pred JSONL 查看器'
+                ? 'Evalscope Predictions JSONL 查看器'
                 : 'Evalscope JSONL 查看器'
         }}
       </h1>
@@ -89,20 +80,24 @@
 
     <router-view />
     <footer class="page-footer">
-      <span> Build: {{ buildTime }} </span>
+      <span>Author: yangjianbang</span>
+      <span> · Build: {{ buildTime }}</span>
+      <span v-if="commitHash">
+        · Commit:
+        <a
+          :href="`https://github.com/dynamicheart/llm-eval-viewer/commit/${commitHash}`"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="commit-link"
+        >{{ commitHash }}</a>
+      </span>
     </footer>
   </div>
 </template>
 
 <script>
-import { Document, DataAnalysis } from '@element-plus/icons-vue';
-
 export default {
   name: 'App',
-  components: {
-    Document,
-    DataAnalysis,
-  },
   methods: {
     handleSelect(index) {
       this.$router.push(index);
@@ -113,6 +108,9 @@ export default {
       return typeof __BUILD_TIME__ !== 'undefined'
         ? new Date(__BUILD_TIME__).toLocaleString()
         : 'unknown';
+    },
+    commitHash() {
+      return typeof __COMMIT_HASH__ !== 'undefined' ? __COMMIT_HASH__ : '';
     },
   },
 };
@@ -126,15 +124,34 @@ export default {
   background-color: #f5f7fa;
   padding: 0 16px;
   box-shadow: 0 2px 4px rgb(0 0 0 / 0.1);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  z-index: 2001;
+}
+
+.nav-spacer {
+  height: 56px;
+  flex-shrink: 0;
 }
 
 .nav-menu {
   font-weight: 600;
   font-size: 16px;
   flex: 1 1 auto;
-  /* 去掉之前绝对定位相关的属性 */
   box-shadow: none;
   background-color: transparent;
+}
+
+.nav-group-tag {
+  font-size: 10px;
+  color: #909399;
+  padding: 1px 5px;
+  margin-right: 6px;
+  font-weight: 400;
+  vertical-align: middle;
 }
 
 .github-link {
@@ -197,6 +214,16 @@ export default {
   font-size: 12px;
   color: #909399;
   user-select: none;
+}
+
+.commit-link {
+  color: #409eff;
+  text-decoration: none;
+  font-family: monospace;
+}
+
+.commit-link:hover {
+  text-decoration: underline;
 }
 
 .app-root {

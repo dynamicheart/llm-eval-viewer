@@ -30,6 +30,7 @@ export function useJsonlFileHandler(options) {
     parseJsonl,
     tableModel,
     hintText = '',
+    dirModeAware = false,
   } = options;
 
   const { tableData } = tableModel;
@@ -102,6 +103,12 @@ export function useJsonlFileHandler(options) {
 
   const loadFromCache = async () => {
     recentFiles.value = await listFiles(storageNamespace);
+
+    // 目录模式下只加载最近文件列表，不自动恢复单文件数据
+    if (dirModeAware) {
+      const browseMode = localStorage.getItem('evalscope_browse_mode');
+      if (browseMode === 'directory') return;
+    }
 
     const lastId = localStorage.getItem(storageKey);
     if (!lastId) return;
