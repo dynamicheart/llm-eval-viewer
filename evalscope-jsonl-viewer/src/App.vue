@@ -78,6 +78,8 @@
       </h1>
     </header>
 
+    <NewsBanner />
+
     <router-view />
     <footer class="page-footer">
       <span>Author: yangjianbang</span>
@@ -96,8 +98,11 @@
 </template>
 
 <script>
+import NewsBanner from '@/components/NewsBanner.vue';
+
 export default {
   name: 'App',
+  components: { NewsBanner },
   methods: {
     handleSelect(index) {
       this.$router.push(index);
