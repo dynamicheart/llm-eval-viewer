@@ -121,6 +121,22 @@ const mevalRow2Detail = JSON.stringify([{
   },
 }]);
 
+const mevalRow1ResultDetail = JSON.stringify({
+  evaluator: {
+    extracted_answer: 'def sort_list(l): return sorted(l)',
+    score: 100,
+    reason: 'Code is correct and passes all test cases.',
+  },
+});
+
+const mevalRow2ResultDetail = JSON.stringify({
+  evaluator: {
+    extracted_answer: '4',
+    score: 100,
+    reason: 'The answer is correct.',
+  },
+});
+
 function csvEscape(val) {
   const s = String(val);
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -136,10 +152,11 @@ const mevalRow1 = [
   '', '否', '00:00:04', '2026-04-03',
   'P001', 'SampleModel:trace-001',
   '第1轮: Write a Python function that sorts a list in ascending order.',
-  '',
+  'def sort_list(l): return sorted(l)',
   '第1轮\nQ: Write a Python function that sorts a list.\nA: def sort_list(l): return sorted(l)',
   mevalRow1Detail,
-  '100', '', '', '',
+  '100', '',
+  mevalRow1ResultDetail, '',
 ].map(csvEscape).join(',');
 
 const mevalRow2 = [
@@ -149,10 +166,11 @@ const mevalRow2 = [
   '', '否', '00:00:03', '2026-04-03',
   'P002', 'SampleModel:trace-002',
   '第1轮: What is 2 + 2? Please solve step by step.',
-  '',
+  '4',
   '第1轮\nQ: What is 2 + 2?\nA: 2 + 2 = 4. The answer is 4.',
   mevalRow2Detail,
-  '100', '', '', '',
+  '100', '',
+  mevalRow2ResultDetail, '',
 ].map(csvEscape).join(',');
 
 export const SAMPLE_MEVAL_TEXT = [mevalHeaders, mevalRow1, mevalRow2].join('\n');
