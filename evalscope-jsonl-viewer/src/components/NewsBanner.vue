@@ -3,9 +3,13 @@
     <div class="news-item">
       <span class="news-tag">NEW</span>
       <span class="news-text">
-        <span v-for="(line, i) in CURRENT_NEWS" :key="i">
-          {{ line }}<br v-if="i < CURRENT_NEWS.length - 1" />
-        </span>
+        <template v-for="(section, si) in CURRENT_NEWS" :key="si">
+          <span class="news-date">{{ section.date }}</span>
+          <span v-for="(line, li) in section.items" :key="li">
+            {{ line }}<br />
+          </span>
+          <br v-if="si < CURRENT_NEWS.length - 1" />
+        </template>
       </span>
       <el-icon class="news-close" @click="dismiss"><Close /></el-icon>
     </div>
@@ -23,10 +27,21 @@ const STORAGE_KEY = 'news_dismissed_version';
  * 新版本发布时：VERSION +1，更新 CURRENT_NEWS 内容即可。
  * 用户关闭后记住版本号，只有更高版本才会再次显示。
  */
-const VERSION = 3;
+const VERSION = 4;
 const CURRENT_NEWS = [
-  '1. Predictions 支持 Reasoning 内容展示，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
-  '2. 点击分布图可快速筛选对应数据',
+  {
+    date: '2026-04-05',
+    items: [
+      '1. Predictions 支持 Reasoning 内容展示，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
+      '2. 点击分布图可快速筛选对应数据',
+    ],
+  },
+  {
+    date: '2026-04-04',
+    items: [
+      '1. 新增目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
+    ],
+  },
 ];
 
 const dismissedVersion = Number(localStorage.getItem(STORAGE_KEY) || '0');
@@ -71,6 +86,12 @@ function dismiss() {
 
 .news-text {
   flex: 1;
+}
+
+.news-date {
+  font-weight: 600;
+  color: #606266;
+  font-size: 12px;
 }
 
 .news-close {
