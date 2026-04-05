@@ -438,6 +438,13 @@ export default {
       parseJsonl: parseCsv,
       tableModel,
       hintText: '请上传评测样本明细 CSV 文件',
+      validateContent: (text) => {
+        const header = (text.split('\n')[0] || '').trim();
+        if (!header.includes('样本ID') && !header.includes('标注结果') && !header.includes('模型回答')) {
+          return '该 CSV 不像是 MEval 评测样本文件（未找到 样本ID/标注结果/模型回答 等列），确定要加载吗？';
+        }
+        return null;
+      },
     });
 
     // 标注结果详情：复用 showRawJsonDialog 机制
