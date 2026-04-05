@@ -59,7 +59,7 @@
 
     <div class="nav-spacer"></div>
 
-    <header class="page-header">
+    <header class="page-header" :style="showSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}">
       <img
         src="/evalscope_icon.png"
         alt="Evalscope Icon"
@@ -78,7 +78,7 @@
       </h1>
     </header>
 
-    <NewsBanner />
+    <NewsBanner :style="showSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}" />
 
     <router-view />
     <footer class="page-footer">
@@ -99,10 +99,19 @@
 
 <script>
 import NewsBanner from '@/components/NewsBanner.vue';
+import { useDirBrowser } from '@/composables/useDirBrowser';
+import { ref } from 'vue';
 
 export default {
   name: 'App',
   components: { NewsBanner },
+  setup() {
+    const { showSidebar } = useDirBrowser();
+    const sidebarWidth = ref(
+      Number(localStorage.getItem('dir_sidebar_width')) || 380
+    );
+    return { showSidebar, sidebarWidth };
+  },
   methods: {
     handleSelect(index) {
       this.$router.push(index);
