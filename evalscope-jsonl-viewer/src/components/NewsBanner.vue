@@ -3,13 +3,10 @@
     <div class="news-item">
       <span class="news-tag">NEW</span>
       <span class="news-text">
-        <template v-for="(section, si) in CURRENT_NEWS" :key="si">
-          <span class="news-date">{{ section.date }}</span>
-          <span v-for="(line, li) in section.items" :key="li">
-            {{ line }}<br />
-          </span>
-          <br v-if="si < CURRENT_NEWS.length - 1" />
-        </template>
+        <div v-for="(section, si) in CURRENT_NEWS" :key="si" :class="{ 'news-section-gap': si > 0 }">
+          <div class="news-date">{{ section.date }}</div>
+          <div v-for="(line, li) in section.items" :key="li">{{ line }}</div>
+        </div>
       </span>
       <el-icon class="news-close" @click="dismiss"><Close /></el-icon>
     </div>
@@ -92,6 +89,10 @@ function dismiss() {
   font-weight: 600;
   color: #606266;
   font-size: 12px;
+}
+
+.news-section-gap {
+  margin-top: 6px;
 }
 
 .news-close {

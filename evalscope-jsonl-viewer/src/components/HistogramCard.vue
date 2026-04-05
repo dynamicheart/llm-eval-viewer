@@ -21,7 +21,12 @@
       </div>
     </div>
 
-    <div class="total-count">样本数：{{ tableData.length }}</div>
+    <div class="stats-footer">
+      <span>样本数：{{ tableData.length }}</span>
+      <span v-for="field in fields" :key="field.key" class="stat-item">
+        Avg {{ field.label.replace(' Distribution', '') }}：{{ avgOf(field.key) }}
+      </span>
+    </div>
   </div>
 </template>
 
@@ -40,6 +45,14 @@ const chartMap = new Map();
 
 function setCanvas(el, key) {
   if (el) canvasMap.set(key, el);
+}
+
+function avgOf(key) {
+  const values = props.tableData
+    .map((r) => r[key])
+    .filter((v) => typeof v === 'number' && v >= 0);
+  if (!values.length) return '-';
+  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
 }
 
 /* ========= 核心：等宽、取整分桶 ========= */
@@ -248,10 +261,13 @@ watch(() => props.tableData, renderAll, { deep: true });
 
 /* ===== footer ===== */
 
-.total-count {
+.stats-footer {
   margin-top: 16px;
   font-weight: 500;
   color: #909399;
   font-size: 13px;
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
 }
 </style>
