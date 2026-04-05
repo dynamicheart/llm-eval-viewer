@@ -432,10 +432,11 @@ export default {
     }
 
     /** 单文件选择时切换回 file 模式 */
-    function onHandleFileSelect(file) {
+    async function onHandleFileSelect(file) {
+      const ok = await handleFileSelect(file);
+      if (!ok) return;
       setBrowseMode('file');
       activeFileKey.value = '';
-      handleFileSelect(file);
     }
 
     function openRecentFile(file) {

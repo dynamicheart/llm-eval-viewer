@@ -163,7 +163,7 @@ export function useJsonlFileHandler(options) {
         } catch {
           // 用户取消
           currentFileName.value = '';
-          return;
+          return false;
         }
       }
     }
@@ -177,12 +177,13 @@ export function useJsonlFileHandler(options) {
 
     currentFileName.value = file.name;
     parseJsonl(text);
+    return true;
   };
 
   const handleFileSelect = async (file) => {
     currentFileName.value = file.name;
-    loadJSONLFile(file);
-    return false;
+    const ok = await loadJSONLFile(file);
+    return ok;
   };
 
   /**
