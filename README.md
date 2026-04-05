@@ -13,9 +13,14 @@ https://dynamicheart.github.io/llm-eval-viewer/
 你可以直接使用以下示例文件进行本地或在线体验：
 
 - **Predictions**
-  - https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/math_500_level_1_predictions.jsonl
+  - [math_500_level_1_predictions.jsonl](https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/math_500_level_1_predictions.jsonl)
 - **Reviews**
-  - https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/math_500_level_1_reviews.jsonl
+  - [math_500_level_1_reviews.jsonl](https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/math_500_level_1_reviews.jsonl)
+
+- **Predictions（带 reasoning）**
+  - [humaneval_predictions_with_reasoning.jsonl](https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/humaneval_predictions_with_reasoning.jsonl)
+- **Reviews（带 reasoning）**
+  - [humaneval_reviews_with_reasoning.jsonl](https://raw.githubusercontent.com/dynamicheart/llm-eval-viewer/main/docs/examples/humaneval_reviews_with_reasoning.jsonl)
 
 ---
 
