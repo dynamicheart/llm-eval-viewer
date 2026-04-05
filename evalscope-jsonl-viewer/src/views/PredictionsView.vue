@@ -68,6 +68,12 @@
     />
 
     <!-- 表格 -->
+    <div
+      v-if="hasReasoning"
+      style="margin-top: 12px; padding: 8px 12px; border-left: 4px solid #409EFF; background: #ecf5ff; border-radius: 4px; font-size: 13px; color: #303133;"
+    >
+      检测到 Reasoning 内容，标记为 <b style="color: #409EFF">[R]</b>，点击「查看」可分别查看 Text 和 Reasoning；点击分布图可快速筛选
+    </div>
     <el-table
       v-if="tableData.length"
       :data="paginatedData"
@@ -89,6 +95,7 @@
       </el-table-column>
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
+          <span v-if="row.content?.reasoning" style="color: #409EFF; font-weight: 600; font-size: 11px; margin-right: 4px">[R]</span>
           <span>{{ truncateText(row.content.text, 100) }}</span>
         </template>
       </el-table-column>
@@ -195,6 +202,10 @@ export default {
     const showHistogram = ref(true);
     const showDistribution = ref(false);
     const idKeyword = ref('');
+
+    const hasReasoning = computed(() =>
+      tableData.value.some(row => row.content?.reasoning)
+    );
 
     onMounted(async () => {
       const histCache = localStorage.getItem('showHistogram');
@@ -392,6 +403,12 @@ export default {
     }
 
     async function onSelectRun(node) {
+      // 场景C：用户选了 reviews/ 目录，在 Predictions tab 无法查看
+      if (node.directType && node.directType !== 'predictions') {
+        ElMessage.warning(`当前目录是 ${node.directType} 目录，无法查看 predictions 数据，请选择上一级目录`);
+        return;
+      }
+
       const fileKey = buildFileKey(node, 'predictions');
 
       activeFileKey.value = fileKey;
@@ -492,6 +509,7 @@ export default {
       idKeyword,
       showHistogram,
       showDistribution,
+      hasReasoning,
       sidebarWidth,
       formatContentLength,
       // dir browser (共享)

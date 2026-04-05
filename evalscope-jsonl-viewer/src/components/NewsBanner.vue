@@ -23,9 +23,10 @@ const STORAGE_KEY = 'news_dismissed_version';
  * 新版本发布时：VERSION +1，更新 CURRENT_NEWS 内容即可。
  * 用户关闭后记住版本号，只有更高版本才会再次显示。
  */
-const VERSION = 2;
+const VERSION = 3;
 const CURRENT_NEWS = [
-  'Evalscope 新增目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
+  '1. Predictions 支持 Reasoning 内容展示，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
+  '2. 点击分布图可快速筛选对应数据',
 ];
 
 const dismissedVersion = Number(localStorage.getItem(STORAGE_KEY) || '0');

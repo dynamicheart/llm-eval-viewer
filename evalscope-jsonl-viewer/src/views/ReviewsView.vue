@@ -399,6 +399,12 @@ export default {
     }
 
     async function onSelectRun(node) {
+      // 场景C：用户选了 predictions/ 目录，在 Reviews tab 无法查看
+      if (node.directType && node.directType !== 'reviews') {
+        ElMessage.warning(`当前目录是 ${node.directType} 目录，无法查看 reviews 数据，请选择上一级目录`);
+        return;
+      }
+
       const fileKey = buildFileKey(node, 'reviews');
 
       activeFileKey.value = fileKey;

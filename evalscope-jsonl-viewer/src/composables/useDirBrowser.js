@@ -5,6 +5,25 @@
  * 使用 File System Access API (showDirectoryPicker) 扫描 eval_pack 目录。
  * 目录 handle 持久化到 IndexedDB，选中的 run 持久化到 localStorage。
  * 文件内容不缓存。
+ *
+ * === 目录选择场景 ===
+ *
+ * 场景A：多级目录（标准 evalscope 输出）
+ *   用户选择 eval_pack/ 根目录，内部结构为 dataset/ → run/ → reviews+predictions+reports
+ *   要求 run 目录同时包含 reviews/、predictions/、reports/ 三个子目录
+ *   示例：eval_pack/humaneval/20251115_202954/{reviews,predictions,reports}
+ *
+ * 场景B：直接选择 run 目录
+ *   用户选择的目录本身包含 reviews/ + predictions/ 子目录
+ *   不要求 reports/，自动包装为单节点树
+ *   两个 tab 都能正常工作（readRunFile 进入对应子目录读取）
+ *   示例：用户选择 20251115_202954/
+ *
+ * 场景C：直接选择 type 目录（reviews/ 或 predictions/）
+ *   用户选择的目录名为 reviews 或 predictions，且包含 model 子目录（内含 .jsonl）
+ *   节点标记 isDirect=true, directType='reviews'|'predictions'
+ *   仅对应 tab 可查看数据，另一个 tab 显示提示"请选择上一级目录"
+ *   示例：用户选择 20251115_202954/reviews/
  */
 
 import { ref, shallowRef, computed } from 'vue';
@@ -264,8 +283,6 @@ async function scanRoot(rootH) {
   // ===== 场景C：根目录本身是 reviews/ 或 predictions/ 目录 =====
   const lowerName = rootName.toLowerCase();
   if ((lowerName === 'reviews' || lowerName === 'predictions') && await hasJsonlInModelSubdirs(rootH)) {
-    // 将自身包装为一个虚拟 run 节点
-    // readRunFile 会用 type dir，所以需要特殊标记让 readRunFile 跳过一层
     return [{
       id: 'dir_ds_direct',
       label: rootName,
@@ -276,7 +293,8 @@ async function scanRoot(rootH) {
         handle: rootH,
         datasetName: rootName,
         isLeaf: true,
-        isDirect: true,  // 标记：handle 本身就是 type dir，不需要再进入子目录
+        isDirect: true,       // handle 本身就是 type dir
+        directType: lowerName, // 标记是哪种 type（'reviews' 或 'predictions'）
       }],
     }];
   }
