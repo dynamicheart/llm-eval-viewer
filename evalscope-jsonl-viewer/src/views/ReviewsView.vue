@@ -33,6 +33,12 @@
       @remove-recent-dir="onRemoveRecentDir"
     />
 
+    <div v-if="samplePromptVisible" class="sample-prompt">
+      <span>首次使用？点击加载样例数据，快速体验功能</span>
+      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
+      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+    </div>
+
     <DistributionCard
       :tableData="tableData"
       fieldName="result"
@@ -164,7 +170,7 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 
 import FileToolbar from '@/components/FileToolbar.vue';
@@ -173,6 +179,7 @@ import DistributionCard from '@/components/DistributionCard.vue';
 import CurlInvokeDialog from '@/components/CurlInvokeDialog.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
+import { SAMPLE_REVIEWS_TEXT } from '@/data/sampleData';
 
 import {
   saveFile,
@@ -199,6 +206,9 @@ export default {
     const currentRow = ref(null);
 
     const idKeyword = ref('');
+
+    const ONBOARDED_KEY = 'evalscope_reviews_onboarded';
+    const samplePromptVisible = ref(false);
 
     function openCurlDialog(row) {
       currentRow.value = row;
@@ -280,6 +290,8 @@ export default {
     }
 
     const parseJsonlReviews = (text) => {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
       tableData.value = text
         .split('\n')
         .filter(Boolean)
@@ -454,6 +466,7 @@ export default {
       openRecentFile: openRecentFileRaw,
       handleFileSelect,
       resetFile,
+      loadSampleText,
       removeRecentFile,
       currentFileName,
       dialogVisible,
@@ -493,6 +506,15 @@ export default {
       },
     });
 
+    async function loadSample() {
+      await loadSampleText('📋 样例数据 (Reviews)', SAMPLE_REVIEWS_TEXT);
+    }
+
+    function dismissSample() {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
+    }
+
     // 模式切换时清空当前视图的单文件状态
     watch(browseMode, (mode) => {
       if (mode === 'directory') {
@@ -510,6 +532,12 @@ export default {
         const node = findSelectedNode();
         if (node) await onSelectRun(node);
       }
+
+      // 首次用户提示
+      await nextTick();
+      if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
+        samplePromptVisible.value = true;
+      }
     });
 
     return {
@@ -517,6 +545,9 @@ export default {
       currentRow,
       idKeyword,
       openCurlDialog,
+      samplePromptVisible,
+      loadSample,
+      dismissSample,
       sidebarWidth,
       resultDistribution,
       // dir browser (共享)
@@ -574,3 +605,18 @@ export default {
   },
 };
 </script>
+
+<style scoped>
+.sample-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #303133;
+}
+</style>

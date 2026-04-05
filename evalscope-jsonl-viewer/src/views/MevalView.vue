@@ -16,6 +16,12 @@
       @remove-recent-file="removeRecentFile"
     />
 
+    <div v-if="samplePromptVisible" class="sample-prompt">
+      <span>首次使用？点击加载样例数据，快速体验功能</span>
+      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
+      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+    </div>
+
     <div v-if="modelName" style="margin-bottom: 8px; color: #909399; font-size: 13px">
       检测到模型：<b style="color: #303133">{{ modelName }}</b>
     </div>
@@ -230,7 +236,7 @@
 </template>
 
 <script>
-import { ref } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import Papa from 'papaparse';
 import { ElMessage } from 'element-plus';
 
@@ -241,6 +247,7 @@ import HistogramCard from '@/components/HistogramCard.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import CurlInvokeDialog from '@/components/CurlInvokeDialog.vue';
 import DatasetStatsCard from '@/components/DatasetStatsCard.vue';
+import { SAMPLE_MEVAL_TEXT } from '@/data/sampleData';
 
 import {
   saveFile,
@@ -274,6 +281,9 @@ export default {
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
 
+    const ONBOARDED_KEY = 'meval_onboarded';
+    const samplePromptVisible = ref(false);
+
     const copyText = (text) => {
       if (!text) return;
       navigator.clipboard.writeText(text);
@@ -302,6 +312,8 @@ export default {
     };
 
     const parseCsv = (text) => {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
       const { data, meta } = Papa.parse(text, {
         header: true,
         skipEmptyLines: true,
@@ -417,6 +429,7 @@ export default {
       openRecentFile,
       handleFileSelect,
       resetFile,
+      loadSampleText,
       removeRecentFile,
       currentFileName,
       dialogVisible,
@@ -460,6 +473,22 @@ export default {
       setColumnFilter('finishReason', [value]);
     }
 
+    async function loadSample() {
+      await loadSampleText('📋 样例数据 (MEval)', SAMPLE_MEVAL_TEXT);
+    }
+
+    function dismissSample() {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
+    }
+
+    onMounted(async () => {
+      await nextTick();
+      if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
+        samplePromptVisible.value = true;
+      }
+    });
+
     return {
       idKeyword,
       traceIdKeyword,
@@ -470,6 +499,9 @@ export default {
       showDatasetStats,
       curlDialogVisible,
       currentRow,
+      samplePromptVisible,
+      loadSample,
+      dismissSample,
       copyText,
       openCurlDialog,
       hintText,
@@ -531,5 +563,17 @@ export default {
 .copyable:hover {
   background-color: #f0f0f0;
   border-radius: 2px;
+}
+.sample-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #303133;
 }
 </style>

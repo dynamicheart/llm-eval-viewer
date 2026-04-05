@@ -197,6 +197,20 @@ export function useJsonlFileHandler(options) {
     localStorage.removeItem(storageKey);
   };
 
+  /**
+   * 加载样例数据文本并缓存到 IndexedDB
+   * @param {string} name  显示用文件名
+   * @param {string} text  原始 JSONL/CSV 文本
+   */
+  const loadSampleText = async (name, text) => {
+    const fakeFile = { name, size: text.length, lastModified: 0 };
+    await saveRecentFile(fakeFile, text);
+    const id = `${name}-${text.length}-0`;
+    localStorage.setItem(storageKey, id);
+    currentFileName.value = name;
+    parseJsonl(text);
+  };
+
   const removeRecentFile = (file) => {
     recentFiles.value = recentFiles.value.filter((f) => f.id !== file.id);
     deleteFile(file.id);
@@ -428,6 +442,7 @@ export function useJsonlFileHandler(options) {
     openRecentFile,
     handleFileSelect,
     resetFile,
+    loadSampleText,
     removeRecentFile,
     currentFileName,
     dialogVisible,

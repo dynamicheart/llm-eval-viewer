@@ -33,6 +33,12 @@
       @remove-recent-dir="onRemoveRecentDir"
     />
 
+    <div v-if="samplePromptVisible" class="sample-prompt">
+      <span>首次使用？点击加载样例数据，快速体验功能</span>
+      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
+      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+    </div>
+
     <template v-if="tableData.length">
       <div>
         <el-checkbox v-model="showHistogram"> Token 分布统计 </el-checkbox>
@@ -168,7 +174,7 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
@@ -176,6 +182,7 @@ import HistogramCard from '@/components/HistogramCard.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
+import { SAMPLE_PREDICTIONS_TEXT } from '@/data/sampleData';
 
 import {
   saveFile,
@@ -203,6 +210,9 @@ export default {
     const showDistribution = ref(false);
     const idKeyword = ref('');
 
+    const ONBOARDED_KEY = 'evalscope_predictions_onboarded';
+    const samplePromptVisible = ref(false);
+
     const hasReasoning = computed(() =>
       tableData.value.some(row => row.content?.reasoning)
     );
@@ -218,6 +228,12 @@ export default {
       if (restored) {
         const node = findSelectedNode();
         if (node) await onSelectRun(node);
+      }
+
+      // 首次用户提示
+      await nextTick();
+      if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
+        samplePromptVisible.value = true;
       }
     });
 
@@ -274,6 +290,8 @@ export default {
     };
 
     const parseJsonlPredictions = (text) => {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
       tableData.value = text
         .split('\n')
         .filter(Boolean)
@@ -458,6 +476,7 @@ export default {
       openRecentFile: openRecentFileRaw,
       handleFileSelect,
       resetFile,
+      loadSampleText,
       removeRecentFile,
       currentFileName,
       dialogVisible,
@@ -496,6 +515,15 @@ export default {
       },
     });
 
+    async function loadSample() {
+      await loadSampleText('📋 样例数据 (Predictions)', SAMPLE_PREDICTIONS_TEXT);
+    }
+
+    function dismissSample() {
+      localStorage.setItem(ONBOARDED_KEY, '1');
+      samplePromptVisible.value = false;
+    }
+
     // 模式切换时清空当前视图的单文件状态
     watch(browseMode, (mode) => {
       if (mode === 'directory') {
@@ -511,6 +539,9 @@ export default {
       showHistogram,
       showDistribution,
       hasReasoning,
+      samplePromptVisible,
+      loadSample,
+      dismissSample,
       sidebarWidth,
       formatContentLength,
       // dir browser (共享)
@@ -569,5 +600,17 @@ export default {
 <style scoped>
 .toggle-buttons {
   gap: 12px;
+}
+.sample-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
+  border: 1px solid #b3d8ff;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #303133;
 }
 </style>
