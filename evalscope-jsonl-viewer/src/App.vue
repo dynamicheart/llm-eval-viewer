@@ -159,6 +159,11 @@ export default {
   background-color: transparent;
 }
 
+.nav-menu :deep(.el-menu-item:focus),
+.nav-menu :deep(.el-menu-item:active) {
+  background-color: transparent !important;
+}
+
 .nav-group-tag {
   font-size: 10px;
   color: #909399;

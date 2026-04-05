@@ -407,7 +407,7 @@ export default {
       if (dataCache.has(fileKey)) {
         tableData.value = dataCache.get(fileKey);
       } else {
-        const text = await readRunFile(node.handle, 'reviews');
+        const text = await readRunFile(node.handle, 'reviews', node.isDirect);
         if (!text) {
           ElMessage.warning('未找到 reviews JSONL 文件');
           return;

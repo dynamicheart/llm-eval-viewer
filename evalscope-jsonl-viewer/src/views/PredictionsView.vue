@@ -400,7 +400,7 @@ export default {
       if (dataCache.has(fileKey)) {
         tableData.value = dataCache.get(fileKey);
       } else {
-        const text = await readRunFile(node.handle, 'predictions');
+        const text = await readRunFile(node.handle, 'predictions', node.isDirect);
         if (!text) {
           ElMessage.warning('未找到 predictions JSONL 文件');
           return;

@@ -148,19 +148,34 @@ async function removeCachedHandle(name) {
 // ===== 目录扫描（递归，自动探测最后两层：dataset → run） =====
 
 /**
+ * 检查目录的直接子目录名集合
+ */
+async function getChildDirNames(handle) {
+  const names = new Set();
+  for await (const [name, h] of handle.entries()) {
+    if (h.kind === 'directory') names.add(name);
+  }
+  return names;
+}
+
+/**
  * 判断一个目录是否为完整的 run 目录（同时包含 reviews/、predictions/、reports/ 子目录）
  */
 async function isRunDir(handle) {
-  let hasReviews = false;
-  let hasPredictions = false;
-  let hasReports = false;
-  for await (const [name, h] of handle.entries()) {
-    if (h.kind === 'directory') {
-      if (name === 'reviews') hasReviews = true;
-      else if (name === 'predictions') hasPredictions = true;
-      else if (name === 'reports') hasReports = true;
+  const names = await getChildDirNames(handle);
+  return names.has('reviews') && names.has('predictions') && names.has('reports');
+}
+
+/**
+ * 检查目录是否包含 model 子目录（内含 .jsonl 文件），
+ * 用于判断用户是否直接选了 reviews/ 或 predictions/ 目录
+ */
+async function hasJsonlInModelSubdirs(handle) {
+  for await (const [, h] of handle.entries()) {
+    if (h.kind !== 'directory') continue;
+    for await (const [fname, fh] of h.entries()) {
+      if (fh.kind === 'file' && fname.endsWith('.jsonl')) return true;
     }
-    if (hasReviews && hasPredictions && hasReports) return true;
   }
   return false;
 }
@@ -227,6 +242,46 @@ async function scanNode(handle, name, idPrefix) {
 }
 
 async function scanRoot(rootH) {
+  const rootName = rootH.name || 'root';
+  const childNames = await getChildDirNames(rootH);
+
+  // ===== 场景B：根目录本身就是 run dir（含 reviews/ + predictions/） =====
+  if (childNames.has('reviews') && childNames.has('predictions')) {
+    return [{
+      id: 'dir_ds_direct',
+      label: rootName,
+      children: [{
+        id: `run_${rootName}`,
+        label: formatRunTimestamp(rootName),
+        runDir: rootName,
+        handle: rootH,
+        datasetName: rootName,
+        isLeaf: true,
+      }],
+    }];
+  }
+
+  // ===== 场景C：根目录本身是 reviews/ 或 predictions/ 目录 =====
+  const lowerName = rootName.toLowerCase();
+  if ((lowerName === 'reviews' || lowerName === 'predictions') && await hasJsonlInModelSubdirs(rootH)) {
+    // 将自身包装为一个虚拟 run 节点
+    // readRunFile 会用 type dir，所以需要特殊标记让 readRunFile 跳过一层
+    return [{
+      id: 'dir_ds_direct',
+      label: rootName,
+      children: [{
+        id: `run_${rootName}`,
+        label: rootName,
+        runDir: rootName,
+        handle: rootH,
+        datasetName: rootName,
+        isLeaf: true,
+        isDirect: true,  // 标记：handle 本身就是 type dir，不需要再进入子目录
+      }],
+    }];
+  }
+
+  // ===== 场景A：正常多级目录扫描 =====
   const tree = [];
   for await (const [name, handle] of rootH.entries()) {
     if (handle.kind !== 'directory') continue;
@@ -243,9 +298,10 @@ function formatRunTimestamp(ts) {
 }
 
 // ===== 读取文件 =====
-async function readRunFile(runHandle, type) {
+async function readRunFile(runHandle, type, isDirect = false) {
   try {
-    const typeDir = await runHandle.getDirectoryHandle(type);
+    // isDirect: handle 本身就是 type 目录（场景C），直接读取 model 子目录
+    const typeDir = isDirect ? runHandle : await runHandle.getDirectoryHandle(type);
 
     for await (const [, modelH] of typeDir.entries()) {
       if (modelH.kind !== 'directory') continue;
