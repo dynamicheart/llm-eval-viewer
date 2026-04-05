@@ -196,10 +196,6 @@ export default {
     const showDistribution = ref(false);
     const idKeyword = ref('');
 
-    const sidebarWidth = ref(
-      Number(localStorage.getItem('dir_sidebar_width')) || 380
-    );
-
     onMounted(async () => {
       const histCache = localStorage.getItem('showHistogram');
       const distCache = localStorage.getItem('showDistribution');
@@ -344,6 +340,7 @@ export default {
       activeFileKey,
       hasDir,
       showSidebar,
+      sidebarWidth,
       selectedRunInfo,
 
       browseMode,
@@ -466,6 +463,19 @@ export default {
       tableModel: tableModel,
       dirModeAware: true,
       hintText: '⚠️ 请上传 predictions 目录下的 JSONL 文件',
+      validateContent: (text) => {
+        try {
+          const firstLine = text.split('\n').find(Boolean);
+          if (!firstLine) return null;
+          const json = JSON.parse(firstLine);
+          if (!json.model_output) {
+            return '该文件不像是 Predictions JSONL，确定要加载吗？';
+          }
+        } catch {
+          return '该文件不是有效的 JSONL 格式，确定要加载吗？';
+        }
+        return null;
+      },
     });
 
     // 模式切换时清空当前视图的单文件状态

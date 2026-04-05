@@ -100,16 +100,12 @@
 <script>
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
-import { ref } from 'vue';
 
 export default {
   name: 'App',
   components: { NewsBanner },
   setup() {
-    const { showSidebar } = useDirBrowser();
-    const sidebarWidth = ref(
-      Number(localStorage.getItem('dir_sidebar_width')) || 380
-    );
+    const { showSidebar, sidebarWidth } = useDirBrowser();
     return { showSidebar, sidebarWidth };
   },
   methods: {

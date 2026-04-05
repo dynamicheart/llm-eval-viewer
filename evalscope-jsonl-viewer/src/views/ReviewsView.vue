@@ -200,10 +200,6 @@ export default {
 
     const idKeyword = ref('');
 
-    const sidebarWidth = ref(
-      Number(localStorage.getItem('dir_sidebar_width')) || 380
-    );
-
     function openCurlDialog(row) {
       currentRow.value = row;
       curlDialogVisible.value = true;
@@ -350,6 +346,7 @@ export default {
       activeFileKey,
       hasDir,
       showSidebar,
+      sidebarWidth,
       selectedRunInfo,
 
       browseMode,
@@ -474,6 +471,19 @@ export default {
       tableModel,
       dirModeAware: true,
       hintText: '⚠️ 请上传 reviews 目录下的 JSONL 文件',
+      validateContent: (text) => {
+        try {
+          const firstLine = text.split('\n').find(Boolean);
+          if (!firstLine) return null;
+          const json = JSON.parse(firstLine);
+          if (!json.sample_score && !json.input) {
+            return '该文件不像是 Reviews JSONL，确定要加载吗？';
+          }
+        } catch {
+          return '该文件不是有效的 JSONL 格式，确定要加载吗？';
+        }
+        return null;
+      },
     });
 
     // 模式切换时清空当前视图的单文件状态

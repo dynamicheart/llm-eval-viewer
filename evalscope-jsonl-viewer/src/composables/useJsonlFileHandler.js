@@ -5,7 +5,7 @@
 
 // composables/useJsonlFileHandler.js
 import { ref, computed, watch, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
@@ -31,6 +31,7 @@ export function useJsonlFileHandler(options) {
     tableModel,
     hintText = '',
     dirModeAware = false,
+    validateContent = null,  // (text) => string | null — 返回警告信息或 null 表示通过
   } = options;
 
   const { tableData } = tableModel;
@@ -145,7 +146,29 @@ export function useJsonlFileHandler(options) {
   const loadJSONLFile = async (file) => {
     const text = await file.text();
 
-    await saveRecentFile(file, text); // ⭐ 改这里
+    // 格式校验：如果不匹配，弹出确认框
+    if (validateContent) {
+      const warning = validateContent(text);
+      if (warning) {
+        try {
+          await ElMessageBox.confirm(
+            warning,
+            '文件格式确认',
+            {
+              confirmButtonText: '继续加载',
+              cancelButtonText: '取消',
+              type: 'warning',
+            }
+          );
+        } catch {
+          // 用户取消
+          currentFileName.value = '';
+          return;
+        }
+      }
+    }
+
+    await saveRecentFile(file, text);
 
     localStorage.setItem(
       storageKey,

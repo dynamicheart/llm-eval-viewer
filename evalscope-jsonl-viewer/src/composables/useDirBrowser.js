@@ -31,6 +31,9 @@ const recentDirs = ref(JSON.parse(localStorage.getItem(RECENT_DIRS_KEY) || '[]')
 // 侧边栏可见性：派生状态，目录模式 + 有目录树 = 显示
 const showSidebar = computed(() => hasDir.value && browseMode.value === 'directory');
 
+// 侧边栏宽度（共享，拖拽时实时更新）
+const sidebarWidth = ref(Number(localStorage.getItem('dir_sidebar_width')) || 380);
+
 // 持久化选中的 run 节点信息
 const _savedRun = localStorage.getItem('evalscope_selected_run');
 const selectedRunInfo = ref(_savedRun ? JSON.parse(_savedRun) : null);
@@ -428,6 +431,7 @@ export function useDirBrowser() {
     activeFileKey,
     hasDir,
     showSidebar,
+    sidebarWidth,
     browseMode,
     dirName,
     cachedDirName,
