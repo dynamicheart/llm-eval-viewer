@@ -20,12 +20,13 @@
       检测到模型：<b style="color: #303133">{{ modelName }}</b>
     </div>
 
-    <div>
-      <el-checkbox v-model="showHistogram">Token 分布统计</el-checkbox>
-      <el-checkbox v-model="showDistribution">标注结果分布</el-checkbox>
-      <el-checkbox v-model="showFinishReasonDist">Finish Reason 分布</el-checkbox>
-      <el-checkbox v-model="showDatasetStats">数据集统计</el-checkbox>
-    </div>
+    <template v-if="tableData.length">
+      <div>
+        <el-checkbox v-model="showHistogram">Token 分布统计</el-checkbox>
+        <el-checkbox v-model="showDistribution">标注结果分布</el-checkbox>
+        <el-checkbox v-model="showFinishReasonDist">Finish Reason 分布</el-checkbox>
+        <el-checkbox v-model="showDatasetStats">数据集统计</el-checkbox>
+      </div>
 
     <HistogramCard
       v-if="showHistogram"
@@ -209,6 +210,7 @@
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 20px; text-align: right"
     />
+    </template>
 
     <DetailDialog
       :dialogVisible.sync="dialogVisible"
