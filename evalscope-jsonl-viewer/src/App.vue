@@ -59,7 +59,7 @@
 
     <div class="nav-spacer"></div>
 
-    <header class="page-header" :style="showSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}">
+    <header class="page-header" :style="shouldOffsetForSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}">
       <img
         src="/evalscope_icon.png"
         alt="Evalscope Icon"
@@ -78,7 +78,7 @@
       </h1>
     </header>
 
-    <NewsBanner :style="showSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}" />
+    <NewsBanner :style="shouldOffsetForSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}" />
 
     <router-view />
     <footer class="page-footer">
@@ -118,6 +118,10 @@ export default {
     },
   },
   computed: {
+    shouldOffsetForSidebar() {
+      const path = this.$route.path;
+      return this.showSidebar && (path === '/reviews' || path === '/predictions');
+    },
     buildTime() {
       return typeof __BUILD_TIME__ !== 'undefined'
         ? new Date(__BUILD_TIME__).toLocaleString()

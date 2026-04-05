@@ -40,10 +40,7 @@
       </el-tooltip>
 
       <!-- 最近记录（文件 + 目录合并） -->
-      <el-dropdown
-        v-if="recentFiles.length || recentDirs.length"
-        popper-class="recent-dropdown"
-      >
+      <el-dropdown popper-class="recent-dropdown">
         <el-button size="small" plain>
           最近记录 <el-icon><ArrowDown /></el-icon>
         </el-button>
@@ -105,6 +102,11 @@
                   <Close />
                 </el-icon>
               </div>
+            </el-dropdown-item>
+
+            <!-- 空状态 -->
+            <el-dropdown-item v-if="!recentFiles.length && !recentDirs.length" disabled>
+              <span style="font-size: 12px; color: #909399">暂无记录</span>
             </el-dropdown-item>
 
             <el-dropdown-item v-if="recentFiles.length" divided @click="$emit('clear-recent-files')">

@@ -6,8 +6,9 @@
 // src/utils/fileDB.js
 
 const DB_NAME = 'evalscope_files';
-const DB_VERSION = 8;
-const STORE_NAME = 'files';
+const DB_VERSION = 9;
+const META_STORE = 'files';        // 元数据（不含 content）
+const CONTENT_STORE = 'contents';  // 大文件内容单独存
 
 let db = null;
 
@@ -21,10 +22,10 @@ export function openDB() {
       const db = req.result;
       let store;
 
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        store = db.createObjectStore(META_STORE, { keyPath: 'id' });
       } else {
-        store = req.transaction.objectStore(STORE_NAME);
+        store = req.transaction.objectStore(META_STORE);
       }
 
       if (!store.indexNames.contains('name')) {
@@ -40,6 +41,30 @@ export function openDB() {
           unique: false,
         });
       }
+
+      // 新增：内容存储
+      if (!db.objectStoreNames.contains(CONTENT_STORE)) {
+        db.createObjectStore(CONTENT_STORE, { keyPath: 'id' });
+      }
+
+      // 迁移：如果旧记录中 content 字段存在于 META_STORE，将其迁移到 CONTENT_STORE
+      // 这在 upgrade 事务中通过游标完成
+      const metaStore = req.transaction.objectStore(META_STORE);
+      const contentStore = req.transaction.objectStore(CONTENT_STORE);
+      metaStore.openCursor().onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const record = cursor.value;
+          if (record.content !== undefined) {
+            // 将 content 移到 CONTENT_STORE
+            contentStore.put({ id: record.id, content: record.content });
+            // 从 meta 中删除 content
+            const { content, ...meta } = record;
+            cursor.update(meta);
+          }
+          cursor.continue();
+        }
+      };
     };
 
     req.onsuccess = () => {
@@ -53,14 +78,17 @@ export function openDB() {
 
 export async function saveFile(namespace, entry) {
   const db = await openDB();
+  const { content, ...meta } = entry;
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    store.put({
-      ...entry,
-      namespace,
-    });
+    const tx = db.transaction([META_STORE, CONTENT_STORE], 'readwrite');
+    const metaStore = tx.objectStore(META_STORE);
+    const contentStore = tx.objectStore(CONTENT_STORE);
+
+    metaStore.put({ ...meta, namespace });
+    if (content !== undefined) {
+      contentStore.put({ id: meta.id, content });
+    }
 
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -71,12 +99,26 @@ export async function getFile(id) {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.get(id);
+    const tx = db.transaction([META_STORE, CONTENT_STORE], 'readonly');
+    const metaStore = tx.objectStore(META_STORE);
+    const contentStore = tx.objectStore(CONTENT_STORE);
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    const metaReq = metaStore.get(id);
+    const contentReq = contentStore.get(id);
+
+    tx.oncomplete = () => {
+      if (!metaReq.result) {
+        resolve(undefined);
+        return;
+      }
+      const meta = metaReq.result;
+      const contentRecord = contentReq.result;
+      resolve({
+        ...meta,
+        content: contentRecord ? contentRecord.content : undefined,
+      });
+    };
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -84,8 +126,8 @@ export async function listFiles(namespace, limit = 5) {
   const db = await openDB();
 
   return new Promise((resolve) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
+    const tx = db.transaction(META_STORE, 'readonly');
+    const store = tx.objectStore(META_STORE);
     const index = store.index('namespace_lastOpen');
     const range = IDBKeyRange.bound([namespace, 0], [namespace, Infinity]);
 
@@ -93,8 +135,7 @@ export async function listFiles(namespace, limit = 5) {
     index.openCursor(range, 'prev').onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor && result.length < limit) {
-        const { content, ...meta } = cursor.value;
-        result.push(meta);
+        result.push(cursor.value); // 元数据中已无 content，直接返回
         cursor.continue();
       } else {
         resolve(result);
@@ -107,16 +148,18 @@ export async function clearFiles(namespace) {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    const index = store.index('namespace_lastOpen');
+    const tx = db.transaction([META_STORE, CONTENT_STORE], 'readwrite');
+    const metaStore = tx.objectStore(META_STORE);
+    const contentStore = tx.objectStore(CONTENT_STORE);
+    const index = metaStore.index('namespace_lastOpen');
 
     const range = IDBKeyRange.bound([namespace, 0], [namespace, Infinity]);
 
     index.openCursor(range).onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor) {
-        store.delete(cursor.primaryKey);
+        contentStore.delete(cursor.primaryKey);
+        metaStore.delete(cursor.primaryKey);
         cursor.continue();
       }
     };
@@ -130,12 +173,11 @@ export async function deleteFile(id) {
   const db = await openDB();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
+    const tx = db.transaction([META_STORE, CONTENT_STORE], 'readwrite');
+    tx.objectStore(META_STORE).delete(id);
+    tx.objectStore(CONTENT_STORE).delete(id);
 
-    const req = store.delete(id);
-
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
