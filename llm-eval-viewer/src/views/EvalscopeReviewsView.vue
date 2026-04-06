@@ -1,5 +1,5 @@
 <!--
-  Copyright (c) 2025 dynamicheart
+  Copyright (c) 2026 dynamicheart
   Licensed under the MIT License.
 -->
 
@@ -157,9 +157,8 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ElMessage } from 'element-plus';
 
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
@@ -176,9 +175,10 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
+import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
-import { useDirBrowser } from '@/composables/useDirBrowser';
+import { useDirIntegration } from '@/composables/useDirIntegration';
 
 export default {
   components: {
@@ -193,94 +193,66 @@ export default {
     const { t } = useI18n();
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
-
     const idKeyword = ref('');
-
-    const ONBOARDED_KEY = 'evalscope_reviews_onboarded';
-    const samplePromptVisible = ref(false);
 
     function openCurlDialog(row) {
       currentRow.value = row;
       curlDialogVisible.value = true;
     }
 
-    const resultDistribution = computed(() => {
-      const total = tableData.value.length;
-      if (total === 0) return [];
-
-      const countMap = {};
-      tableData.value.forEach((item) => {
-        const key = item.result ?? t('common.unknown');
-        countMap[key] = (countMap[key] || 0) + 1;
-      });
-
-      return Object.entries(countMap).map(([result, count]) => ({
-        result,
-        count,
-        percentage: ((count / total) * 100).toFixed(1),
-      }));
-    });
+    // ===== Domain logic =====
 
     const getSolutionFromSample = (json) => {
       const meta = json?.sample_score?.sample_metadata;
 
       if (typeof meta?.solution === 'string' && meta.solution.trim() !== '') {
-        return {
-          type: 'solution',
-          content: meta.solution,
-          render: 'markdown',
-        };
+        return { type: 'solution', content: meta.solution, render: 'markdown' };
       }
 
       if (meta && Object.keys(meta).length > 0) {
-        return {
-          type: 'metadata',
-          content: JSON.stringify(meta, null, 2),
-          render: 'json',
-        };
+        return { type: 'metadata', content: JSON.stringify(meta, null, 2), render: 'json' };
       }
 
       const metadata = json?.sample_score?.score?.metadata;
       if (metadata && Object.keys(metadata).length > 0) {
-        return {
-          type: 'metadata',
-          content: JSON.stringify(metadata, null, 2),
-          render: 'json',
-        };
+        return { type: 'metadata', content: JSON.stringify(metadata, null, 2), render: 'json' };
       }
 
-      return {
-        type: 'empty',
-        content: t('detailDialog.noSolutionDetail'),
-        render: 'text',
-      };
+      return { type: 'empty', content: t('detailDialog.noSolutionDetail'), render: 'text' };
     };
 
     const getSampleId = (json, idx) => {
       const sample_score = json?.sample_score || {};
       const meta = sample_score?.sample_metadata;
-
       if (meta?.question_id) return String(meta.question_id);
       if (meta?.problem_id) return String(meta.problem_id);
       if (meta?.task_id) return String(meta.task_id);
       if (sample_score?.sample_id) return String(sample_score.sample_id);
-
       return `row_${idx + 1}`;
     };
 
     function getPriorityValue(obj, fields = ['acc', 'pass']) {
       for (const field of fields) {
         const val = obj?.[field];
-        if (val !== undefined && val !== null) {
-          return val;
-        }
+        if (val !== undefined && val !== null) return val;
       }
       return '';
     }
 
+    // ===== Table model =====
+    const tableModel = useTableModel();
+    const {
+      tableData, filteredData, paginatedData,
+      currentPage, pageSize, totalItems, totalVisibleItems,
+      activeFilters, createColumnFilter,
+      onTableFilterChange, setKeywordFilter, setColumnFilter, onTableSortChange,
+      reset,
+    } = tableModel;
+
+    const { filters: resultFilters } = createColumnFilter('result');
+
+    // ===== Parser =====
     const parseJsonlReviews = (text) => {
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      samplePromptVisible.value = false;
       tableData.value = text
         .split('\n')
         .filter(Boolean)
@@ -288,7 +260,6 @@ export default {
           try {
             const json = JSON.parse(line);
             const score = json.sample_score?.score || {};
-
             return {
               index: json.index ?? idx + 1,
               id: getSampleId(json, idx),
@@ -302,189 +273,20 @@ export default {
             };
           } catch {
             return {
-              index: idx + 1,
-              id: 'parse_error',
-              prompt: '',
-              pred: '',
-              gold: '',
-              result: '',
-              content: '',
-              solution: {
-                type: 'empty',
-                content: t('detailDialog.parseFailed'),
-                render: 'text',
-              },
+              index: idx + 1, id: 'parse_error', prompt: '', pred: '', gold: '',
+              result: '', content: '',
+              solution: { type: 'empty', content: t('detailDialog.parseFailed'), render: 'text' },
               rawJson: '',
             };
           }
         });
     };
 
-    const tableModel = useTableModel();
-
-    const {
-      tableData,
-      filteredData,
-      paginatedData,
-      currentPage,
-      pageSize,
-      totalItems,
-      totalVisibleItems,
-      activeFilters,
-      createColumnFilter,
-      onTableFilterChange,
-      setKeywordFilter,
-      setColumnFilter,
-      onTableSortChange,
-      reset,
-    } = tableModel;
-
-    const { filters: resultFilters } = createColumnFilter('result');
-
-    // ===== Shared directory browser =====
-    const {
-      dirTree,
-      activeFileKey,
-      hasDir,
-      showSidebar,
-      sidebarWidth,
-      selectedRunInfo,
-
-      browseMode,
-      dirName,
-      recentDirs,
-      supportsDirectoryPicker,
-      openDirectory,
-      setBrowseMode,
-      setSelectedRun,
-      clearSelectedRun,
-      findSelectedNode,
-      readRunFile,
-      buildFileKey,
-      tryRestoreCachedHandle,
-      restoreCachedDirectory,
-      removeCachedHandle,
-    } = useDirBrowser();
-
-    const currentNodeKey = computed(() =>
-      selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
-    );
-
-    /** In-memory parsed data cache per file (not persisted) */
-    const dataCache = new Map();
-
-    async function onOpenDirectory() {
-      clearSelectedRun();
-      await openDirectory();
-      if (browseMode.value === 'directory') {
-        tableData.value = [];
-        reset();
-        currentFileName.value = '';
-      }
-    }
-
-    async function onRestoreDirectory(dirNameArg) {
-      clearSelectedRun();
-      const ok = await restoreCachedDirectory(dirNameArg);
-      if (ok) {
-        tableData.value = [];
-        reset();
-        currentFileName.value = '';
-        const node = findSelectedNode();
-        if (node) await onSelectRun(node);
-      }
-    }
-
-    function onRemoveRecentDir(name) {
-      removeCachedHandle(name);
-    }
-
-    async function onSelectRun(node) {
-      // Scenario C: user selected a predictions/ directory, cannot view reviews data
-      if (node.directType && node.directType !== 'reviews') {
-        ElMessage.warning(t('reviews.wrongDirType', { type: node.directType }));
-        return;
-      }
-
-      const fileKey = buildFileKey(node, 'reviews');
-
-      activeFileKey.value = fileKey;
-      setSelectedRun(node.runDir, node.datasetName);
-
-      if (dataCache.has(fileKey)) {
-        tableData.value = dataCache.get(fileKey);
-      } else {
-        const text = await readRunFile(node.handle, 'reviews', node.isDirect);
-        if (!text) {
-          ElMessage.warning(t('reviews.notFound'));
-          return;
-        }
-        parseJsonlReviews(text);
-        dataCache.set(fileKey, [...tableData.value]);
-      }
-
-      currentFileName.value = `${node.datasetName} / ${node.label}`;
-      idKeyword.value = '';
-      reset();
-    }
-
-    /** Switch back to file mode when single file is selected */
-    async function onHandleFileSelect(file) {
-      const ok = await handleFileSelect(file);
-      if (!ok) return;
-      setBrowseMode('file');
-      activeFileKey.value = '';
-    }
-
-    function openRecentFile(file) {
-      setBrowseMode('file');
-      activeFileKey.value = '';
-      openRecentFileRaw(file);
-    }
-
-    /** Build safe HTML for tooltip preview: escape, truncate, preserve newlines */
-    function previewHtml(text, maxLen = 400) {
-      if (!text) return '';
-      const s = String(text).slice(0, maxLen)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      return text.length > maxLen ? s + '…' : s;
-    }
-
-    function quickFilterResult(value) {
-      setColumnFilter('result', [value]);
-    }
-
-    const {
-      hintText,
-      recentFiles,
-      formatSize,
-      formatTime,
-      clearRecentFiles,
-      openRecentFile: openRecentFileRaw,
-      handleFileSelect,
-      resetFile,
-      loadSampleText,
-      removeRecentFile,
-      currentFileName,
-      dialogVisible,
-      dialogHasTabs,
-      dialogTabsData,
-      dialogContent,
-      dialogRawText,
-      showDialog,
-      showSolutionDialog,
-      showRawJsonDialog,
-      truncateText,
-      formatResultMeta,
-    } = useJsonlFileHandler({
+    // ===== File handler =====
+    const fileHandler = useJsonlFileHandler({
       storageNamespace: 'evalscope_reviews',
       storageKey: 'evalscope_reviews_cache',
-      listFiles: listFiles,
-      getFile: getFile,
-      saveFile: saveFile,
-      clearFiles: clearFiles,
-      deleteFile: deleteFile,
+      listFiles, getFile, saveFile, clearFiles, deleteFile,
       parseJsonl: parseJsonlReviews,
       tableModel,
       dirModeAware: true,
@@ -504,39 +306,31 @@ export default {
       },
     });
 
-    async function loadSample() {
-      await loadSampleText(t('sample.sampleName.reviews'), SAMPLE_REVIEWS_TEXT);
-    }
+    const {
+      hintText, recentFiles, formatSize, formatTime,
+      clearRecentFiles, resetFile, removeRecentFile,
+      currentFileName,
+      dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
+      showDialog, showSolutionDialog, showRawJsonDialog,
+      truncateText, formatResultMeta,
+    } = fileHandler;
 
-    function dismissSample() {
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      samplePromptVisible.value = false;
-    }
-
-    // Clear current view's single file state when mode switches
-    watch(browseMode, (mode) => {
-      if (mode === 'directory') {
-        tableData.value = [];
-        idKeyword.value = '';
-        reset();
-        currentFileName.value = '';
-      }
+    // ===== Directory integration =====
+    const dirIntegration = useDirIntegration({
+      type: 'reviews',
+      parseFile: parseJsonlReviews,
+      tableModel,
+      fileHandler,
+      t,
+      onboardedKey: 'evalscope_reviews_onboarded',
+      sampleName: t('sample.sampleName.reviews'),
+      sampleText: SAMPLE_REVIEWS_TEXT,
+      loadSampleText: fileHandler.loadSampleText,
     });
 
-    // On page load, try to restore directory and auto-load last selected file
-    onMounted(async () => {
-      const restored = await tryRestoreCachedHandle();
-      if (restored) {
-        const node = findSelectedNode();
-        if (node) await onSelectRun(node);
-      }
-
-      // First-time user prompt
-      await nextTick();
-      if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
-        samplePromptVisible.value = true;
-      }
-    });
+    function quickFilterResult(value) {
+      setColumnFilter('result', [value]);
+    }
 
     return {
       curlDialogVisible,
@@ -544,61 +338,22 @@ export default {
       idKeyword,
       openCurlDialog,
       previewHtml,
-      samplePromptVisible,
-      loadSample,
-      dismissSample,
-      sidebarWidth,
-      resultDistribution,
-      // dir browser (shared)
-      dirTree,
-      activeFileKey,
-      hasDir,
-      showSidebar,
-      currentNodeKey,
-      browseMode,
-      dirName,
-      recentDirs,
-      supportsDirectoryPicker,
-      onOpenDirectory,
-      onRestoreDirectory,
-      onRemoveRecentDir,
-      onSelectRun,
-      onHandleFileSelect,
-      // file handler
-      hintText,
-      formatSize,
-      formatTime,
-      clearRecentFiles,
-      recentFiles,
-      openRecentFile,
-      resetFile,
-      removeRecentFile,
+      // Dir integration
+      ...dirIntegration,
+      // File handler
+      hintText, formatSize, formatTime,
+      clearRecentFiles, recentFiles, resetFile, removeRecentFile,
       currentFileName,
-      dialogVisible,
-      dialogHasTabs,
-      dialogTabsData,
-      dialogContent,
-      dialogRawText,
-      showDialog,
-      showSolutionDialog,
-      showRawJsonDialog,
-      truncateText,
-      formatResultMeta,
-      tableData,
-      currentPage,
-      pageSize,
-      filteredData,
-      paginatedData,
-      totalItems,
-      totalVisibleItems,
-      createColumnFilter,
-      onTableFilterChange,
-      onTableSortChange,
-      reset,
-      resultFilters,
-      activeFilters,
-      setKeywordFilter,
-      setColumnFilter,
+      dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
+      showDialog, showSolutionDialog, showRawJsonDialog,
+      truncateText, formatResultMeta,
+      // Table
+      tableData, currentPage, pageSize,
+      filteredData, paginatedData,
+      totalItems, totalVisibleItems,
+      onTableFilterChange, onTableSortChange,
+      resultFilters, activeFilters,
+      setKeywordFilter, setColumnFilter,
       quickFilterResult,
     };
   },
@@ -606,23 +361,8 @@ export default {
 </script>
 
 <style scoped>
-.clickable-cell {
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.clickable-cell:hover {
-  color: var(--ev-color-primary);
-}
-.sample-prompt {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  margin-bottom: 8px;
-  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
-  border: 1px solid var(--ev-border-banner);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--ev-text-primary);
+/* Ensure filter popover is not clipped by fixed table header */
+:deep(.el-table__header-wrapper) {
+  overflow: visible;
 }
 </style>

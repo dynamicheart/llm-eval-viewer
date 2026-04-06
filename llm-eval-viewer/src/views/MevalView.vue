@@ -250,6 +250,7 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
+import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 
@@ -461,14 +462,6 @@ export default {
       showRawJsonDialog({ rawJson: row.resultDetailJson || '{}' });
     };
 
-    function previewHtml(text, maxLen = 400) {
-      if (!text) return '';
-      const s = String(text).slice(0, maxLen)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      return text.length > maxLen ? s + '…' : s;
-    }
-
     function quickFilterResult(value) {
       setColumnFilter('result', [value]);
     }
@@ -578,46 +571,12 @@ export default {
 :deep(.el-table__header-wrapper) {
   overflow: visible;
 }
-.distribution-row {
-  display: flex;
-  gap: 16px;
-}
-.distribution-row > * {
-  flex: 1;
-  min-width: 0;
-}
-.copyable {
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.copyable:hover {
-  color: var(--ev-color-primary);
-}
-.clickable-cell {
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.clickable-cell:hover {
-  color: var(--ev-color-primary);
-}
 .model-info {
   margin-bottom: 8px;
   color: var(--ev-text-secondary);
   font-size: 13px;
 }
 .model-name {
-  color: var(--ev-text-primary);
-}
-.sample-prompt {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  margin-bottom: 8px;
-  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
-  border: 1px solid var(--ev-border-banner);
-  border-radius: 6px;
-  font-size: 13px;
   color: var(--ev-text-primary);
 }
 </style>

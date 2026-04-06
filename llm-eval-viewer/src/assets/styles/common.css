@@ -50,3 +50,42 @@
   word-break: break-word;
   white-space: normal;
 }
+
+/* === Shared view styles === */
+.clickable-cell {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.clickable-cell:hover {
+  color: var(--ev-color-primary);
+}
+
+.copyable {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.copyable:hover {
+  color: var(--ev-color-primary);
+}
+
+.sample-prompt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
+  border: 1px solid var(--ev-border-banner);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ev-text-primary);
+}
+
+.distribution-row {
+  display: flex;
+  gap: 16px;
+}
+.distribution-row > * {
+  flex: 1;
+  min-width: 0;
+}

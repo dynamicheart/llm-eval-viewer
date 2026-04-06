@@ -1,5 +1,5 @@
 <!--
-  Copyright (c) 2025 dynamicheart
+  Copyright (c) 2026 dynamicheart
   Licensed under the MIT License.
 -->
 
@@ -114,18 +114,6 @@
       <el-table-column prop="input_tokens" label="Input Tokens" />
       <el-table-column prop="output_tokens" label="Output Tokens" />
       <el-table-column prop="total_tokens" label="Total Tokens" />
-      <!-- <el-table-column label="len(content)">
-        <template #default="{ row }">
-          <el-tooltip
-            :disabled="!row.content?.reasoning"
-            content="(reasoning_len + text_len)"
-            placement="top"
-            effect="dark"
-          >
-            <span> {{ formatContentLength(row.content) }} </span>
-          </el-tooltip>
-        </template>
-      </el-table-column> -->
       <el-table-column
         column-key="stop_reason"
         prop="stop_reason"
@@ -170,9 +158,9 @@
 </template>
 
 <script>
-import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ElMessage } from 'element-plus';
+
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
 import HistogramCard from '@/components/HistogramCard.vue';
@@ -188,9 +176,10 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
+import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
-import { useDirBrowser } from '@/composables/useDirBrowser';
+import { useDirIntegration } from '@/composables/useDirIntegration';
 
 export default {
   components: {
@@ -208,302 +197,94 @@ export default {
     const showDistribution = ref(false);
     const idKeyword = ref('');
 
-    const ONBOARDED_KEY = 'evalscope_predictions_onboarded';
-    const samplePromptVisible = ref(false);
+    // Persist checkbox state
+    const histCache = localStorage.getItem('showHistogram');
+    const distCache = localStorage.getItem('showDistribution');
+    if (histCache !== null) showHistogram.value = histCache === 'true';
+    if (distCache !== null) showDistribution.value = distCache === 'true';
 
-    const hasReasoning = computed(() =>
-      tableData.value.some(row => row.content?.reasoning)
-    );
+    watch(showHistogram, (val) => localStorage.setItem('showHistogram', val));
+    watch(showDistribution, (val) => localStorage.setItem('showDistribution', val));
 
-    onMounted(async () => {
-      const histCache = localStorage.getItem('showHistogram');
-      const distCache = localStorage.getItem('showDistribution');
-      if (histCache !== null) showHistogram.value = histCache === 'true';
-      if (distCache !== null) showDistribution.value = distCache === 'true';
-
-      // Try to restore directory and auto-load last selected file
-      const restored = await tryRestoreCachedHandle();
-      if (restored) {
-        const node = findSelectedNode();
-        if (node) await onSelectRun(node);
-      }
-
-      // First-time user prompt
-      await nextTick();
-      if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
-        samplePromptVisible.value = true;
-      }
-    });
-
-    watch(showHistogram, (val) => {
-      localStorage.setItem('showHistogram', val);
-    });
-    watch(showDistribution, (val) => {
-      localStorage.setItem('showDistribution', val);
-    });
+    // ===== Domain logic =====
 
     const getSampleId = (json, idx) => {
       const meta = json?.metadata || {};
-
       if (meta?.question_id) return String(meta.question_id);
       if (meta?.problem_id) return String(meta.problem_id);
       if (meta?.task_id) return String(meta.task_id);
-
       return `row_${idx + 1}`;
     };
 
-    const formatContentLength = (content) => {
-      const textLen = (content?.text || '').length;
-      const reasoningLen = (content?.reasoning || '').length;
-
-      if (reasoningLen === 0) {
-        return `${textLen}`;
-      }
-
-      return `${textLen + reasoningLen} (${reasoningLen} + ${textLen})`;
-    };
-
     const parseContent = (rawContent) => {
-      if (!rawContent) {
-        return { reasoning: null, text: '' };
-      }
-
-      if (typeof rawContent === 'string') {
-        return { reasoning: null, text: rawContent };
-      }
-
+      if (!rawContent) return { reasoning: null, text: '' };
+      if (typeof rawContent === 'string') return { reasoning: null, text: rawContent };
       if (Array.isArray(rawContent)) {
-        const reasoningItem = rawContent.find(
-          (item) => item.type === 'reasoning'
-        );
+        const reasoningItem = rawContent.find((item) => item.type === 'reasoning');
         const textItem = rawContent.find((item) => item.type === 'text');
-
         return {
           reasoning: reasoningItem ? reasoningItem.reasoning || null : null,
           text: textItem ? textItem.text || '' : '',
         };
       }
-
       return { reasoning: null, text: '' };
     };
 
+    // ===== Table model =====
+    const tableModel = useTableModel();
+    const {
+      tableData, filteredData, paginatedData,
+      currentPage, pageSize, totalItems, totalVisibleItems,
+      activeFilters, createColumnFilter,
+      onTableFilterChange, setKeywordFilter, setColumnFilter, onTableSortChange,
+      reset,
+    } = tableModel;
+
+    const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
+
+    const hasReasoning = computed(() =>
+      tableData.value.some(row => row.content?.reasoning)
+    );
+
+    // ===== Parser =====
     const parseJsonlPredictions = (text) => {
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      samplePromptVisible.value = false;
       tableData.value = text
         .split('\n')
         .filter(Boolean)
         .map((line, idx) => {
           try {
             const json = JSON.parse(line);
-
-            const content =
-              json.model_output?.choices?.[0]?.message?.content || '';
-
+            const content = json.model_output?.choices?.[0]?.message?.content || '';
             const usage = json.model_output?.usage || {};
-            const inputTokens = usage.input_tokens ?? '';
-            const outputTokens = usage.output_tokens ?? '';
-            const totalTokens = usage.total_tokens ?? '';
-            const stopReason =
-              json.model_output?.choices?.[0]?.stop_reason || '';
-
             return {
               index: json.index ?? idx + 1,
               id: getSampleId(json, idx),
               prompt: json.input || '',
-              pred: '',
-              gold: '',
-              result: '',
+              pred: '', gold: '', result: '',
               content: parseContent(content),
-              input_tokens: inputTokens,
-              output_tokens: outputTokens,
-              total_tokens: totalTokens,
-              stop_reason: stopReason,
+              input_tokens: usage.input_tokens ?? '',
+              output_tokens: usage.output_tokens ?? '',
+              total_tokens: usage.total_tokens ?? '',
+              stop_reason: json.model_output?.choices?.[0]?.stop_reason || '',
               rawJson: JSON.stringify(json, null, 2),
             };
           } catch {
             return {
-              index: idx + 1,
-              id: 'parse_error',
-              prompt: '',
-              pred: '',
-              gold: '',
-              result: '',
-              content: '',
-              input_tokens: '',
-              output_tokens: '',
-              total_tokens: '',
-              stop_reason: '',
+              index: idx + 1, id: 'parse_error', prompt: '', pred: '', gold: '', result: '',
+              content: '', input_tokens: '', output_tokens: '', total_tokens: '', stop_reason: '',
               rawJson: '',
             };
           }
         });
     };
 
-    const tableModel = useTableModel();
-
-    const {
-      tableData,
-      filteredData,
-      paginatedData,
-      currentPage,
-      pageSize,
-      totalItems,
-      totalVisibleItems,
-      activeFilters,
-      createColumnFilter,
-      onTableFilterChange,
-      setKeywordFilter,
-      setColumnFilter,
-      onTableSortChange,
-      reset,
-    } = tableModel;
-
-    const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
-
-    // ===== Shared directory browser =====
-    const {
-      dirTree,
-      activeFileKey,
-      hasDir,
-      showSidebar,
-      sidebarWidth,
-      selectedRunInfo,
-
-      browseMode,
-      dirName,
-      recentDirs,
-      supportsDirectoryPicker,
-      openDirectory,
-      setBrowseMode,
-      setSelectedRun,
-      clearSelectedRun,
-      findSelectedNode,
-      readRunFile,
-      buildFileKey,
-      tryRestoreCachedHandle,
-      restoreCachedDirectory,
-      removeCachedHandle,
-    } = useDirBrowser();
-
-    const currentNodeKey = computed(() =>
-      selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
-    );
-
-    const dataCache = new Map();
-
-    async function onOpenDirectory() {
-      clearSelectedRun();
-      await openDirectory();
-      if (browseMode.value === 'directory') {
-        tableData.value = [];
-        reset();
-        currentFileName.value = '';
-      }
-    }
-
-    async function onRestoreDirectory(dirNameArg) {
-      clearSelectedRun();
-      const ok = await restoreCachedDirectory(dirNameArg);
-      if (ok) {
-        tableData.value = [];
-        reset();
-        currentFileName.value = '';
-        const node = findSelectedNode();
-        if (node) await onSelectRun(node);
-      }
-    }
-
-    function onRemoveRecentDir(name) {
-      removeCachedHandle(name);
-    }
-
-    async function onSelectRun(node) {
-      // Scenario C: user selected a reviews/ directory, cannot view predictions data
-      if (node.directType && node.directType !== 'predictions') {
-        ElMessage.warning(t('predictions.wrongDirType', { type: node.directType }));
-        return;
-      }
-
-      const fileKey = buildFileKey(node, 'predictions');
-
-      activeFileKey.value = fileKey;
-      setSelectedRun(node.runDir, node.datasetName);
-
-      if (dataCache.has(fileKey)) {
-        tableData.value = dataCache.get(fileKey);
-      } else {
-        const text = await readRunFile(node.handle, 'predictions', node.isDirect);
-        if (!text) {
-          ElMessage.warning(t('predictions.notFound'));
-          return;
-        }
-        parseJsonlPredictions(text);
-        dataCache.set(fileKey, [...tableData.value]);
-      }
-
-      currentFileName.value = `${node.datasetName} / ${node.label}`;
-      idKeyword.value = '';
-      reset();
-    }
-
-    /** Switch back to file mode when single file is selected */
-    async function onHandleFileSelect(file) {
-      const ok = await handleFileSelect(file);
-      if (!ok) return;
-      setBrowseMode('file');
-      activeFileKey.value = '';
-    }
-
-    function openRecentFile(file) {
-      setBrowseMode('file');
-      activeFileKey.value = '';
-      openRecentFileRaw(file);
-    }
-
-    function previewHtml(text, maxLen = 400) {
-      if (!text) return '';
-      const s = String(text).slice(0, maxLen)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-      return text.length > maxLen ? s + '…' : s;
-    }
-
-    function quickFilterStopReason(value) {
-      setColumnFilter('stop_reason', [value]);
-    }
-
-    const {
-      hintText,
-      recentFiles,
-      formatSize,
-      formatTime,
-      clearRecentFiles,
-      openRecentFile: openRecentFileRaw,
-      handleFileSelect,
-      resetFile,
-      loadSampleText,
-      removeRecentFile,
-      currentFileName,
-      dialogVisible,
-      dialogHasTabs,
-      dialogTabsData,
-      dialogContent,
-      dialogRawText,
-      showDialog,
-      _,
-      showRawJsonDialog,
-      truncateText,
-    } = useJsonlFileHandler({
+    // ===== File handler =====
+    const fileHandler = useJsonlFileHandler({
       storageNamespace: 'evalscope_predictions',
       storageKey: 'evalscope_predictions_cache',
-      listFiles: listFiles,
-      getFile: getFile,
-      saveFile: saveFile,
-      clearFiles: clearFiles,
-      deleteFile: deleteFile,
+      listFiles, getFile, saveFile, clearFiles, deleteFile,
       parseJsonl: parseJsonlPredictions,
-      tableModel: tableModel,
+      tableModel,
       dirModeAware: true,
       hintText: t('predictions.hintText'),
       validateContent: (text) => {
@@ -521,24 +302,31 @@ export default {
       },
     });
 
-    async function loadSample() {
-      await loadSampleText(t('sample.sampleName.predictions'), SAMPLE_PREDICTIONS_TEXT);
-    }
+    const {
+      hintText, recentFiles, formatSize, formatTime,
+      clearRecentFiles, resetFile, removeRecentFile,
+      currentFileName,
+      dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
+      showDialog, showRawJsonDialog,
+      truncateText,
+    } = fileHandler;
 
-    function dismissSample() {
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      samplePromptVisible.value = false;
-    }
-
-    // Clear current view's single file state when mode switches
-    watch(browseMode, (mode) => {
-      if (mode === 'directory') {
-        tableData.value = [];
-        idKeyword.value = '';
-        reset();
-        currentFileName.value = '';
-      }
+    // ===== Directory integration =====
+    const dirIntegration = useDirIntegration({
+      type: 'predictions',
+      parseFile: parseJsonlPredictions,
+      tableModel,
+      fileHandler,
+      t,
+      onboardedKey: 'evalscope_predictions_onboarded',
+      sampleName: t('sample.sampleName.predictions'),
+      sampleText: SAMPLE_PREDICTIONS_TEXT,
+      loadSampleText: fileHandler.loadSampleText,
     });
+
+    function quickFilterStopReason(value) {
+      setColumnFilter('stop_reason', [value]);
+    }
 
     return {
       idKeyword,
@@ -546,86 +334,31 @@ export default {
       showDistribution,
       hasReasoning,
       previewHtml,
-      samplePromptVisible,
-      loadSample,
-      dismissSample,
-      sidebarWidth,
-      formatContentLength,
-      // dir browser (shared)
-      dirTree,
-      activeFileKey,
-      hasDir,
-      showSidebar,
-      currentNodeKey,
-      browseMode,
-      dirName,
-      recentDirs,
-      supportsDirectoryPicker,
-      onOpenDirectory,
-      onRestoreDirectory,
-      onRemoveRecentDir,
-      onSelectRun,
-      onHandleFileSelect,
-      // file handler
-      hintText,
-      formatSize,
-      formatTime,
-      clearRecentFiles,
-      recentFiles,
-      removeRecentFile,
-      openRecentFile,
-      resetFile,
+      // Dir integration
+      ...dirIntegration,
+      // File handler
+      hintText, formatSize, formatTime,
+      clearRecentFiles, recentFiles, resetFile, removeRecentFile,
       currentFileName,
-      dialogVisible,
-      dialogHasTabs,
-      dialogTabsData,
-      dialogContent,
-      dialogRawText,
-      showDialog,
-      showRawJsonDialog,
+      dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
+      showDialog, showRawJsonDialog,
       truncateText,
-      tableData,
-      currentPage,
-      pageSize,
-      filteredData,
-      paginatedData,
-      totalItems,
-      totalVisibleItems,
-      createColumnFilter,
-      onTableFilterChange,
-      onTableSortChange,
-      reset,
-      stopReasonFilters,
-      activeFilters,
-      setKeywordFilter,
-      quickFilterStopReason,
+      // Table
+      tableData, currentPage, pageSize,
+      filteredData, paginatedData,
+      totalItems, totalVisibleItems,
+      onTableFilterChange, onTableSortChange,
+      stopReasonFilters, activeFilters,
+      setKeywordFilter, quickFilterStopReason,
     };
   },
 };
 </script>
 
 <style scoped>
-.clickable-cell {
-  cursor: pointer;
-  transition: color 0.2s;
-}
-.clickable-cell:hover {
-  color: var(--ev-color-primary);
-}
-.toggle-buttons {
-  gap: 12px;
-}
-.sample-prompt {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  margin-bottom: 8px;
-  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
-  border: 1px solid var(--ev-border-banner);
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--ev-text-primary);
+/* Ensure filter popover is not clipped by fixed table header */
+:deep(.el-table__header-wrapper) {
+  overflow: visible;
 }
 
 .reasoning-tag {
