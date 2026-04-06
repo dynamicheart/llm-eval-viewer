@@ -8,7 +8,7 @@
     <div class="news-item">
       <span class="news-tag">NEW</span>
       <span class="news-text">
-        <div v-for="(section, si) in CURRENT_NEWS" :key="si" :class="{ 'news-section-gap': si > 0 }">
+        <div v-for="(section, si) in newsItems" :key="si" :class="{ 'news-section-gap': si > 0 }">
           <div class="news-date">{{ section.date }}</div>
           <div v-for="(line, li) in section.items" :key="li">{{ line }}</div>
         </div>
@@ -19,32 +19,22 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Close } from '@element-plus/icons-vue';
+
+const { tm } = useI18n();
 
 const STORAGE_KEY = 'news_dismissed_version';
 
 /**
- * 公告版本号（自增）和对应内容。
- * 新版本发布时：VERSION +1，更新 CURRENT_NEWS 内容即可。
- * 用户关闭后记住版本号，只有更高版本才会再次显示。
+ * Banner version (auto-increment) and corresponding content.
+ * When releasing a new version: increment VERSION, update news locale messages.
+ * After user dismisses, the version is stored; only a higher version will show again.
  */
 const VERSION = 4;
-const CURRENT_NEWS = [
-  {
-    date: '2026-04-05',
-    items: [
-      '1. Predictions 支持 Reasoning 内容展示，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
-      '2. 点击分布图可快速筛选对应数据',
-    ],
-  },
-  {
-    date: '2026-04-04',
-    items: [
-      '1. 新增目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
-    ],
-  },
-];
+
+const newsItems = computed(() => tm('news.items'));
 
 const dismissedVersion = Number(localStorage.getItem(STORAGE_KEY) || '0');
 const visible = ref(VERSION > dismissedVersion);

@@ -13,16 +13,15 @@
       <div class="dialog-header">
         <span class="dialog-title">{{ title }}</span>
         <el-button size="small" type="primary" plain @click="copyCurl">
-          复制 curl
+          {{ $t('curlDialog.copyCurl') }}
         </el-button>
       </div>
     </template>
 
-    <el-divider content-position="left">参数</el-divider>
+    <el-divider content-position="left">{{ $t('curlDialog.parameters') }}</el-divider>
     <el-form label-width="140px" size="small" class="param-form">
       <el-row gutter="20">
         <el-col :span="10">
-          <!-- 左侧的表单项 -->
           <el-form-item label="Service URL">
             <el-input v-model="form.serviceUrl" />
           </el-form-item>
@@ -135,7 +134,7 @@
       </el-form-item>
     </el-form>
 
-    <el-divider content-position="left">预览</el-divider>
+    <el-divider content-position="left">{{ $t('curlDialog.preview') }}</el-divider>
 
     <!-- curl -->
     <pre class="curl-code">
@@ -146,6 +145,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, watch, ref, onMounted, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 import hljs from 'highlight.js';
 import bash from 'highlight.js/lib/languages/bash';
@@ -154,6 +154,7 @@ import 'highlight.js/styles/github.css';
 
 hljs.registerLanguage('bash', bash);
 
+const { t } = useI18n();
 const codeRef = ref<HTMLElement | null>(null);
 
 const props = defineProps({
@@ -161,7 +162,7 @@ const props = defineProps({
   rawJson: Object,
   title: {
     type: String,
-    default: '生成 Curl 命令',
+    default: '',
   },
 });
 
@@ -189,9 +190,9 @@ const form = reactive({
 
   chat_template_kwargs_enabled: cache.chat_template_kwargs_enabled ?? false,
   chat_template_kwargs: {
-    enable_thinking: cache.chat_template_kwargs?.enable_thinking ?? 'none', // 'none' | 'true' | 'false'
+    enable_thinking: cache.chat_template_kwargs?.enable_thinking ?? 'none',
     thinking: cache.chat_template_kwargs?.thinking ?? 'none',
-    reasoning_effort: cache.chat_template_kwargs?.reasoning_effort ?? 'none', // 'none' | 'high' | 'low' | 'no_think'
+    reasoning_effort: cache.chat_template_kwargs?.reasoning_effort ?? 'none',
   },
 
   repetition_penalty_enabled: cache.repetition_penalty_enabled ?? false,
@@ -245,9 +246,9 @@ function buildPayload() {
     for (const [k, v] of Object.entries(form.chat_template_kwargs)) {
       if (v === 'none') continue;
       if (k === 'reasoning_effort') {
-        kwargs[k] = v; // string value: 'high' | 'low' | 'no_think'
+        kwargs[k] = v;
       } else {
-        kwargs[k] = v === 'true'; // boolean value
+        kwargs[k] = v === 'true';
       }
     }
     if (Object.keys(kwargs).length) {
@@ -307,7 +308,7 @@ onMounted(highlight);
 
 function copyCurl() {
   navigator.clipboard.writeText(curlCommand.value);
-  ElMessage.success('curl 已复制');
+  ElMessage.success(t('curlDialog.curlCopied'));
 }
 </script>
 
@@ -402,7 +403,7 @@ function copyCurl() {
   letter-spacing: 0.02em;
   white-space: nowrap;
   user-select: none;
-  margin-right: 6px; /* 文字和控件间距 */
+  margin-right: 6px;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
     Arial, sans-serif;

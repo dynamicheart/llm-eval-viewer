@@ -8,7 +8,7 @@ import { ref, computed, watch } from 'vue';
 export function useTableModel(options = {}) {
   const { pageSize: defaultPageSize = 10 } = options;
 
-  // ===== 基础状态 =====
+  // ===== Base state =====
   const tableData = ref([]);
 
   const activeFilters = ref({}); // el-table filter
@@ -78,7 +78,7 @@ export function useTableModel(options = {}) {
     currentPage.value = 1;
   }
 
-  // ===== 数据流水线 =====
+  // ===== Data pipeline =====
   const filteredData = computed(() => {
     return tableData.value.filter((row) => {
       // enum filter
@@ -128,7 +128,7 @@ export function useTableModel(options = {}) {
     return sortedData.value.slice(start, start + pageSize.value);
   });
 
-  // ===== 统计 =====
+  // ===== Statistics =====
   const totalItems = computed(() => tableData.value.length);
   const totalVisibleItems = computed(() => filteredData.value.length);
 
@@ -141,7 +141,7 @@ export function useTableModel(options = {}) {
     currentPage.value = 1;
   }
 
-  // ===== state snapshot (用于目录浏览器的文件切换) =====
+  // ===== State snapshot (for file switching in directory browser) =====
   function saveState() {
     return {
       activeFilters: JSON.parse(JSON.stringify(activeFilters.value)),

@@ -34,9 +34,9 @@
     />
 
     <div v-if="samplePromptVisible" class="sample-prompt">
-      <span>首次使用？点击加载样例数据，快速体验功能</span>
-      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
-      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+      <span>{{ $t('sample.prompt') }}</span>
+      <el-button type="primary" size="small" @click="loadSample">{{ $t('sample.loadSample') }}</el-button>
+      <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
 
     <DistributionCard
@@ -46,7 +46,7 @@
       @filter="quickFilterResult"
     />
 
-    <!-- 表格 -->
+    <!-- Table -->
     <el-table
       v-if="tableData.length"
       :data="paginatedData"
@@ -102,42 +102,32 @@
       </el-table-column>
       <el-table-column label="Prompt">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.prompt || '')"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showDialog(row.prompt || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="Completion">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.content || '')"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showDialog(row.content || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="Extracted Pred">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.pred || '')"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showDialog(row.pred || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="Solution">
         <template #default="{ row }">
-          <el-button type="text" @click="showSolutionDialog(row)"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showSolutionDialog(row)">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="JSON">
         <template #default="{ row }">
-          <el-button type="text" @click="showRawJsonDialog(row)"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showRawJsonDialog(row)">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="构造CURL">
+      <el-table-column :label="$t('reviews.buildCurl')">
         <template #default="{ row }">
-          <el-button type="text" @click="openCurlDialog(row)"> 生成 </el-button>
+          <el-button type="text" @click="openCurlDialog(row)"> {{ $t('common.generate') }} </el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -158,7 +148,7 @@
       :tabs="dialogTabsData"
       :content="dialogContent"
       :rawText="dialogRawText"
-      :title="'详情'"
+      :title="$t('common.detail')"
       @update:dialogVisible="(val) => (dialogVisible = val)"
     />
 
@@ -171,6 +161,7 @@
 
 <script>
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 
 import FileToolbar from '@/components/FileToolbar.vue';
@@ -202,6 +193,7 @@ export default {
     DirBrowserDrawer,
   },
   setup() {
+    const { t } = useI18n();
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
 
@@ -221,7 +213,7 @@ export default {
 
       const countMap = {};
       tableData.value.forEach((item) => {
-        const key = item.result ?? '未知';
+        const key = item.result ?? t('common.unknown');
         countMap[key] = (countMap[key] || 0) + 1;
       });
 
@@ -262,7 +254,7 @@ export default {
 
       return {
         type: 'empty',
-        content: '未提供 solution（sample_metadata 中也未找到可展示内容）',
+        content: t('detailDialog.noSolutionDetail'),
         render: 'text',
       };
     };
@@ -322,7 +314,7 @@ export default {
               content: '',
               solution: {
                 type: 'empty',
-                content: '解析失败，无法获取 solution',
+                content: t('detailDialog.parseFailed'),
                 render: 'text',
               },
               rawJson: '',
@@ -352,7 +344,7 @@ export default {
 
     const { filters: resultFilters } = createColumnFilter('result');
 
-    // ===== 共享目录浏览器 =====
+    // ===== Shared directory browser =====
     const {
       dirTree,
       activeFileKey,
@@ -381,7 +373,7 @@ export default {
       selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
     );
 
-    /** 每个文件的解析数据缓存（内存中，不持久化） */
+    /** In-memory parsed data cache per file (not persisted) */
     const dataCache = new Map();
 
     async function onOpenDirectory() {
@@ -411,9 +403,9 @@ export default {
     }
 
     async function onSelectRun(node) {
-      // 场景C：用户选了 predictions/ 目录，在 Reviews tab 无法查看
+      // Scenario C: user selected a predictions/ directory, cannot view reviews data
       if (node.directType && node.directType !== 'reviews') {
-        ElMessage.warning(`当前目录是 ${node.directType} 目录，无法查看 reviews 数据，请选择上一级目录`);
+        ElMessage.warning(t('reviews.wrongDirType', { type: node.directType }));
         return;
       }
 
@@ -427,7 +419,7 @@ export default {
       } else {
         const text = await readRunFile(node.handle, 'reviews', node.isDirect);
         if (!text) {
-          ElMessage.warning('未找到 reviews JSONL 文件');
+          ElMessage.warning(t('reviews.notFound'));
           return;
         }
         parseJsonlReviews(text);
@@ -439,7 +431,7 @@ export default {
       reset();
     }
 
-    /** 单文件选择时切换回 file 模式 */
+    /** Switch back to file mode when single file is selected */
     async function onHandleFileSelect(file) {
       const ok = await handleFileSelect(file);
       if (!ok) return;
@@ -490,24 +482,24 @@ export default {
       parseJsonl: parseJsonlReviews,
       tableModel,
       dirModeAware: true,
-      hintText: '⚠️ 请上传 reviews 目录下的 JSONL 文件',
+      hintText: t('reviews.hintText'),
       validateContent: (text) => {
         try {
           const firstLine = text.split('\n').find(Boolean);
           if (!firstLine) return null;
           const json = JSON.parse(firstLine);
           if (!json.sample_score && !json.input) {
-            return '该文件不像是 Reviews JSONL，确定要加载吗？';
+            return t('reviews.validateNotReviews');
           }
         } catch {
-          return '该文件不是有效的 JSONL 格式，确定要加载吗？';
+          return t('reviews.validateNotJsonl');
         }
         return null;
       },
     });
 
     async function loadSample() {
-      await loadSampleText('📋 样例数据 (Reviews)', SAMPLE_REVIEWS_TEXT);
+      await loadSampleText(t('sample.sampleName.reviews'), SAMPLE_REVIEWS_TEXT);
     }
 
     function dismissSample() {
@@ -515,7 +507,7 @@ export default {
       samplePromptVisible.value = false;
     }
 
-    // 模式切换时清空当前视图的单文件状态
+    // Clear current view's single file state when mode switches
     watch(browseMode, (mode) => {
       if (mode === 'directory') {
         tableData.value = [];
@@ -525,7 +517,7 @@ export default {
       }
     });
 
-    // 页面加载时尝试恢复目录，并自动加载上次选中的文件
+    // On page load, try to restore directory and auto-load last selected file
     onMounted(async () => {
       const restored = await tryRestoreCachedHandle();
       if (restored) {
@@ -533,7 +525,7 @@ export default {
         if (node) await onSelectRun(node);
       }
 
-      // 首次用户提示
+      // First-time user prompt
       await nextTick();
       if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
         samplePromptVisible.value = true;
@@ -550,7 +542,7 @@ export default {
       dismissSample,
       sidebarWidth,
       resultDistribution,
-      // dir browser (共享)
+      // dir browser (shared)
       dirTree,
       activeFileKey,
       hasDir,

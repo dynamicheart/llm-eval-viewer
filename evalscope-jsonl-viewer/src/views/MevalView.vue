@@ -12,7 +12,7 @@
       :format-size="formatSize"
       :format-time="formatTime"
       accept=".csv"
-      button-text="选择 CSV 文件"
+      :button-text="$t('fileToolbar.selectCsvFile')"
       :enable-dir-picker="false"
       @handle-file-select="handleFileSelect"
       @open-recent-file="openRecentFile"
@@ -22,27 +22,27 @@
     />
 
     <div v-if="samplePromptVisible" class="sample-prompt">
-      <span>首次使用？点击加载样例数据，快速体验功能</span>
-      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
-      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+      <span>{{ $t('sample.prompt') }}</span>
+      <el-button type="primary" size="small" @click="loadSample">{{ $t('sample.loadSample') }}</el-button>
+      <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
 
     <div v-if="modelName" style="margin-bottom: 8px; color: #909399; font-size: 13px">
-      检测到模型：<b style="color: #303133">{{ modelName }}</b>
+      {{ $t('meval.detectedModel') }}<b style="color: #303133">{{ modelName }}</b>
     </div>
 
     <template v-if="tableData.length">
       <div>
-        <el-checkbox v-model="showHistogram">Token 分布统计</el-checkbox>
-        <el-checkbox v-model="showDistribution">标注结果分布</el-checkbox>
-        <el-checkbox v-model="showFinishReasonDist">Finish Reason 分布</el-checkbox>
-        <el-checkbox v-model="showDatasetStats">数据集统计</el-checkbox>
+        <el-checkbox v-model="showHistogram">{{ $t('stats.tokenDistribution') }}</el-checkbox>
+        <el-checkbox v-model="showDistribution">{{ $t('stats.resultDistribution') }}</el-checkbox>
+        <el-checkbox v-model="showFinishReasonDist">{{ $t('stats.finishReasonDistribution') }}</el-checkbox>
+        <el-checkbox v-model="showDatasetStats">{{ $t('stats.datasetStats') }}</el-checkbox>
       </div>
 
     <HistogramCard
       v-if="showHistogram"
       :table-data="tableData"
-      title="Token 分布统计"
+      :title="$t('stats.tokenDistribution')"
       :fields="[
         { key: 'promptTokens', label: 'Prompt Tokens', color: '#409EFF' },
         { key: 'completionTokens', label: 'Completion Tokens', color: '#67C23A' },
@@ -54,7 +54,7 @@
         v-if="showDistribution"
         :tableData="tableData"
         fieldName="result"
-        fieldLabel="标注结果"
+        :fieldLabel="$t('meval.result')"
         @filter="quickFilterResult"
       />
 
@@ -69,7 +69,7 @@
 
     <DatasetStatsCard v-if="showDatasetStats" :tableData="tableData" />
 
-    <!-- 表格 -->
+    <!-- Table -->
     <el-table
       v-if="tableData.length"
       :data="paginatedData"
@@ -79,12 +79,12 @@
       border
     >
       <el-table-column prop="index" label="#" width="70" sortable />
-      <el-table-column prop="sampleId" label="样本ID" width="120">
+      <el-table-column prop="sampleId" :label="$t('meval.sampleId')" width="120">
         <template #header>
           <TableHeaderSearch
-            label="样本ID"
+            :label="$t('meval.sampleId')"
             v-model="idKeyword"
-            placeholder="搜索ID"
+            :placeholder="$t('meval.searchId')"
             @change="(v) => setKeywordFilter('sampleId', v)"
           />
         </template>
@@ -97,7 +97,7 @@
           <TableHeaderSearch
             label="Trace ID"
             v-model="traceIdKeyword"
-            placeholder="搜索Trace ID"
+            :placeholder="$t('meval.searchTraceId')"
             @change="(v) => setKeywordFilter('traceId', v)"
           />
         </template>
@@ -105,30 +105,9 @@
           <span class="copyable" @click="copyText(row.traceId)" :title="row.traceId">{{ truncateText(row.traceId, 30) }}</span>
         </template>
       </el-table-column>
-      <!-- <el-table-column
-        prop="category1"
-        label="一级分类"
-        column-key="category1"
-        :filters="category1Filters"
-        width="120"
-      />
-      <el-table-column
-        prop="category2"
-        label="二级分类"
-        column-key="category2"
-        :filters="category2Filters"
-        width="120"
-      />
-      <el-table-column
-        prop="category3"
-        label="三级分类"
-        column-key="category3"
-        :filters="category3Filters"
-        width="120"
-      /> -->
       <el-table-column
         prop="dataset"
-        label="数据集"
+        :label="$t('meval.dataset')"
         column-key="dataset"
         :filters="datasetFilters"
         :filtered-value="activeFilters['dataset'] || []"
@@ -136,7 +115,7 @@
       />
       <el-table-column
         prop="result"
-        label="标注结果"
+        :label="$t('meval.result')"
         column-key="result"
         :filters="resultFilters"
         :filtered-value="activeFilters['result'] || []"
@@ -156,11 +135,6 @@
       <el-table-column prop="promptTokens" label="Prompt" width="90" sortable />
       <el-table-column prop="completionTokens" label="Completion" width="105" sortable />
       <el-table-column prop="totalTokens" label="Total" width="85" sortable />
-      <!-- <el-table-column prop="costTime" label="耗时(s)" width="100" sortable>
-        <template #default="{ row }">
-          {{ row.costTime != null ? (row.costTime / 1000).toFixed(1) : '' }}
-        </template>
-      </el-table-column> -->
       <el-table-column
         prop="finishReason"
         label="Finish Reason"
@@ -175,39 +149,39 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="问题" width="70">
+      <el-table-column :label="$t('meval.question')" width="70">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.question || '')">查看</el-button>
+          <el-button type="text" @click="showDialog(row.question || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="参考答案" width="85">
+      <el-table-column :label="$t('meval.referenceAnswer')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.referenceAnswer || '')">查看</el-button>
+          <el-button type="text" @click="showDialog(row.referenceAnswer || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="模型回答" width="85">
+      <el-table-column :label="$t('meval.modelAnswer')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.modelAnswer || '')">查看</el-button>
+          <el-button type="text" @click="showDialog(row.modelAnswer || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="提取答案" width="85">
+      <el-table-column :label="$t('meval.extractedAnswer')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.extractedAnswer || '')">查看</el-button>
+          <el-button type="text" @click="showDialog(row.extractedAnswer || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="请求详情" width="85">
+      <el-table-column :label="$t('meval.requestDetail')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="showRawJsonDialog(row)">查看</el-button>
+          <el-button type="text" @click="showRawJsonDialog(row)">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="标注详情" width="85">
+      <el-table-column :label="$t('meval.resultDetail')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="showResultDetailDialog(row)">查看</el-button>
+          <el-button type="text" @click="showResultDetailDialog(row)">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
-      <el-table-column label="构造CURL" width="85">
+      <el-table-column :label="$t('meval.buildCurl')" width="85">
         <template #default="{ row }">
-          <el-button type="text" @click="openCurlDialog(row)">生成</el-button>
+          <el-button type="text" @click="openCurlDialog(row)">{{ $t('common.generate') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -229,7 +203,7 @@
       :tabs="dialogTabsData"
       :content="dialogContent"
       :rawText="dialogRawText"
-      :title="'详情'"
+      :title="$t('common.detail')"
       @update:dialogVisible="(val) => (dialogVisible = val)"
     />
 
@@ -242,6 +216,7 @@
 
 <script>
 import { ref, onMounted, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import Papa from 'papaparse';
 import { ElMessage } from 'element-plus';
 
@@ -276,6 +251,7 @@ export default {
   },
 
   setup() {
+    const { t } = useI18n();
     const idKeyword = ref('');
     const traceIdKeyword = ref('');
     const modelName = ref('');
@@ -292,7 +268,7 @@ export default {
     const copyText = (text) => {
       if (!text) return;
       navigator.clipboard.writeText(text);
-      ElMessage.success('已复制');
+      ElMessage.success(t('common.copied'));
     };
 
     const openCurlDialog = (row) => {
@@ -302,18 +278,18 @@ export default {
 
     const inferDataset = (category2, question, promptId) => {
       const c2 = (category2 || '').trim();
-      // GPQA: 二级分类为理科科目
+      // GPQA: category2 is a science subject
       if (['Chemistry', 'Physics', 'Biology'].includes(c2)) return 'GPQA';
-      // LiveCodeBench: 二级分类为难度等级
+      // LiveCodeBench: category2 is difficulty level
       if (['easy', 'medium', 'hard'].includes(c2)) return 'LiveCodeBench';
-      // 空类目：按问题文本区分
+      // Empty category: distinguish by question text
       if (question.includes('function signature and docstring')) return 'HumanEval';
       if (question.includes('calculation question')) {
         const pid = Number(promptId);
         if (!isNaN(pid)) return pid >= 44243093 ? 'AIME25' : 'AIME24';
         return 'AIME';
       }
-      return c2 || '未知';
+      return c2 || t('common.unknown');
     };
 
     const parseCsv = (text) => {
@@ -325,7 +301,7 @@ export default {
       });
       const headers = meta.fields || [];
 
-      // 动态检测模型列：找 "模型回答-XXX" 且不以 "-请求详情" 结尾
+      // Dynamically detect model column: find "模型回答-XXX" not ending with "-请求详情"
       const modelAnswerCols = headers.filter(
         (h) => h.startsWith('模型回答-') && !h.endsWith('-请求详情')
       );
@@ -339,7 +315,7 @@ export default {
       const resultDetailCol = `标注结果详情-${detectedModel}`;
 
       tableData.value = data.map((row, idx) => {
-        // 解析请求详情 JSON
+        // Parse request detail JSON
         let promptTokens = '';
         let completionTokens = '';
         let totalTokens = '';
@@ -361,7 +337,7 @@ export default {
           requestDetailJson = row[requestDetailCol] || '';
         }
 
-        // 解析标注结果详情 JSON
+        // Parse result detail JSON
         let extractedAnswer = '';
         let resultDetailJson = '';
         try {
@@ -455,17 +431,17 @@ export default {
       deleteFile,
       parseJsonl: parseCsv,
       tableModel,
-      hintText: '请上传评测样本明细 CSV 文件',
+      hintText: t('meval.hintText'),
       validateContent: (text) => {
         const header = (text.split('\n')[0] || '').trim();
         if (!header.includes('样本ID') && !header.includes('标注结果') && !header.includes('模型回答')) {
-          return '该 CSV 不像是 MEval 评测样本文件（未找到 样本ID/标注结果/模型回答 等列），确定要加载吗？';
+          return t('meval.validateWarning');
         }
         return null;
       },
     });
 
-    // 标注结果详情：复用 showRawJsonDialog 机制
+    // Reuse showRawJsonDialog for result detail display
     const showResultDetailDialog = (row) => {
       showRawJsonDialog({ rawJson: row.resultDetailJson || '{}' });
     };
@@ -479,7 +455,7 @@ export default {
     }
 
     async function loadSample() {
-      await loadSampleText('📋 样例数据 (MEval)', SAMPLE_MEVAL_TEXT);
+      await loadSampleText(t('sample.sampleName.meval'), SAMPLE_MEVAL_TEXT);
     }
 
     function dismissSample() {

@@ -4,26 +4,29 @@
  */
 
 /**
- * 插件式实验配置名解析器
+ * Plugin-style experiment config name parsers
  *
- * 每个 parser: { name, test(dirName), parse(dirName) → { label, detail } }
- * 逐个尝试 test()，首个匹配的 parser 执行 parse()。
- * 全部不匹配则 fallback 为 "实验 N"。
+ * Each parser: { name, test(dirName), parse(dirName) → { label, detail } }
+ * Try test() on each parser, first match executes parse().
+ * Falls back to "Experiment N" if no match.
  */
+
+import i18n from '@/i18n';
+
+const t = (key, named) => i18n.global.t(key, named || {});
 
 const parsers = [
   {
     name: 'kunlunxin',
-    // 匹配: YYYYMMDD_HHMMSS_{config_tag}
+    // Match: YYYYMMDD_HHMMSS_{config_tag}
     test: (name) => /^\d{8}_\d{6}_.+/.test(name),
     parse: (name) => {
-      // 去掉时间戳前缀
+      // Remove timestamp prefix
       const ts = name.slice(0, 15); // YYYYMMDD_HHMMSS
-      const configTag = name.slice(16); // 剩余部分
+      const configTag = name.slice(16); // Remaining part
 
       const parts = configTag.split('_');
 
-      // 尝试提取各字段
       let weightParts = [];
       let sampling = '';
       let effort = '';
@@ -47,7 +50,6 @@ const parsers = [
             continue;
           }
           if (p === 'rejection') {
-            // rejection_rand
             sampling = 'Rejection';
             if (parts[i + 1] === 'rand') { i++; sampling = 'Rejection Rand'; }
             phase = 'effort';
@@ -112,9 +114,9 @@ const parsers = [
 ];
 
 /**
- * 解析实验目录名
- * @param {string} dirName - 实验目录名（第二级）
- * @param {number} index - 序号（fallback 用）
+ * Parse experiment directory name
+ * @param {string} dirName - Experiment directory name (second level)
+ * @param {number} index - Index (for fallback)
  * @returns {{ label: string, detail: object }}
  */
 export function parseExperimentName(dirName, index) {
@@ -124,19 +126,18 @@ export function parseExperimentName(dirName, index) {
     }
   }
   return {
-    label: `实验 ${index + 1}`,
+    label: t('configParsers.experimentFallback', { n: index + 1 }),
     detail: { raw: dirName },
   };
 }
 
 /**
- * 解析服务目录名
- * @param {string} dirName - 服务目录名（第一级）
+ * Parse service directory name
+ * @param {string} dirName - Service directory name (first level)
  * @returns {{ serviceTag: string, ip: string, port: string }}
  */
 export function parseServiceDir(dirName) {
-  // 格式: {service_tag}_{ip}_{port}
-  // IP 格式: a.b.c.d → 从后往前找
+  // Format: {service_tag}_{ip}_{port}
   const match = dirName.match(/^(.+?)_(\d+\.\d+\.\d+\.\d+)_(\d+)$/);
   if (match) {
     return { serviceTag: match[1], ip: match[2], port: match[3] };

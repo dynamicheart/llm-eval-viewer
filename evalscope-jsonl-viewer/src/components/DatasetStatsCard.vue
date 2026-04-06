@@ -5,21 +5,21 @@
 
 <template>
   <div v-if="stats.length" class="stats-card">
-    <div class="title">数据集统计</div>
+    <div class="title">{{ $t('datasetStats.title') }}</div>
     <el-table :data="stats" border size="small" style="width: 100%">
-      <el-table-column prop="dataset" label="数据集" width="140" />
-      <el-table-column prop="total" label="题目数" width="80" align="center" sortable />
-      <el-table-column prop="correct" label="正确" width="70" align="center">
+      <el-table-column prop="dataset" :label="$t('datasetStats.dataset')" width="140" />
+      <el-table-column prop="total" :label="$t('datasetStats.questions')" width="80" align="center" sortable />
+      <el-table-column prop="correct" :label="$t('datasetStats.correct')" width="70" align="center">
         <template #default="{ row }">
           <span style="color: #67c23a; font-weight: 600">{{ row.correct }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="wrong" label="错误" width="70" align="center">
+      <el-table-column prop="wrong" :label="$t('datasetStats.wrong')" width="70" align="center">
         <template #default="{ row }">
           <span style="color: #f56c6c; font-weight: 600">{{ row.wrong }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="正确率" width="100" align="center" sortable :sort-method="(a, b) => a.accuracy - b.accuracy">
+      <el-table-column :label="$t('datasetStats.accuracy')" width="100" align="center" sortable :sort-method="(a, b) => a.accuracy - b.accuracy">
         <template #default="{ row }">
           <span style="font-size: 12px">{{ row.accuracy }}%</span>
         </template>
@@ -38,6 +38,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps({
   tableData: {
@@ -51,7 +54,7 @@ const stats = computed(() => {
 
   const map = {};
   props.tableData.forEach((item) => {
-    const ds = item.dataset || '未知';
+    const ds = item.dataset || t('common.unknown');
     if (!map[ds]) map[ds] = { dataset: ds, total: 0, correct: 0, nonStopCount: 0 };
     map[ds].total += 1;
     if (item.result && item.result !== '0') map[ds].correct += 1;

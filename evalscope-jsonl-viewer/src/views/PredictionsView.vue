@@ -34,23 +34,23 @@
     />
 
     <div v-if="samplePromptVisible" class="sample-prompt">
-      <span>首次使用？点击加载样例数据，快速体验功能</span>
-      <el-button type="primary" size="small" @click="loadSample">加载样例数据</el-button>
-      <el-button size="small" text @click="dismissSample">不再提醒</el-button>
+      <span>{{ $t('sample.prompt') }}</span>
+      <el-button type="primary" size="small" @click="loadSample">{{ $t('sample.loadSample') }}</el-button>
+      <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
 
     <template v-if="tableData.length">
       <div>
-        <el-checkbox v-model="showHistogram"> Token 分布统计 </el-checkbox>
+        <el-checkbox v-model="showHistogram"> {{ $t('stats.tokenDistribution') }} </el-checkbox>
         <el-checkbox v-model="showDistribution">
-          Stop Reason 分布统计
+          {{ $t('stats.stopReasonDistribution') }}
         </el-checkbox>
       </div>
 
     <HistogramCard
       v-if="showHistogram"
       :table-data="tableData"
-      title="Token 分布统计"
+      :title="$t('stats.tokenDistribution')"
       :fields="[
         {
           key: 'input_tokens',
@@ -73,12 +73,12 @@
       @filter="quickFilterStopReason"
     />
 
-    <!-- 表格 -->
+    <!-- Table -->
     <div
       v-if="hasReasoning"
       style="margin-top: 12px; padding: 8px 12px; border-left: 4px solid #409EFF; background: #ecf5ff; border-radius: 4px; font-size: 13px; color: #303133;"
     >
-      检测到 Reasoning 内容，标记为 <b style="color: #409EFF">[R]</b>，点击「查看」可分别查看 Text 和 Reasoning；点击分布图可快速筛选
+      {{ $t('predictions.reasoningBanner') }}
     </div>
     <el-table
       v-if="tableData.length"
@@ -136,16 +136,12 @@
       </el-table-column>
       <el-table-column label="Completion">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.content || {})"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showDialog(row.content || {})">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="JSON">
         <template #default="{ row }">
-          <el-button type="text" @click="showRawJsonDialog(row)"
-            >查看</el-button
-          >
+          <el-button type="text" @click="showRawJsonDialog(row)">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -167,7 +163,7 @@
       :tabs="dialogTabsData"
       :content="dialogContent"
       :rawText="dialogRawText"
-      :title="'详情'"
+      :title="$t('common.detail')"
       @update:dialogVisible="(val) => (dialogVisible = val)"
     />
   </div>
@@ -175,6 +171,7 @@
 
 <script>
 import { ref, computed, watch, onMounted, nextTick } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
@@ -206,6 +203,7 @@ export default {
   },
 
   setup() {
+    const { t } = useI18n();
     const showHistogram = ref(true);
     const showDistribution = ref(false);
     const idKeyword = ref('');
@@ -223,14 +221,14 @@ export default {
       if (histCache !== null) showHistogram.value = histCache === 'true';
       if (distCache !== null) showDistribution.value = distCache === 'true';
 
-      // 尝试恢复目录，并自动加载上次选中的文件
+      // Try to restore directory and auto-load last selected file
       const restored = await tryRestoreCachedHandle();
       if (restored) {
         const node = findSelectedNode();
         if (node) await onSelectRun(node);
       }
 
-      // 首次用户提示
+      // First-time user prompt
       await nextTick();
       if (tableData.value.length === 0 && !localStorage.getItem(ONBOARDED_KEY)) {
         samplePromptVisible.value = true;
@@ -363,7 +361,7 @@ export default {
 
     const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
 
-    // ===== 共享目录浏览器 =====
+    // ===== Shared directory browser =====
     const {
       dirTree,
       activeFileKey,
@@ -421,9 +419,9 @@ export default {
     }
 
     async function onSelectRun(node) {
-      // 场景C：用户选了 reviews/ 目录，在 Predictions tab 无法查看
+      // Scenario C: user selected a reviews/ directory, cannot view predictions data
       if (node.directType && node.directType !== 'predictions') {
-        ElMessage.warning(`当前目录是 ${node.directType} 目录，无法查看 predictions 数据，请选择上一级目录`);
+        ElMessage.warning(t('predictions.wrongDirType', { type: node.directType }));
         return;
       }
 
@@ -437,7 +435,7 @@ export default {
       } else {
         const text = await readRunFile(node.handle, 'predictions', node.isDirect);
         if (!text) {
-          ElMessage.warning('未找到 predictions JSONL 文件');
+          ElMessage.warning(t('predictions.notFound'));
           return;
         }
         parseJsonlPredictions(text);
@@ -449,7 +447,7 @@ export default {
       reset();
     }
 
-    /** 单文件选择时切换回 file 模式 */
+    /** Switch back to file mode when single file is selected */
     async function onHandleFileSelect(file) {
       const ok = await handleFileSelect(file);
       if (!ok) return;
@@ -499,24 +497,24 @@ export default {
       parseJsonl: parseJsonlPredictions,
       tableModel: tableModel,
       dirModeAware: true,
-      hintText: '⚠️ 请上传 predictions 目录下的 JSONL 文件',
+      hintText: t('predictions.hintText'),
       validateContent: (text) => {
         try {
           const firstLine = text.split('\n').find(Boolean);
           if (!firstLine) return null;
           const json = JSON.parse(firstLine);
           if (!json.model_output) {
-            return '该文件不像是 Predictions JSONL，确定要加载吗？';
+            return t('predictions.validateNotPredictions');
           }
         } catch {
-          return '该文件不是有效的 JSONL 格式，确定要加载吗？';
+          return t('predictions.validateNotJsonl');
         }
         return null;
       },
     });
 
     async function loadSample() {
-      await loadSampleText('📋 样例数据 (Predictions)', SAMPLE_PREDICTIONS_TEXT);
+      await loadSampleText(t('sample.sampleName.predictions'), SAMPLE_PREDICTIONS_TEXT);
     }
 
     function dismissSample() {
@@ -524,7 +522,7 @@ export default {
       samplePromptVisible.value = false;
     }
 
-    // 模式切换时清空当前视图的单文件状态
+    // Clear current view's single file state when mode switches
     watch(browseMode, (mode) => {
       if (mode === 'directory') {
         tableData.value = [];
@@ -544,7 +542,7 @@ export default {
       dismissSample,
       sidebarWidth,
       formatContentLength,
-      // dir browser (共享)
+      // dir browser (shared)
       dirTree,
       activeFileKey,
       hasDir,

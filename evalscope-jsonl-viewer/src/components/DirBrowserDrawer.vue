@@ -5,15 +5,15 @@
 
 <template>
   <div v-if="visible" class="dir-sidebar" :style="{ width: collapsed ? '0px' : sidebarWidth + 'px' }">
-    <!-- 收起时：外侧标签 -->
+    <!-- Collapsed: external toggle tab -->
     <div v-if="collapsed" class="toggle-tab-outside" @click="toggleCollapse">
       <el-icon :size="14"><ArrowRight /></el-icon>
     </div>
 
     <template v-if="!collapsed">
-      <!-- 展开时：内部顶栏 -->
+      <!-- Expanded: internal header bar -->
       <div class="sidebar-header">
-        <span class="sidebar-title">目录浏览</span>
+        <span class="sidebar-title">{{ $t('dirBrowser.title') }}</span>
         <div class="toggle-btn-inside" @click="toggleCollapse">
           <el-icon :size="14"><ArrowLeft /></el-icon>
         </div>
@@ -42,7 +42,7 @@
             </span>
           </template>
         </el-tree>
-        <el-empty v-else description="暂无目录数据" />
+        <el-empty v-else :description="$t('dirBrowser.noData')" />
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>
     </template>
@@ -163,7 +163,6 @@ function handleNodeClick(data) {
   user-select: none;
 }
 
-/* 展开时：header 内的小按钮 */
 .toggle-btn-inside {
   width: 24px;
   height: 24px;
@@ -186,7 +185,6 @@ function handleNodeClick(data) {
   padding: 4px 0;
 }
 
-/* 收起时：贴在屏幕左侧的外部标签 */
 .toggle-tab-outside {
   position: fixed;
   left: 0;

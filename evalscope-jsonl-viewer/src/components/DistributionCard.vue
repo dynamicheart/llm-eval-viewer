@@ -5,7 +5,7 @@
 
 <template>
   <div v-if="tableData.length" class="distribution-card">
-    <div class="title">{{ fieldLabel }} 分布统计</div>
+    <div class="title">{{ fieldLabel }} {{ $t('stats.distributionSuffix') }}</div>
     <div class="distribution-list">
       <div
         v-for="item in itemDistribution"
@@ -26,12 +26,15 @@
         </span>
       </div>
     </div>
-    <div class="total-count">总计：{{ tableData.length }} 条数据</div>
+    <div class="total-count">{{ $t('stats.total', { count: tableData.length }) }}</div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
+
+const { t } = useI18n();
 
 const props = defineProps({
   tableData: {
@@ -52,7 +55,7 @@ const props = defineProps({
 
 const emit = defineEmits(['filter']);
 
-// 正向值（绿色，排前面）和负向值（红色，排后面）
+// Positive values (green, sorted first) and negative values (red, sorted last)
 const POSITIVE_KEYS = new Set([1, '1', true, 'true', 100, '100']);
 const NEGATIVE_KEYS = new Set([0, '0', false, 'false']);
 const POSITIVE_LABELS = ['stop'];
@@ -89,7 +92,7 @@ const defaultColorPool = [
 ];
 
 /**
- * 排序权重：正向值 → 0（最前），负向值 → 2（最后），其他 → 1（中间）
+ * Sort weight: positive → 0 (first), negative → 2 (last), other → 1 (middle)
  */
 function sortWeight(key) {
   if (isPositive(key)) return 0;
@@ -103,7 +106,7 @@ const itemDistribution = computed(() => {
 
   const countMap = new Map();
   props.tableData.forEach((item) => {
-    const key = item[props.fieldName] ?? '未知';
+    const key = item[props.fieldName] ?? t('common.unknown');
     countMap.set(key, (countMap.get(key) || 0) + 1);
   });
 

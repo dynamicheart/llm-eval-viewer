@@ -3,7 +3,6 @@
  * Licensed under the MIT License.
  */
 
-// main.js
 import { createApp } from 'vue';
 import App from '@/App.vue';
 
@@ -13,9 +12,11 @@ import '@/assets/styles/common.css';
 import 'highlight.js/styles/github.css';
 import 'katex/dist/katex.min.css';
 
-import router from './router'; // 新增，导入路由配置
+import router from './router';
+import i18n from './i18n';
 
 const app = createApp(App);
 app.use(ElementPlus);
-app.use(router); // 挂载路由
+app.use(router);
+app.use(i18n);
 app.mount('#app');

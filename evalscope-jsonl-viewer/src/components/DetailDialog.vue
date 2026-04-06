@@ -18,9 +18,7 @@
         "
       >
         <span>{{ title }}</span>
-        <el-button size="small" type="primary" plain @click="copyDialogContent"
-          >复制</el-button
-        >
+        <el-button size="small" type="primary" plain @click="copyDialogContent">{{ $t('common.copy') }}</el-button>
       </div>
     </template>
 
@@ -38,7 +36,7 @@
         :label="tab.label"
         :name="tab.name"
       >
-        <!-- 第一层：Text（有 views） -->
+        <!-- First layer: Text (has views) -->
         <template v-if="tab.views">
           <el-radio-group v-model="contentView" size="small">
             <el-radio-button
@@ -73,6 +71,7 @@
 
 <script>
 import { ref, watch, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 
 export default {
@@ -80,7 +79,7 @@ export default {
     dialogVisible: Boolean,
     title: {
       type: String,
-      default: '详情',
+      default: '',
     },
     hasTabs: {
       type: Boolean,
@@ -101,6 +100,7 @@ export default {
   },
   emits: ['update:dialogVisible'],
   setup(props, { emit }) {
+    const { t } = useI18n();
     const dialogTab = ref('');
     const contentView = ref('');
     const syncContentView = () => {
@@ -158,15 +158,15 @@ export default {
         const textToCopy = getCurrentRawText();
 
         if (!textToCopy) {
-          ElMessage.warning('没有内容可复制');
+          ElMessage.warning(t('common.nothingToCopy'));
           return;
         }
 
         await navigator.clipboard.writeText(textToCopy);
-        ElMessage.success('已复制到剪贴板');
+        ElMessage.success(t('common.copiedToClipboard'));
       } catch (e) {
-        ElMessage.error('复制失败');
-        console.error('复制失败', e);
+        ElMessage.error(t('common.copyFailed'));
+        console.error('Copy failed', e);
       }
     };
 

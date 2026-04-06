@@ -7,8 +7,8 @@
 
 const DB_NAME = 'evalscope_files';
 const DB_VERSION = 9;
-const META_STORE = 'files';        // 元数据（不含 content）
-const CONTENT_STORE = 'contents';  // 大文件内容单独存
+const META_STORE = 'files';        // metadata (without content)
+const CONTENT_STORE = 'contents';  // large file content stored separately
 
 let db = null;
 
@@ -42,13 +42,13 @@ export function openDB() {
         });
       }
 
-      // 新增：内容存储
+      // Content store
       if (!db.objectStoreNames.contains(CONTENT_STORE)) {
         db.createObjectStore(CONTENT_STORE, { keyPath: 'id' });
       }
 
-      // 迁移：如果旧记录中 content 字段存在于 META_STORE，将其迁移到 CONTENT_STORE
-      // 这在 upgrade 事务中通过游标完成
+      // Migration: if old records in META_STORE contain a content field, migrate it to CONTENT_STORE
+      // This is done via cursor within the upgrade transaction
       const metaStore = req.transaction.objectStore(META_STORE);
       const contentStore = req.transaction.objectStore(CONTENT_STORE);
       metaStore.openCursor().onsuccess = (e) => {
@@ -56,9 +56,9 @@ export function openDB() {
         if (cursor) {
           const record = cursor.value;
           if (record.content !== undefined) {
-            // 将 content 移到 CONTENT_STORE
+            // Move content to CONTENT_STORE
             contentStore.put({ id: record.id, content: record.content });
-            // 从 meta 中删除 content
+            // Remove content from meta record
             const { content, ...meta } = record;
             cursor.update(meta);
           }
@@ -135,7 +135,7 @@ export async function listFiles(namespace, limit = 5) {
     index.openCursor(range, 'prev').onsuccess = (e) => {
       const cursor = e.target.result;
       if (cursor && result.length < limit) {
-        result.push(cursor.value); // 元数据中已无 content，直接返回
+        result.push(cursor.value); // metadata has no content field, return directly
         cursor.continue();
       } else {
         resolve(result);

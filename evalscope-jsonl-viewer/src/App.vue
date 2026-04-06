@@ -25,13 +25,31 @@
       </el-menu>
 
       <div class="nav-right">
+        <el-dropdown size="small" @command="switchLocale">
+          <span class="locale-switch">
+            <svg class="locale-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M2 12h20"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            {{ currentLocale === 'zh-CN' ? '中文' : 'EN' }}
+            <el-icon><ArrowDown /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="zh-CN">中文</el-dropdown-item>
+              <el-dropdown-item command="en">English</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
         <a
           class="example-link"
           href="https://github.com/dynamicheart/llm-eval-viewer/tree/main/docs/examples"
           target="_blank"
           rel="noopener noreferrer"
         >
-          示例文件
+          {{ $t('app.exampleFiles') }}
         </a>
 
         <a
@@ -68,12 +86,12 @@
       <h1 class="page-title">
         {{
           $route.path === '/meval'
-            ? 'MEval - 样本查看器'
+            ? $t('app.title.meval')
             : $route.path === '/reviews'
-              ? 'Evalscope Review JSONL 查看器'
+              ? $t('app.title.reviews')
               : $route.path === '/predictions'
-                ? 'Evalscope Predictions JSONL 查看器'
-                : 'Evalscope JSONL 查看器'
+                ? $t('app.title.predictions')
+                : $t('app.title.default')
         }}
       </h1>
     </header>
@@ -100,17 +118,23 @@
 <script>
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
+import { setLocale, getLocale } from '@/i18n';
+import { ArrowDown } from '@element-plus/icons-vue';
 
 export default {
   name: 'App',
-  components: { NewsBanner },
+  components: { NewsBanner, ArrowDown },
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
-    return { showSidebar, sidebarWidth };
+    return { showSidebar, sidebarWidth, currentLocale: getLocale() };
   },
   methods: {
     handleSelect(index) {
       this.$router.push(index);
+    },
+    switchLocale(locale) {
+      setLocale(locale);
+      this.currentLocale = locale;
     },
   },
   computed: {
@@ -224,6 +248,32 @@ export default {
 
 .example-link:hover {
   text-decoration: underline;
+}
+
+.locale-switch {
+  cursor: pointer;
+  font-size: 13px;
+  color: #606266;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+  outline: none;
+}
+
+.locale-switch:focus,
+.locale-switch:hover {
+  outline: none;
+}
+
+.locale-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.locale-switch:hover {
+  color: #409eff;
 }
 
 .page-footer {

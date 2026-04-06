@@ -31,7 +31,7 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHashHistory(), // ← 关键
+  history: createWebHashHistory(), // use hash mode for static hosting
   routes,
 });
 

@@ -5,7 +5,7 @@
 
 <template>
   <div v-if="tableData.length" class="result-distribution-card">
-    <div class="title">Token 分布统计</div>
+    <div class="title">{{ $t('histogram.title') }}</div>
 
     <div class="charts-row">
       <div v-for="field in fields" :key="field.key" class="chart-col">
@@ -22,9 +22,9 @@
     </div>
 
     <div class="stats-footer">
-      <span>样本数：{{ tableData.length }}</span>
+      <span>{{ $t('stats.samples', { count: tableData.length }) }}</span>
       <span v-for="field in fields" :key="field.key" class="stat-item">
-        Avg {{ field.label.replace(' Distribution', '') }}：{{ avgOf(field.key) }}
+        Avg {{ field.label.replace(' Distribution', '') }}: {{ avgOf(field.key) }}
       </span>
     </div>
   </div>
@@ -55,7 +55,7 @@ function avgOf(key) {
   return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
 }
 
-/* ========= 核心：等宽、取整分桶 ========= */
+/* ========= Core: equal-width, rounded bucketing ========= */
 
 function niceStep(step) {
   if (step <= 0 || !Number.isFinite(step)) {
@@ -73,7 +73,7 @@ function niceStep(step) {
 function buildBuckets(values, targetBins = 6) {
   const max = Math.max(...values, 0);
 
-  // 全 0 的特殊情况
+  // Special case: all zeros
   if (max === 0) {
     return [[0, 1]];
   }
@@ -146,12 +146,12 @@ function renderOne(field) {
           padding: 8,
 
           callbacks: {
-            // title 用 bucket 区间（你现在已经是 50-100 这种）
+            // title uses bucket range (e.g. 50-100)
             title(items) {
               return items[0].label;
             },
 
-            // 核心：只显示 count
+            // Show count only
             label(context) {
               return `Count: ${context.parsed.y}`;
             },

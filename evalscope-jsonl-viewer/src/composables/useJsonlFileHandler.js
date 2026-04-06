@@ -3,10 +3,10 @@
  * Licensed under the MIT License.
  */
 
-// composables/useJsonlFileHandler.js
 import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
+import i18n from '@/i18n';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -17,6 +17,8 @@ hljs.registerLanguage('javascript', javascript);
 hljs.registerLanguage('python', python);
 hljs.registerLanguage('json', json);
 hljs.registerLanguage('plaintext', plaintext);
+
+const t = (key, named) => i18n.global.t(key, named || {});
 
 export function useJsonlFileHandler(options) {
   const {
@@ -31,7 +33,7 @@ export function useJsonlFileHandler(options) {
     tableModel,
     hintText = '',
     dirModeAware = false,
-    validateContent = null,  // (text) => string | null — 返回警告信息或 null 表示通过
+    validateContent = null,
   } = options;
 
   const { tableData } = tableModel;
@@ -58,10 +60,10 @@ export function useJsonlFileHandler(options) {
     const minute = 60 * 1000;
     const hour = 60 * minute;
     const day = 24 * hour;
-    if (diff < minute) return '刚刚';
-    if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
-    if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
-    if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+    if (diff < minute) return t('fileHandler.justNow');
+    if (diff < hour) return t('fileHandler.minutesAgo', { n: Math.floor(diff / minute) });
+    if (diff < day) return t('fileHandler.hoursAgo', { n: Math.floor(diff / hour) });
+    if (diff < 7 * day) return t('fileHandler.daysAgo', { n: Math.floor(diff / day) });
     const d = new Date(ts);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
@@ -80,10 +82,8 @@ export function useJsonlFileHandler(options) {
       content,
     });
 
-    // 取当前 namespace 下所有文件（已按 lastOpen desc）
     const files = await listFiles(storageNamespace, MAX_FILES + 1);
 
-    // 超过上限，删除最旧的
     if (files.length > MAX_FILES) {
       const toDelete = files.slice(MAX_FILES);
       for (const f of toDelete) {
@@ -91,7 +91,6 @@ export function useJsonlFileHandler(options) {
       }
     }
 
-    // UI 直接用最近的
     recentFiles.value = files.slice(0, MAX_FILES);
   };
 
@@ -99,13 +98,13 @@ export function useJsonlFileHandler(options) {
     recentFiles.value = [];
     localStorage.removeItem(storageKey);
     await clearFiles(storageNamespace);
-    ElMessage.success('已清空最近文件');
+    ElMessage.success(t('fileHandler.recentFilesCleared'));
   };
 
   const loadFromCache = async () => {
     recentFiles.value = await listFiles(storageNamespace);
 
-    // 目录模式下只加载最近文件列表，不自动恢复单文件数据
+    // In directory mode, only load recent file list, do not auto-restore single file data
     if (dirModeAware) {
       const browseMode = localStorage.getItem('evalscope_browse_mode');
       if (browseMode === 'directory') return;
@@ -131,14 +130,13 @@ export function useJsonlFileHandler(options) {
   const openRecentFile = async (item) => {
     const file = await getFile(item.id);
     if (!file) {
-      ElMessage.error('文件不存在或已被清理');
+      ElMessage.error(t('fileHandler.fileNotFound'));
       return;
     }
 
     currentFileName.value = file.name;
     parseJsonl(file.content);
 
-    // 更新时间
     item.lastOpen = Date.now();
     localStorage.setItem(storageKey, item.id);
   };
@@ -146,22 +144,20 @@ export function useJsonlFileHandler(options) {
   const loadJSONLFile = async (file) => {
     const text = await file.text();
 
-    // 格式校验：如果不匹配，弹出确认框
     if (validateContent) {
       const warning = validateContent(text);
       if (warning) {
         try {
           await ElMessageBox.confirm(
             warning,
-            '文件格式确认',
+            t('fileHandler.fileFormatConfirm'),
             {
-              confirmButtonText: '继续加载',
-              cancelButtonText: '取消',
+              confirmButtonText: t('common.continueLoad'),
+              cancelButtonText: t('common.cancel'),
               type: 'warning',
             }
           );
         } catch {
-          // 用户取消
           currentFileName.value = '';
           return false;
         }
@@ -187,9 +183,8 @@ export function useJsonlFileHandler(options) {
   };
 
   /**
-   * 重置文件相关状态
-   *
-   * 清空表格数据、当前文件名，并从本地存储中移除最后打开文件的记录
+   * Reset file-related state.
+   * Clears table data, current file name, and removes last opened file record from localStorage.
    */
   const resetFile = () => {
     tableData.value = [];
@@ -198,9 +193,9 @@ export function useJsonlFileHandler(options) {
   };
 
   /**
-   * 加载样例数据文本并缓存到 IndexedDB
-   * @param {string} name  显示用文件名
-   * @param {string} text  原始 JSONL/CSV 文本
+   * Load sample data text and cache to IndexedDB.
+   * @param {string} name  Display file name
+   * @param {string} text  Raw JSONL/CSV text
    */
   const loadSampleText = async (name, text) => {
     const fakeFile = { name, size: text.length, lastModified: 0 };
@@ -217,7 +212,6 @@ export function useJsonlFileHandler(options) {
   };
 
   const showStrDialog = async (data) => {
-    // 非对象，显示两个tab：markdown 和 txt
     const text = String(data || '');
 
     const mdContent = await renderMathMarkdown(normalizeLatex(text));
@@ -262,9 +256,8 @@ export function useJsonlFileHandler(options) {
     const reasoning = data.reasoning || '';
     const text = data.text || '';
 
-    // 同时存在 reasoning + text → 两层结构
+    // Both reasoning + text → two-level structure
     if (reasoning && text) {
-      // ===== text =====
       const textMdContent = await renderMathMarkdown(normalizeLatex(text));
 
       let textTxtHighlighted;
@@ -278,7 +271,6 @@ export function useJsonlFileHandler(options) {
 
       const textTxtContent = `<pre><code class="hljs plaintext">${textTxtHighlighted}</code></pre>`;
 
-      // ===== reasoning =====
       const reasoningMdContent = await renderMathMarkdown(
         normalizeLatex(reasoning)
       );
@@ -340,13 +332,13 @@ export function useJsonlFileHandler(options) {
       dialogVisible.value = true;
       return;
     }
-    // 只有 text → 退化为原 showStrDialog（无第一层）
+    // Only text → degrade to showStrDialog
     if (text) {
       await showStrDialog(text);
       return;
     }
 
-    // 只有 reasoning
+    // Only reasoning
     if (reasoning) {
       dialogHasTabs.value = false;
       dialogTabsData.value = [];
@@ -359,25 +351,22 @@ export function useJsonlFileHandler(options) {
   const showSolutionDialog = async (row) => {
     const s = row?.solution;
 
-    // 1️. 没有 solution
     if (!s || !s.content) {
       dialogHasTabs.value = false;
       dialogTabsData.value = [];
-      dialogRawText.value = '未提供 solution';
-      dialogContent.value = '<p>未提供 solution</p>';
+      dialogRawText.value = t('fileHandler.noSolution');
+      dialogContent.value = `<p>${t('fileHandler.noSolution')}</p>`;
       dialogVisible.value = true;
       return;
     }
 
     const content = String(s.content);
 
-    // 2. markdown：直接复用 showStrDialog（自动 txt + markdown 双 tab）
     if (s.render === 'markdown') {
       await showStrDialog(content);
       return;
     }
 
-    // 3. json
     if (s.render === 'json') {
       let highlighted;
       try {
@@ -394,7 +383,6 @@ export function useJsonlFileHandler(options) {
       return;
     }
 
-    // 4. 兜底：普通文本
     dialogHasTabs.value = false;
     dialogTabsData.value = [];
     dialogRawText.value = content;

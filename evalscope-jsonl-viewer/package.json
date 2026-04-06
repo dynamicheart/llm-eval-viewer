@@ -28,6 +28,7 @@
     "remark-rehype": "^11.1.2",
     "unified": "^11.0.5",
     "vue": "^3.5.18",
+    "vue-i18n": "^11.3.1",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {

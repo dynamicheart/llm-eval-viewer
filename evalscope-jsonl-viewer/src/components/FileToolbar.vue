@@ -10,7 +10,7 @@
 
   <div class="file-toolbar">
     <div class="file-toolbar">
-      <!-- 单文件选择 -->
+      <!-- Single file selection -->
       <el-upload
         :before-upload="handleFileSelect"
         :show-file-list="false"
@@ -19,40 +19,40 @@
         <el-button
           :type="showDirPicker && browseMode === 'file' ? 'primary' : ''"
         >
-          {{ buttonText }}
+          {{ buttonText || $t('fileToolbar.selectJsonlFile') }}
         </el-button>
       </el-upload>
 
-      <!-- 目录选择（仅支持且启用时） -->
+      <!-- Directory selection (when supported and enabled) -->
       <el-button
         v-if="showDirPicker"
         :type="browseMode === 'directory' ? 'primary' : ''"
         @click="emits('open-directory')"
       >
-        选择目录
+        {{ $t('fileToolbar.selectDirectory') }}
       </el-button>
 
-      <!-- 不支持目录选择时的提示（仅启用目录功能时） -->
+      <!-- Tooltip when directory picker is not supported (only when dir feature enabled) -->
       <el-tooltip
         v-if="enableDirPicker && !supportsDirPicker"
-        content="目录浏览功能需要使用 Chrome 或 Edge 浏览器"
+        :content="$t('fileToolbar.dirBrowseNeedChrome')"
         placement="top"
         effect="dark"
       >
         <span style="color: #c0c4cc; font-size: 12px; cursor: default">
-          目录浏览（需 Chrome）
+          {{ $t('fileToolbar.dirBrowseChrome') }}
         </span>
       </el-tooltip>
 
-      <!-- 最近记录（文件 + 目录合并） -->
+      <!-- Recent records (files + directories combined) -->
       <el-dropdown popper-class="recent-dropdown">
         <el-button size="small" plain>
-          最近记录 <el-icon><ArrowDown /></el-icon>
+          {{ $t('fileToolbar.recentRecords') }} <el-icon><ArrowDown /></el-icon>
         </el-button>
 
         <template #dropdown>
           <el-dropdown-menu>
-            <!-- 缓存的目录列表 -->
+            <!-- Cached directory list -->
             <template v-if="recentDirs.length">
               <el-dropdown-item
                 v-for="d in recentDirs"
@@ -65,7 +65,7 @@
                       <el-icon style="margin-right: 4px; vertical-align: middle"><FolderOpened /></el-icon>
                       {{ d.name }}
                     </div>
-                    <div class="meta">目录 · {{ formatTime(d.time) }}</div>
+                    <div class="meta">{{ $t('fileToolbar.directory') }} · {{ formatTime(d.time) }}</div>
                   </div>
                   <el-icon
                     class="delete-icon"
@@ -78,10 +78,10 @@
             </template>
 
             <el-dropdown-item v-if="recentDirs.length && recentFiles.length" divided disabled>
-              <span style="font-size: 12px; color: #909399">单文件</span>
+              <span style="font-size: 12px; color: #909399">{{ $t('fileToolbar.singleFile') }}</span>
             </el-dropdown-item>
 
-            <!-- 最近文件列表 -->
+            <!-- Recent file list -->
             <el-dropdown-item
               v-for="f in recentFiles"
               :key="f.id"
@@ -109,35 +109,35 @@
               </div>
             </el-dropdown-item>
 
-            <!-- 空状态 -->
+            <!-- Empty state -->
             <el-dropdown-item v-if="!recentFiles.length && !recentDirs.length" disabled>
-              <span style="font-size: 12px; color: #909399">暂无记录</span>
+              <span style="font-size: 12px; color: #909399">{{ $t('fileToolbar.noRecords') }}</span>
             </el-dropdown-item>
 
             <el-dropdown-item v-if="recentFiles.length" divided @click="$emit('clear-recent-files')">
-              清空文件记录
+              {{ $t('fileToolbar.clearFileRecords') }}
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
 
-      <!-- 缓存信息（仅文件模式） -->
+      <!-- Cache info (file mode only) -->
       <span
         v-if="browseMode === 'file'"
         style="color: #909399; font-size: 12px"
       >
-        缓存总量：{{ formatSize(totalCacheSize) }}
+        {{ $t('fileToolbar.cacheTotal', { size: formatSize(totalCacheSize) }) }}
       </span>
 
-      <!-- 当前信息：目录模式显示目录名，文件模式显示文件名，不同时显示 -->
+      <!-- Current info: directory mode shows dir name, file mode shows file name -->
       <span v-if="browseMode === 'directory' && dirName" style="color: #606266">
-        目录：<b>{{ dirName }}</b>
+        {{ $t('fileToolbar.currentDir') }}<b>{{ dirName }}</b>
         <template v-if="currentFileName">
           / {{ currentFileName }}
         </template>
       </span>
       <span v-else-if="currentFileName" style="color: #606266">
-        当前文件：<b>{{ currentFileName }}</b>
+        {{ $t('fileToolbar.currentFile') }}<b>{{ currentFileName }}</b>
       </span>
 
       <el-button
@@ -147,7 +147,7 @@
         size="small"
         @click="$emit('reset-file')"
       >
-        重置
+        {{ $t('common.reset') }}
       </el-button>
     </div>
   </div>
@@ -155,7 +155,10 @@
 
 <script setup>
 import { defineProps, defineEmits, computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ArrowDown, Close, FolderOpened } from '@element-plus/icons-vue';
+
+const { t } = useI18n();
 
 const props = defineProps({
   hintText: { type: String, required: true },
@@ -164,8 +167,8 @@ const props = defineProps({
   formatSize: { type: Function, required: true },
   formatTime: { type: Function, required: true },
   accept: { type: String, default: '.jsonl' },
-  buttonText: { type: String, default: '选择 JSONL 单文件' },
-  // 目录浏览相关
+  buttonText: { type: String, default: '' },
+  // Directory browsing related
   enableDirPicker: { type: Boolean, default: true },
   supportsDirPicker: { type: Boolean, default: false },
   browseMode: { type: String, default: 'file' },
@@ -173,7 +176,7 @@ const props = defineProps({
   recentDirs: { type: Array, default: () => [] },
 });
 
-// 是否实际显示目录按钮：功能启用 且 浏览器支持
+// Whether to actually show directory button: feature enabled AND browser supports it
 const showDirPicker = computed(
   () => props.enableDirPicker && props.supportsDirPicker
 );
