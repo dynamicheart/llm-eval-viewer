@@ -1,3 +1,7 @@
+html {
+  scrollbar-gutter: stable;
+}
+
 .container {
   padding: 20px;
 }
