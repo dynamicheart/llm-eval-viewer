@@ -150,8 +150,6 @@ import { ElMessage } from 'element-plus';
 import hljs from 'highlight.js';
 import bash from 'highlight.js/lib/languages/bash';
 
-import 'highlight.js/styles/github.css';
-
 hljs.registerLanguage('bash', bash);
 
 const { t } = useI18n();

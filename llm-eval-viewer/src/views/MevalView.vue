@@ -67,13 +67,14 @@
       />
     </div>
 
-    <DatasetStatsCard v-if="showDatasetStats" :tableData="tableData" />
+    <DatasetStatsCard v-if="showDatasetStats" :tableData="tableData" @filter="onDatasetStatsFilter" />
 
     <!-- Table -->
     <el-table
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
+      :max-height="600"
       @filter-change="onTableFilterChange"
       @sort-change="onTableSortChange"
       border
@@ -92,7 +93,7 @@
           <span class="copyable" @click="copyText(row.sampleId)">{{ row.sampleId }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="traceId" label="Trace ID" width="200">
+      <el-table-column prop="traceId" label="Trace ID" width="160">
         <template #header>
           <TableHeaderSearch
             label="Trace ID"
@@ -102,7 +103,23 @@
           />
         </template>
         <template #default="{ row }">
-          <span class="copyable" @click="copyText(row.traceId)" :title="row.traceId">{{ truncateText(row.traceId, 30) }}</span>
+          <el-tooltip :content="row.traceId" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.traceId || row.traceId.length <= 20">
+            <span class="copyable" @click="copyText(row.traceId)">{{ truncateText(row.traceId, 20) }}</span>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('meval.question')" min-width="200">
+        <template #default="{ row }">
+          <el-tooltip raw-content :content="previewHtml(row.question)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.question || row.question.length <= 60">
+            <span class="clickable-cell" @click="showDialog(row.question || '')">{{ truncateText(row.question, 60) }}</span>
+          </el-tooltip>
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('meval.extractedAnswer')" width="100">
+        <template #default="{ row }">
+          <el-tooltip raw-content :content="previewHtml(row.extractedAnswer, 200)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.extractedAnswer || row.extractedAnswer.length <= 12">
+            <span class="clickable-cell" @click="showDialog(row.extractedAnswer || '')">{{ truncateText(row.extractedAnswer, 12) }}</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column
@@ -124,24 +141,24 @@
         <template #default="{ row }">
           <span
             :style="{
-              color: row.result === '0' ? 'var(--ev-color-danger)' : 'var(--ev-color-success)',
-              fontWeight: 600,
+              color: row.result === '0' ? 'var(--ev-color-danger)' : undefined,
+              fontWeight: row.result === '0' ? 600 : undefined,
             }"
           >
             {{ row.result }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="promptTokens" label="Prompt" width="90" sortable />
-      <el-table-column prop="completionTokens" label="Completion" width="105" sortable />
-      <el-table-column prop="totalTokens" label="Total" width="85" sortable />
+      <el-table-column prop="promptTokens" label="Prompt Token" width="110" sortable />
+      <el-table-column prop="completionTokens" label="Comp Token" width="105" sortable />
+      <el-table-column prop="totalTokens" label="Total Token" width="100" sortable />
       <el-table-column
         prop="finishReason"
         label="Finish Reason"
         column-key="finishReason"
         :filters="finishReasonFilters"
         :filtered-value="activeFilters['finishReason'] || []"
-        width="100"
+        width="130"
       >
         <template #default="{ row }">
           <span :style="{ color: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 'var(--ev-color-danger)' : undefined, fontWeight: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 600 : undefined }">
@@ -149,34 +166,30 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('meval.question')" width="70">
+      <el-table-column :label="$t('meval.answers')" width="90">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.question || '')">{{ $t('common.view') }}</el-button>
+          <el-dropdown trigger="click" size="small">
+            <el-button type="text">{{ $t('common.view') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="showDialog(row.referenceAnswer || '')">{{ $t('meval.referenceAnswer') }}</el-dropdown-item>
+                <el-dropdown-item @click="showDialog(row.modelAnswer || '')">{{ $t('meval.modelAnswer') }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('meval.referenceAnswer')" width="85">
+      <el-table-column :label="$t('common.detail')" width="90">
         <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.referenceAnswer || '')">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('meval.modelAnswer')" width="85">
-        <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.modelAnswer || '')">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('meval.extractedAnswer')" width="85">
-        <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.extractedAnswer || '')">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('meval.requestDetail')" width="85">
-        <template #default="{ row }">
-          <el-button type="text" @click="showRawJsonDialog(row)">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column :label="$t('meval.resultDetail')" width="85">
-        <template #default="{ row }">
-          <el-button type="text" @click="showResultDetailDialog(row)">{{ $t('common.view') }}</el-button>
+          <el-dropdown trigger="click" size="small">
+            <el-button type="text">{{ $t('common.view') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="showRawJsonDialog(row)">{{ $t('meval.requestDetail') }}</el-dropdown-item>
+                <el-dropdown-item @click="showResultDetailDialog(row)">{{ $t('meval.resultDetail') }}</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </template>
       </el-table-column>
       <el-table-column :label="$t('meval.buildCurl')" width="85">
@@ -219,6 +232,7 @@ import { ref, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import Papa from 'papaparse';
 import { ElMessage } from 'element-plus';
+import { ArrowDown } from '@element-plus/icons-vue';
 
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
@@ -248,6 +262,7 @@ export default {
     TableHeaderSearch,
     CurlInvokeDialog,
     DatasetStatsCard,
+    ArrowDown,
   },
 
   setup() {
@@ -446,12 +461,39 @@ export default {
       showRawJsonDialog({ rawJson: row.resultDetailJson || '{}' });
     };
 
+    function previewHtml(text, maxLen = 400) {
+      if (!text) return '';
+      const s = String(text).slice(0, maxLen)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      return text.length > maxLen ? s + '…' : s;
+    }
+
     function quickFilterResult(value) {
       setColumnFilter('result', [value]);
     }
 
     function quickFilterFinishReason(value) {
       setColumnFilter('finishReason', [value]);
+    }
+
+    function onDatasetStatsFilter({ dataset, result }) {
+      // Always filter by dataset
+      setColumnFilter('dataset', [dataset]);
+      if (result === 'correct') {
+        // Filter all non-zero result values for this dataset
+        const correctValues = [...new Set(
+          tableData.value
+            .filter(r => r.dataset === dataset && r.result && r.result !== '0')
+            .map(r => r.result)
+        )];
+        setColumnFilter('result', correctValues.length ? correctValues : ['__none__']);
+      } else if (result === 'wrong') {
+        setColumnFilter('result', ['0']);
+      } else {
+        // Row click - only filter dataset, clear result filter
+        setColumnFilter('result', []);
+      }
     }
 
     async function loadSample() {
@@ -485,6 +527,7 @@ export default {
       dismissSample,
       copyText,
       openCurlDialog,
+      previewHtml,
       hintText,
       formatSize,
       formatTime,
@@ -524,12 +567,17 @@ export default {
       setColumnFilter,
       quickFilterResult,
       quickFilterFinishReason,
+      onDatasetStatsFilter,
     };
   },
 };
 </script>
 
 <style scoped>
+/* Ensure filter popover is not clipped by fixed table header */
+:deep(.el-table__header-wrapper) {
+  overflow: visible;
+}
 .distribution-row {
   display: flex;
   gap: 16px;
@@ -540,10 +588,17 @@ export default {
 }
 .copyable {
   cursor: pointer;
+  transition: color 0.2s;
 }
 .copyable:hover {
-  background-color: var(--ev-bg-hover);
-  border-radius: 2px;
+  color: var(--ev-color-primary);
+}
+.clickable-cell {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.clickable-cell:hover {
+  color: var(--ev-color-primary);
 }
 .model-info {
   margin-bottom: 8px;

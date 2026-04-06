@@ -22,13 +22,20 @@
       </el-menu>
 
       <div class="nav-right">
-        <!-- Dark mode toggle -->
-        <span class="icon-btn" :title="isDark ? 'Light Mode' : 'Dark Mode'" @click="toggleTheme">
-          <svg v-if="isDark" class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- Theme toggle: light → dark → auto -->
+        <span class="icon-btn" :title="themeTip" @click="cycleTheme">
+          <!-- sun = light -->
+          <svg v-if="themeMode === 'light'" class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
           </svg>
-          <svg v-else class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <!-- moon = dark -->
+          <svg v-else-if="themeMode === 'dark'" class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+          <!-- half-circle = auto -->
+          <svg v-else class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 2a10 10 0 0 1 0 20z" fill="currentColor"/>
           </svg>
         </span>
 
@@ -118,10 +125,11 @@
 </template>
 
 <script>
-import { ref } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
 import { setLocale, getLocale } from '@/i18n';
+import { useI18n } from 'vue-i18n';
 import { ArrowDown } from '@element-plus/icons-vue';
 
 export default {
@@ -129,15 +137,47 @@ export default {
   components: { NewsBanner, ArrowDown },
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
-    const isDark = ref(document.documentElement.classList.contains('dark'));
+    const { t } = useI18n();
 
-    function toggleTheme() {
-      isDark.value = !isDark.value;
-      document.documentElement.classList.toggle('dark', isDark.value);
-      localStorage.setItem('ev_theme', isDark.value ? 'dark' : 'light');
+    // Theme: 'light' | 'dark' | 'auto'
+    const savedMode = localStorage.getItem('ev_theme') || 'auto';
+    const themeMode = ref(['light', 'dark', 'auto'].includes(savedMode) ? savedMode : 'auto');
+
+    const systemQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+    function applyTheme() {
+      const shouldBeDark =
+        themeMode.value === 'dark' ||
+        (themeMode.value === 'auto' && systemQuery.matches);
+      document.documentElement.classList.toggle('dark', shouldBeDark);
     }
 
-    return { showSidebar, sidebarWidth, currentLocale: getLocale(), isDark, toggleTheme };
+    function onSystemChange() {
+      if (themeMode.value === 'auto') applyTheme();
+    }
+
+    function cycleTheme() {
+      const order = ['light', 'dark', 'auto'];
+      const idx = order.indexOf(themeMode.value);
+      themeMode.value = order[(idx + 1) % order.length];
+      localStorage.setItem('ev_theme', themeMode.value);
+      applyTheme();
+    }
+
+    const themeTip = computed(() => {
+      return t(`app.theme.${themeMode.value}`);
+    });
+
+    onMounted(() => {
+      applyTheme();
+      systemQuery.addEventListener('change', onSystemChange);
+    });
+
+    onUnmounted(() => {
+      systemQuery.removeEventListener('change', onSystemChange);
+    });
+
+    return { showSidebar, sidebarWidth, currentLocale: getLocale(), themeMode, cycleTheme, themeTip };
   },
   watch: {
     '$i18n.locale': {

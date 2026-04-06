@@ -84,6 +84,7 @@
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
+      :max-height="600"
       @filter-change="onTableFilterChange"
       @sort-change="onTableSortChange"
       border
@@ -101,15 +102,19 @@
       </el-table-column>
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
-          <span v-if="row.content?.reasoning" class="reasoning-tag">[R]</span>
-          <span>{{ truncateText(row.content.text, 100) }}</span>
+          <el-tooltip raw-content :content="previewHtml(row.content?.text)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.content?.text || row.content.text.length <= 100">
+            <span class="clickable-cell" @click="showDialog(row.content || {})">
+              <span v-if="row.content?.reasoning" class="reasoning-tag">[R]</span>
+              {{ truncateText(row.content.text, 100) }}
+            </span>
+          </el-tooltip>
         </template>
       </el-table-column>
 
       <el-table-column prop="input_tokens" label="Input Tokens" />
       <el-table-column prop="output_tokens" label="Output Tokens" />
       <el-table-column prop="total_tokens" label="Total Tokens" />
-      <el-table-column label="len(content)">
+      <!-- <el-table-column label="len(content)">
         <template #default="{ row }">
           <el-tooltip
             :disabled="!row.content?.reasoning"
@@ -120,7 +125,7 @@
             <span> {{ formatContentLength(row.content) }} </span>
           </el-tooltip>
         </template>
-      </el-table-column>
+      </el-table-column> -->
       <el-table-column
         column-key="stop_reason"
         prop="stop_reason"
@@ -132,11 +137,6 @@
           <span :style="{ color: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 'var(--ev-color-danger)' : undefined, fontWeight: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 600 : undefined }">
             {{ row.stop_reason }}
           </span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Completion">
-        <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.content || {})">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="JSON">
@@ -461,6 +461,14 @@ export default {
       openRecentFileRaw(file);
     }
 
+    function previewHtml(text, maxLen = 400) {
+      if (!text) return '';
+      const s = String(text).slice(0, maxLen)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      return text.length > maxLen ? s + '…' : s;
+    }
+
     function quickFilterStopReason(value) {
       setColumnFilter('stop_reason', [value]);
     }
@@ -537,6 +545,7 @@ export default {
       showHistogram,
       showDistribution,
       hasReasoning,
+      previewHtml,
       samplePromptVisible,
       loadSample,
       dismissSample,
@@ -596,6 +605,13 @@ export default {
 </script>
 
 <style scoped>
+.clickable-cell {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.clickable-cell:hover {
+  color: var(--ev-color-primary);
+}
 .toggle-buttons {
   gap: 12px;
 }

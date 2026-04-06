@@ -31,7 +31,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, watch } from 'vue';
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
@@ -119,6 +119,7 @@ function renderOne(field) {
 
   const style = getComputedStyle(document.documentElement);
   const tooltipBg = style.getPropertyValue('--ev-bg-tooltip').trim() || '#303133';
+  const tooltipText = style.getPropertyValue('--ev-tooltip-text').trim() || '#ffffff';
   const tickColor = style.getPropertyValue('--ev-text-regular').trim() || '#606266';
   const gridColor = style.getPropertyValue('--ev-chart-grid').trim() || 'rgba(0,0,0,0.05)';
   const tickSecondary = style.getPropertyValue('--ev-text-secondary').trim() || '#909399';
@@ -147,6 +148,8 @@ function renderOne(field) {
         legend: { display: false },
         tooltip: {
           backgroundColor: tooltipBg,
+          titleColor: tooltipText,
+          bodyColor: tooltipText,
           titleFont: { size: 12, weight: '600' },
           bodyFont: { size: 12 },
           padding: 8,
@@ -200,7 +203,22 @@ async function renderAll() {
   props.fields.forEach(renderOne);
 }
 
-onMounted(renderAll);
+onMounted(() => {
+  renderAll();
+  // Re-render charts when theme changes so tooltip/tick colors update
+  themeObserver = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      if (m.attributeName === 'class') { renderAll(); break; }
+    }
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+});
+
+let themeObserver;
+onUnmounted(() => {
+  if (themeObserver) themeObserver.disconnect();
+});
+
 watch(() => props.tableData, renderAll, { deep: true });
 </script>
 

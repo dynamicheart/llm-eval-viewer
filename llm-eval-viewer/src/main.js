@@ -17,9 +17,12 @@ import 'katex/dist/katex.min.css';
 import router from './router';
 import i18n from './i18n';
 
-// Restore dark mode preference
-const savedTheme = localStorage.getItem('ev_theme');
-if (savedTheme === 'dark') {
+// Restore theme preference (light / dark / auto)
+const savedTheme = localStorage.getItem('ev_theme') || 'auto';
+if (
+  savedTheme === 'dark' ||
+  (savedTheme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+) {
   document.documentElement.classList.add('dark');
 }
 

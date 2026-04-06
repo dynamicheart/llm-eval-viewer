@@ -51,6 +51,7 @@
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
+      :max-height="600"
       @filter-change="onTableFilterChange"
       @sort-change="onTableSortChange"
       border
@@ -68,17 +69,23 @@
       </el-table-column>
       <el-table-column prop="prompt" label="Prompt" width="500">
         <template #default="{ row }">
-          <span>{{ truncateText(row.prompt, 100) }}</span>
+          <el-tooltip raw-content :content="previewHtml(row.prompt)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.prompt || row.prompt.length <= 100">
+            <span class="clickable-cell" @click="showDialog(row.prompt || '')">{{ truncateText(row.prompt, 100) }}</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column prop="pred" label="Pred">
         <template #default="{ row }">
-          <span>{{ truncateText(row.pred, 10) }}</span>
+          <el-tooltip raw-content :content="previewHtml(row.pred, 200)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.pred || row.pred.length <= 10">
+            <span class="clickable-cell" @click="showDialog(row.pred || '')">{{ truncateText(row.pred, 10) }}</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column prop="gold" label="Golden">
         <template #default="{ row }">
-          <span>{{ truncateText(row.gold, 10) }}</span>
+          <el-tooltip raw-content :content="previewHtml(row.gold, 200)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.gold || row.gold.length <= 10">
+            <span class="clickable-cell" @click="showDialog(row.gold || '')">{{ truncateText(row.gold, 10) }}</span>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column
@@ -100,19 +107,9 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="Prompt">
-        <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.prompt || '')">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
       <el-table-column label="Completion">
         <template #default="{ row }">
           <el-button type="text" @click="showDialog(row.content || '')">{{ $t('common.view') }}</el-button>
-        </template>
-      </el-table-column>
-      <el-table-column label="Extracted Pred">
-        <template #default="{ row }">
-          <el-button type="text" @click="showDialog(row.pred || '')">{{ $t('common.view') }}</el-button>
         </template>
       </el-table-column>
       <el-table-column label="Solution">
@@ -445,6 +442,15 @@ export default {
       openRecentFileRaw(file);
     }
 
+    /** Build safe HTML for tooltip preview: escape, truncate, preserve newlines */
+    function previewHtml(text, maxLen = 400) {
+      if (!text) return '';
+      const s = String(text).slice(0, maxLen)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+      return text.length > maxLen ? s + '…' : s;
+    }
+
     function quickFilterResult(value) {
       setColumnFilter('result', [value]);
     }
@@ -537,6 +543,7 @@ export default {
       currentRow,
       idKeyword,
       openCurlDialog,
+      previewHtml,
       samplePromptVisible,
       loadSample,
       dismissSample,
@@ -599,6 +606,13 @@ export default {
 </script>
 
 <style scoped>
+.clickable-cell {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.clickable-cell:hover {
+  color: var(--ev-color-primary);
+}
 .sample-prompt {
   display: flex;
   align-items: center;

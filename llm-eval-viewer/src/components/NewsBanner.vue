@@ -32,7 +32,7 @@ const STORAGE_KEY = 'news_dismissed_version';
  * When releasing a new version: increment VERSION, update news locale messages.
  * After user dismisses, the version is stored; only a higher version will show again.
  */
-const VERSION = 4;
+const VERSION = 5;
 
 const newsItems = computed(() => tm('news.items'));
 

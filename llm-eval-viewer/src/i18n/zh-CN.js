@@ -27,6 +27,11 @@ export default {
       predictions: 'Evalscope Predictions JSONL 查看器',
       default: 'Evalscope JSONL 查看器',
     },
+    theme: {
+      light: '浅色',
+      dark: '深色',
+      auto: '自动',
+    },
   },
 
   // === File Toolbar ===
@@ -128,6 +133,9 @@ export default {
     requestDetail: '请求详情',
     resultDetail: '标注详情',
     buildCurl: '构造CURL',
+    content: '内容',
+    answers: '答案',
+    actions: '操作',
     fileFormatConfirm: '文件格式确认',
   },
 
@@ -172,16 +180,10 @@ export default {
   news: {
     items: [
       {
-        date: '2026-04-05',
+        date: '2026-04-06',
         items: [
-          '1. Predictions 支持 Reasoning 内容展示，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
-          '2. 点击分布图可快速筛选对应数据',
-        ],
-      },
-      {
-        date: '2026-04-04',
-        items: [
-          '1. 新增目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
+          '1. 支持暗黑模式：点击右上角主题图标，可切换 浅色 / 深色 / 自动',
+          '2. 目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
         ],
       },
     ],

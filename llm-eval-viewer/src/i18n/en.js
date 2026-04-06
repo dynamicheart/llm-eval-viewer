@@ -27,6 +27,11 @@ export default {
       predictions: 'Evalscope Predictions JSONL Viewer',
       default: 'Evalscope JSONL Viewer',
     },
+    theme: {
+      light: 'Light',
+      dark: 'Dark',
+      auto: 'Auto',
+    },
   },
 
   // === File Toolbar ===
@@ -128,6 +133,9 @@ export default {
     requestDetail: 'Request Detail',
     resultDetail: 'Result Detail',
     buildCurl: 'Build CURL',
+    content: 'Content',
+    answers: 'Answers',
+    actions: 'Actions',
     fileFormatConfirm: 'File Format Confirm',
   },
 
@@ -172,16 +180,10 @@ export default {
   news: {
     items: [
       {
-        date: '2026-04-05',
+        date: '2026-04-06',
         items: [
-          '1. Predictions now supports Reasoning content display, marked as [R]. Click "View" to see Text and Reasoning separately',
-          '2. Click distribution chart to quickly filter corresponding data',
-        ],
-      },
-      {
-        date: '2026-04-04',
-        items: [
-          '1. New directory browsing feature: select a directory to auto-scan its structure, quickly switch between experiments and datasets',
+          '1. Dark mode support: click the theme icon in the top-right corner to switch between Light / Dark / Auto',
+          '2. Directory browsing: select a directory to auto-scan its structure, quickly switch between experiments and datasets',
         ],
       },
     ],

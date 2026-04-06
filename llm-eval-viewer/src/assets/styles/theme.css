@@ -20,6 +20,7 @@
   --ev-bg-banner-start: #ecf5ff;
   --ev-bg-banner-end: #f0f9eb;
   --ev-bg-tooltip: #303133;
+  --ev-tooltip-text: #ffffff;
 
   /* === Text === */
   --ev-text-primary: #303133;
@@ -65,6 +66,7 @@ html.dark {
   --ev-bg-banner-start: #1a2332;
   --ev-bg-banner-end: #1a2e1a;
   --ev-bg-tooltip: #e5eaf3;
+  --ev-tooltip-text: #303133;
 
   /* === Text === */
   --ev-text-primary: #e5eaf3;
@@ -105,3 +107,28 @@ body {
   color: var(--ev-text-primary);
   transition: background-color 0.3s, color 0.3s;
 }
+
+/* ===== highlight.js dark overrides ===== */
+html.dark .hljs {
+  background: var(--ev-bg-code);
+  color: #e5eaf3;
+}
+html.dark .hljs-keyword,
+html.dark .hljs-selector-tag,
+html.dark .hljs-literal,
+html.dark .hljs-type { color: #c678dd; }
+html.dark .hljs-string,
+html.dark .hljs-addition { color: #98c379; }
+html.dark .hljs-number { color: #d19a66; }
+html.dark .hljs-comment,
+html.dark .hljs-quote,
+html.dark .hljs-deletion { color: #6c6e72; }
+html.dark .hljs-variable,
+html.dark .hljs-template-variable,
+html.dark .hljs-attr { color: #e06c75; }
+html.dark .hljs-built_in,
+html.dark .hljs-title,
+html.dark .hljs-section { color: #61afef; }
+html.dark .hljs-symbol,
+html.dark .hljs-bullet { color: #56b6c2; }
+html.dark .hljs-subst { color: #e5eaf3; }
