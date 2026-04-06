@@ -45,8 +45,6 @@ html {
 /* === Preview tooltip for table cells === */
 .preview-tooltip {
   max-width: 520px !important;
-  max-height: 300px !important;
-  overflow-y: auto !important;
 }
 .preview-tooltip .el-tooltip__content {
   line-height: 1.6;
