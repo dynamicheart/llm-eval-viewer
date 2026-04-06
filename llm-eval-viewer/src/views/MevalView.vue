@@ -392,10 +392,6 @@ export default {
       deleteFile,
       parseData: parseCsv,
       tableModel,
-      parserVersion: '1',
-      onParseResult: (result) => {
-        modelName.value = result.modelName || '';
-      },
       hintText: t('meval.hintText'),
       validateContent: (text) => {
         const header = (text.split('\n')[0] || '').trim();

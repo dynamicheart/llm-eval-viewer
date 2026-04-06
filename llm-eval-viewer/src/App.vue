@@ -16,9 +16,6 @@
           <span class="nav-group-tag">Evalscope</span>Review
         </el-menu-item>
         <el-menu-item index="/evalscope/predictions">Predictions</el-menu-item>
-        <el-menu-item index="/meval">
-          <span class="nav-group-tag">MEval</span>MEval
-        </el-menu-item>
       </el-menu>
 
       <div class="nav-right">

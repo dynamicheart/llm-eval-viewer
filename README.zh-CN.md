@@ -5,7 +5,7 @@
 > 本项目完全由 AI 辅助生成（[Baidu Comate IDE](https://comate.baidu.com/) + [Claude Opus 4.6](https://www.anthropic.com/claude)）。
 
 **LLM Eval Viewer** 是一个用于 **大模型评测结果可视化** 的轻量网页工具，  
-目前支持 **evalscope** 和 **MEval** 生成的评测结果格式。
+目前支持 **evalscope** 生成的评测结果格式。
 
 **在线体验：**  
 https://dynamicheart.github.io/llm-eval-viewer/
@@ -14,7 +14,7 @@ https://dynamicheart.github.io/llm-eval-viewer/
 
 ## 功能特性
 
-- **多格式支持**：Evalscope Predictions / Reviews 和 MEval 评测结果
+- **多格式支持**：Evalscope Predictions / Reviews 评测结果
 - **目录浏览**：选择目录自动扫描结构，快速切换不同实验和数据集（Chrome/Edge）
 - **统计与分布**：Token 直方图、结果/Finish Reason 分布、按数据集统计准确率 —— 均可点击交互筛选
 - **Reasoning 支持**：展示推理内容，标记为 [R]，可分别查看 Text 和 Reasoning
