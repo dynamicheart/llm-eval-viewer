@@ -1,3 +1,8 @@
+<!--
+  Copyright (c) 2026 dynamicheart
+  Licensed under the MIT License.
+-->
+
 <template>
   <div v-if="visible" class="news-banner">
     <div class="news-item">

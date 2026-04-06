@@ -1,3 +1,8 @@
+<!--
+  Copyright (c) 2026 dynamicheart
+  Licensed under the MIT License.
+-->
+
 <template>
   <div v-if="browseMode === 'file'" style="margin-bottom: 0px; color: #e6a23c; font-weight: 600">
     {{ hintText }}

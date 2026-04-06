@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 dynamicheart
+ * Licensed under the MIT License.
+ */
+
 /**
  * useDirBrowser — 目录浏览器 composable（singleton）
  *

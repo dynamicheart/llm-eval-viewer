@@ -1,3 +1,8 @@
+<!--
+  Copyright (c) 2026 dynamicheart
+  Licensed under the MIT License.
+-->
+
 <template>
   <div v-if="visible" class="dir-sidebar" :style="{ width: collapsed ? '0px' : sidebarWidth + 'px' }">
     <!-- 收起时：外侧标签 -->

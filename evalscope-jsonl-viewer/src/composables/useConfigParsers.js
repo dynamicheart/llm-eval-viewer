@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 dynamicheart
+ * Licensed under the MIT License.
+ */
+
 /**
  * 插件式实验配置名解析器
  *

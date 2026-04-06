@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 dynamicheart
+ * Licensed under the MIT License.
+ */
+
 /**
  * 样例数据：首次用户体验用
  *

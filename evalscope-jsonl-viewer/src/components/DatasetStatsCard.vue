@@ -1,3 +1,8 @@
+<!--
+  Copyright (c) 2026 dynamicheart
+  Licensed under the MIT License.
+-->
+
 <template>
   <div v-if="stats.length" class="stats-card">
     <div class="title">数据集统计</div>

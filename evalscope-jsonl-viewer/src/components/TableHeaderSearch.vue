@@ -1,3 +1,8 @@
+<!--
+  Copyright (c) 2026 dynamicheart
+  Licensed under the MIT License.
+-->
+
 <template>
   <div class="th-search">
     <span class="label">{{ label }}</span>
