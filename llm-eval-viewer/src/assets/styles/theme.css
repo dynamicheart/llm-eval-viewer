@@ -1,0 +1,107 @@
+/* Copyright (c) 2026 dynamicheart. Licensed under the MIT License. */
+
+/*
+ * Theme CSS Variables
+ * Light theme: default (:root)
+ * Dark theme: html.dark
+ *
+ * Element Plus dark mode is enabled via importing dark/css-vars.css in main.js
+ * and toggling html.dark class.
+ */
+
+:root {
+  /* === Background === */
+  --ev-bg-page: #ffffff;
+  --ev-bg-card: #ffffff;
+  --ev-bg-nav: #f5f7fa;
+  --ev-bg-code: #f6f8fa;
+  --ev-bg-hover: #f0f6ff;
+  --ev-bg-toggle-hover: #f0f2f5;
+  --ev-bg-banner-start: #ecf5ff;
+  --ev-bg-banner-end: #f0f9eb;
+  --ev-bg-tooltip: #303133;
+
+  /* === Text === */
+  --ev-text-primary: #303133;
+  --ev-text-regular: #606266;
+  --ev-text-secondary: #909399;
+  --ev-text-muted: #c0c4cc;
+  --ev-text-title: #171819;
+
+  /* === Border === */
+  --ev-border-color: #e4e7ed;
+  --ev-border-light: #dcdfe6;
+  --ev-border-lighter: #f0f0f0;
+  --ev-border-banner: #b3d8ff;
+
+  /* === Accent === */
+  --ev-color-primary: #409eff;
+  --ev-color-success: #67c23a;
+  --ev-color-danger: #f56c6c;
+  --ev-color-warning: #e6a23c;
+
+  /* === Shadow === */
+  --ev-shadow-card: 0 2px 8px rgb(0 0 0 / 0.1);
+  --ev-shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.12);
+  --ev-shadow-nav: 0 2px 4px rgb(0 0 0 / 0.1);
+  --ev-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.06);
+
+  /* === Chart === */
+  --ev-chart-grid: rgba(0, 0, 0, 0.05);
+  --ev-chart-bg: #ffffff;
+
+  /* === Scrollbar === */
+  --ev-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+}
+
+html.dark {
+  /* === Background === */
+  --ev-bg-page: #1d1e1f;
+  --ev-bg-card: #2c2c2c;
+  --ev-bg-nav: #1d1e1f;
+  --ev-bg-code: #2c2c2c;
+  --ev-bg-hover: #363637;
+  --ev-bg-toggle-hover: #363637;
+  --ev-bg-banner-start: #1a2332;
+  --ev-bg-banner-end: #1a2e1a;
+  --ev-bg-tooltip: #e5eaf3;
+
+  /* === Text === */
+  --ev-text-primary: #e5eaf3;
+  --ev-text-regular: #cfd3dc;
+  --ev-text-secondary: #a3a6ad;
+  --ev-text-muted: #6c6e72;
+  --ev-text-title: #e5eaf3;
+
+  /* === Border === */
+  --ev-border-color: #4c4d4f;
+  --ev-border-light: #414243;
+  --ev-border-lighter: #363637;
+  --ev-border-banner: #1d4a7e;
+
+  /* === Accent (keep consistent, slightly adjusted for dark bg) === */
+  --ev-color-primary: #409eff;
+  --ev-color-success: #67c23a;
+  --ev-color-danger: #f56c6c;
+  --ev-color-warning: #e6a23c;
+
+  /* === Shadow === */
+  --ev-shadow-card: 0 2px 8px rgb(0 0 0 / 0.3);
+  --ev-shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.4);
+  --ev-shadow-nav: 0 2px 4px rgb(0 0 0 / 0.3);
+  --ev-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.2);
+
+  /* === Chart === */
+  --ev-chart-grid: rgba(255, 255, 255, 0.08);
+  --ev-chart-bg: #2c2c2c;
+
+  /* === Scrollbar === */
+  --ev-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+}
+
+/* Global body background */
+body {
+  background-color: var(--ev-bg-page);
+  color: var(--ev-text-primary);
+  transition: background-color 0.3s, color 0.3s;
+}

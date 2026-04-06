@@ -56,16 +56,16 @@ function dismiss() {
   align-items: flex-start;
   gap: 8px;
   padding: 8px 12px;
-  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
-  border: 1px solid #b3d8ff;
+  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
+  border: 1px solid var(--ev-border-banner);
   border-radius: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--ev-text-primary);
   line-height: 1.6;
 }
 
 .news-tag {
-  background: #409eff;
+  background: var(--ev-color-primary);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -82,7 +82,7 @@ function dismiss() {
 
 .news-date {
   font-weight: 600;
-  color: #606266;
+  color: var(--ev-text-regular);
   font-size: 12px;
 }
 
@@ -92,13 +92,13 @@ function dismiss() {
 
 .news-close {
   cursor: pointer;
-  color: #909399;
+  color: var(--ev-text-secondary);
   flex-shrink: 0;
   font-size: 14px;
   margin-top: 2px;
 }
 
 .news-close:hover {
-  color: #f56c6c;
+  color: var(--ev-color-danger);
 }
 </style>

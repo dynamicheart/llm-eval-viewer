@@ -11,12 +11,12 @@
       <el-table-column prop="total" :label="$t('datasetStats.questions')" width="80" align="center" sortable />
       <el-table-column prop="correct" :label="$t('datasetStats.correct')" width="70" align="center">
         <template #default="{ row }">
-          <span style="color: #67c23a; font-weight: 600">{{ row.correct }}</span>
+          <span class="text-success">{{ row.correct }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="wrong" :label="$t('datasetStats.wrong')" width="70" align="center">
         <template #default="{ row }">
-          <span style="color: #f56c6c; font-weight: 600">{{ row.wrong }}</span>
+          <span class="text-danger">{{ row.wrong }}</span>
         </template>
       </el-table-column>
       <el-table-column :label="$t('datasetStats.accuracy')" width="100" align="center" sortable :sort-method="(a, b) => a.accuracy - b.accuracy">
@@ -26,10 +26,10 @@
       </el-table-column>
       <el-table-column label="Finish Reason" width="100" align="center">
         <template #default="{ row }">
-          <span v-if="row.nonStopCount > 0" style="color: #f56c6c; font-weight: 600">
+          <span v-if="row.nonStopCount > 0" class="text-danger">
             length: {{ row.nonStopCount }}
           </span>
-          <span v-else style="color: #909399">all stop</span>
+          <span v-else class="text-muted">all stop</span>
         </template>
       </el-table-column>
     </el-table>
@@ -72,9 +72,9 @@ const stats = computed(() => {
 
 <style scoped>
 .stats-card {
-  background-color: #fff;
+  background-color: var(--ev-bg-card);
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  box-shadow: var(--ev-shadow-card);
   padding: 16px 24px;
   margin-bottom: 20px;
   user-select: none;
@@ -84,6 +84,20 @@ const stats = computed(() => {
   font-weight: 600;
   font-size: 16px;
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--ev-text-primary);
+}
+
+.text-success {
+  color: var(--ev-color-success);
+  font-weight: 600;
+}
+
+.text-danger {
+  color: var(--ev-color-danger);
+  font-weight: 600;
+}
+
+.text-muted {
+  color: var(--ev-text-secondary);
 }
 </style>

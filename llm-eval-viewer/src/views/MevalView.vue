@@ -27,8 +27,8 @@
       <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
 
-    <div v-if="modelName" style="margin-bottom: 8px; color: #909399; font-size: 13px">
-      {{ $t('meval.detectedModel') }}<b style="color: #303133">{{ modelName }}</b>
+    <div v-if="modelName" class="model-info">
+      {{ $t('meval.detectedModel') }}<b class="model-name">{{ modelName }}</b>
     </div>
 
     <template v-if="tableData.length">
@@ -124,7 +124,7 @@
         <template #default="{ row }">
           <span
             :style="{
-              color: row.result === '0' ? '#f56c6c' : '#67c23a',
+              color: row.result === '0' ? 'var(--ev-color-danger)' : 'var(--ev-color-success)',
               fontWeight: 600,
             }"
           >
@@ -144,7 +144,7 @@
         width="100"
       >
         <template #default="{ row }">
-          <span :style="{ color: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? '#f56c6c' : undefined, fontWeight: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 600 : undefined }">
+          <span :style="{ color: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 'var(--ev-color-danger)' : undefined, fontWeight: (row.finishReason === 'length' || row.finishReason === 'max_tokens') ? 600 : undefined }">
             {{ row.finishReason }}
           </span>
         </template>
@@ -542,8 +542,16 @@ export default {
   cursor: pointer;
 }
 .copyable:hover {
-  background-color: #f0f0f0;
+  background-color: var(--ev-bg-hover);
   border-radius: 2px;
+}
+.model-info {
+  margin-bottom: 8px;
+  color: var(--ev-text-secondary);
+  font-size: 13px;
+}
+.model-name {
+  color: var(--ev-text-primary);
 }
 .sample-prompt {
   display: flex;
@@ -551,10 +559,10 @@ export default {
   gap: 12px;
   padding: 10px 16px;
   margin-bottom: 8px;
-  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
-  border: 1px solid #b3d8ff;
+  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
+  border: 1px solid var(--ev-border-banner);
   border-radius: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--ev-text-primary);
 }
 </style>

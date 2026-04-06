@@ -92,7 +92,7 @@
           <span
             v-if="meta = formatResultMeta(row.result)"
             :style="{
-              color: meta.status === 'error' ? '#f56c6c' : undefined,
+              color: meta.status === 'error' ? 'var(--ev-color-danger)' : undefined,
               fontWeight: meta.status === 'error' ? 600 : undefined,
             }"
           >
@@ -605,10 +605,10 @@ export default {
   gap: 12px;
   padding: 10px 16px;
   margin-bottom: 8px;
-  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
-  border: 1px solid #b3d8ff;
+  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
+  border: 1px solid var(--ev-border-banner);
   border-radius: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--ev-text-primary);
 }
 </style>

@@ -4,7 +4,7 @@
 -->
 
 <template>
-  <div v-if="browseMode === 'file'" style="margin-bottom: 0px; color: #e6a23c; font-weight: 600">
+  <div v-if="browseMode === 'file'" class="hint-text">
     {{ hintText }}
   </div>
 
@@ -39,7 +39,7 @@
         placement="top"
         effect="dark"
       >
-        <span style="color: #c0c4cc; font-size: 12px; cursor: default">
+        <span class="text-disabled">
           {{ $t('fileToolbar.dirBrowseChrome') }}
         </span>
       </el-tooltip>
@@ -78,7 +78,7 @@
             </template>
 
             <el-dropdown-item v-if="recentDirs.length && recentFiles.length" divided disabled>
-              <span style="font-size: 12px; color: #909399">{{ $t('fileToolbar.singleFile') }}</span>
+              <span class="section-label">{{ $t('fileToolbar.singleFile') }}</span>
             </el-dropdown-item>
 
             <!-- Recent file list -->
@@ -111,7 +111,7 @@
 
             <!-- Empty state -->
             <el-dropdown-item v-if="!recentFiles.length && !recentDirs.length" disabled>
-              <span style="font-size: 12px; color: #909399">{{ $t('fileToolbar.noRecords') }}</span>
+              <span class="section-label">{{ $t('fileToolbar.noRecords') }}</span>
             </el-dropdown-item>
 
             <el-dropdown-item v-if="recentFiles.length" divided @click="$emit('clear-recent-files')">
@@ -124,19 +124,19 @@
       <!-- Cache info (file mode only) -->
       <span
         v-if="browseMode === 'file'"
-        style="color: #909399; font-size: 12px"
+        class="cache-info"
       >
         {{ $t('fileToolbar.cacheTotal', { size: formatSize(totalCacheSize) }) }}
       </span>
 
       <!-- Current info: directory mode shows dir name, file mode shows file name -->
-      <span v-if="browseMode === 'directory' && dirName" style="color: #606266">
+      <span v-if="browseMode === 'directory' && dirName" class="current-info">
         {{ $t('fileToolbar.currentDir') }}<b>{{ dirName }}</b>
         <template v-if="currentFileName">
           / {{ currentFileName }}
         </template>
       </span>
-      <span v-else-if="currentFileName" style="color: #606266">
+      <span v-else-if="currentFileName" class="current-info">
         {{ $t('fileToolbar.currentFile') }}<b>{{ currentFileName }}</b>
       </span>
 
@@ -216,13 +216,29 @@ const totalCacheSize = computed(() => {
 }
 
 .hint-text {
-  margin-bottom: 8px;
-  color: #e6a23c;
+  margin-bottom: 0;
+  color: var(--ev-color-warning);
   font-weight: 600;
 }
 
-.current-file-text {
-  color: #606266;
+.current-info {
+  color: var(--ev-text-regular);
+}
+
+.cache-info {
+  color: var(--ev-text-secondary);
+  font-size: 12px;
+}
+
+.text-disabled {
+  color: var(--ev-text-muted);
+  font-size: 12px;
+  cursor: default;
+}
+
+.section-label {
+  font-size: 12px;
+  color: var(--ev-text-secondary);
 }
 
 .recent-dropdown {
@@ -242,7 +258,7 @@ const totalCacheSize = computed(() => {
 
 .recent-item .meta {
   font-size: 11px;
-  color: #909399;
+  color: var(--ev-text-secondary);
 }
 
 .recent-item-row {
@@ -254,11 +270,11 @@ const totalCacheSize = computed(() => {
 
 .delete-icon {
   font-size: 14px;
-  color: #c0c4cc;
+  color: var(--ev-text-muted);
   cursor: pointer;
 }
 
 .delete-icon:hover {
-  color: #f56c6c;
+  color: var(--ev-color-danger);
 }
 </style>

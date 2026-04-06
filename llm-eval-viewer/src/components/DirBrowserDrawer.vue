@@ -137,12 +137,12 @@ function handleNodeClick(data) {
   left: 0;
   top: 56px;
   bottom: 0;
-  background: #fff;
-  border-right: 1px solid #e4e7ed;
+  background: var(--ev-bg-card);
+  border-right: 1px solid var(--ev-border-color);
   z-index: 1999;
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--ev-shadow-sidebar);
   transition: width 0.25s ease;
   overflow: hidden;
 }
@@ -153,12 +153,12 @@ function handleNodeClick(data) {
   justify-content: space-between;
   padding: 8px 8px 4px 12px;
   flex-shrink: 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--ev-border-lighter);
 }
 
 .sidebar-title {
   font-size: 12px;
-  color: #909399;
+  color: var(--ev-text-secondary);
   user-select: none;
 }
 
@@ -170,12 +170,12 @@ function handleNodeClick(data) {
   justify-content: center;
   cursor: pointer;
   border-radius: 4px;
-  color: #909399;
+  color: var(--ev-text-secondary);
 }
 
 .toggle-btn-inside:hover {
-  background: #f0f2f5;
-  color: #409eff;
+  background: var(--ev-bg-toggle-hover);
+  color: var(--ev-color-primary);
 }
 
 .dir-sidebar-body {
@@ -194,19 +194,19 @@ function handleNodeClick(data) {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  background: #fff;
-  border: 1px solid #dcdfe6;
+  background: var(--ev-bg-card);
+  border: 1px solid var(--ev-border-light);
   border-left: none;
   border-radius: 0 6px 6px 0;
-  color: #909399;
-  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.06);
+  color: var(--ev-text-secondary);
+  box-shadow: var(--ev-shadow-sidebar);
   z-index: 2000;
 }
 
 .toggle-tab-outside:hover {
-  background: #ecf5ff;
-  color: #409eff;
-  border-color: #b3d8ff;
+  background: var(--ev-bg-banner-start);
+  color: var(--ev-color-primary);
+  border-color: var(--ev-border-banner);
 }
 
 .resize-handle {
@@ -225,6 +225,6 @@ function handleNodeClick(data) {
 
 .is-run-node {
   cursor: pointer;
-  color: #409eff;
+  color: var(--ev-color-primary);
 }
 </style>

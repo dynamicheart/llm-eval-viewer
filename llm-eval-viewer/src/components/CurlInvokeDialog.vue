@@ -333,7 +333,7 @@ function copyCurl() {
 }
 
 .param-form :deep(.el-form-item__label) {
-  color: #606266;
+  color: var(--ev-text-regular);
   font-size: 13px;
 }
 
@@ -344,8 +344,8 @@ function copyCurl() {
 .curl-code {
   max-height: 30vh;
   overflow: auto;
-  background: #f6f8fa;
-  border: 1px solid #dcdfe6;
+  background: var(--ev-bg-code);
+  border: 1px solid var(--ev-border-light);
   border-radius: 6px;
   padding: 12px;
   font-size: 13px;
@@ -357,7 +357,7 @@ function copyCurl() {
 }
 
 .curl-code::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--ev-scrollbar-thumb);
   border-radius: 4px;
 }
 
@@ -390,7 +390,7 @@ function copyCurl() {
 }
 
 .tri-item .el-segmented:hover {
-  background-color: #f5f7fa;
+  background-color: var(--ev-bg-nav);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -398,7 +398,7 @@ function copyCurl() {
 .tri-label {
   font-size: 13px;
   font-weight: 500;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--ev-text-secondary);
   line-height: 1.3;
   letter-spacing: 0.02em;
   white-space: nowrap;

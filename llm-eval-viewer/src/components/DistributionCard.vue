@@ -124,9 +124,9 @@ const itemDistribution = computed(() => {
 
 <style scoped>
 .distribution-card {
-  background-color: #fff;
+  background-color: var(--ev-bg-card);
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  box-shadow: var(--ev-shadow-card);
   padding: 16px 24px;
   margin-bottom: 20px;
   user-select: none;
@@ -136,7 +136,7 @@ const itemDistribution = computed(() => {
   font-weight: 600;
   font-size: 16px;
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--ev-text-primary);
 }
 
 .distribution-list {
@@ -149,7 +149,7 @@ const itemDistribution = computed(() => {
   display: flex;
   align-items: center;
   font-size: 14px;
-  color: #606266;
+  color: var(--ev-text-regular);
 }
 
 .color-dot {
@@ -164,25 +164,25 @@ const itemDistribution = computed(() => {
 .total-count {
   margin-top: 16px;
   font-weight: 500;
-  color: #909399;
+  color: var(--ev-text-secondary);
   font-size: 13px;
 }
 
 .text {
   font-weight: 700;
   font-size: 16px;
-  color: #303133;
+  color: var(--ev-text-primary);
   margin-right: 8px;
 }
 
 .count-text {
   font-weight: 400;
   font-size: 14px;
-  color: #909399;
+  color: var(--ev-text-secondary);
 }
 
 .distribution-item:hover {
-  background-color: #f0f6ff;
+  background-color: var(--ev-bg-hover);
   border-radius: 6px;
   cursor: pointer;
   transform: scale(1.05);

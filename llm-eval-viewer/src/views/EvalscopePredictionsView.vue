@@ -76,7 +76,7 @@
     <!-- Table -->
     <div
       v-if="hasReasoning"
-      style="margin-top: 12px; padding: 8px 12px; border-left: 4px solid #409EFF; background: #ecf5ff; border-radius: 4px; font-size: 13px; color: #303133;"
+      style="margin-top: 12px; padding: 8px 12px; border-left: 4px solid var(--ev-color-primary); background: var(--ev-bg-banner-start); border-radius: 4px; font-size: 13px; color: var(--ev-text-primary);"
     >
       {{ $t('predictions.reasoningBanner') }}
     </div>
@@ -101,7 +101,7 @@
       </el-table-column>
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
-          <span v-if="row.content?.reasoning" style="color: #409EFF; font-weight: 600; font-size: 11px; margin-right: 4px">[R]</span>
+          <span v-if="row.content?.reasoning" class="reasoning-tag">[R]</span>
           <span>{{ truncateText(row.content.text, 100) }}</span>
         </template>
       </el-table-column>
@@ -129,7 +129,7 @@
         :filtered-value="activeFilters['stop_reason'] || []"
       >
         <template #default="{ row }">
-          <span :style="{ color: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? '#f56c6c' : undefined, fontWeight: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 600 : undefined }">
+          <span :style="{ color: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 'var(--ev-color-danger)' : undefined, fontWeight: (row.stop_reason === 'length' || row.stop_reason === 'max_tokens') ? 600 : undefined }">
             {{ row.stop_reason }}
           </span>
         </template>
@@ -605,10 +605,17 @@ export default {
   gap: 12px;
   padding: 10px 16px;
   margin-bottom: 8px;
-  background: linear-gradient(135deg, #ecf5ff, #f0f9eb);
-  border: 1px solid #b3d8ff;
+  background: linear-gradient(135deg, var(--ev-bg-banner-start), var(--ev-bg-banner-end));
+  border: 1px solid var(--ev-border-banner);
   border-radius: 6px;
   font-size: 13px;
-  color: #303133;
+  color: var(--ev-text-primary);
+}
+
+.reasoning-tag {
+  color: var(--ev-color-primary);
+  font-weight: 600;
+  font-size: 11px;
+  margin-right: 4px;
 }
 </style>

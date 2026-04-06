@@ -117,6 +117,12 @@ function renderOne(field) {
   const old = chartMap.get(field.key);
   if (old) old.destroy();
 
+  const style = getComputedStyle(document.documentElement);
+  const tooltipBg = style.getPropertyValue('--ev-bg-tooltip').trim() || '#303133';
+  const tickColor = style.getPropertyValue('--ev-text-regular').trim() || '#606266';
+  const gridColor = style.getPropertyValue('--ev-chart-grid').trim() || 'rgba(0,0,0,0.05)';
+  const tickSecondary = style.getPropertyValue('--ev-text-secondary').trim() || '#909399';
+
   const chart = new Chart(canvasMap.get(field.key), {
     type: 'bar',
     data: {
@@ -140,7 +146,7 @@ function renderOne(field) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#303133',
+          backgroundColor: tooltipBg,
           titleFont: { size: 12, weight: '600' },
           bodyFont: { size: 12 },
           padding: 8,
@@ -164,7 +170,7 @@ function renderOne(field) {
             display: false,
           },
           ticks: {
-            color: '#606266',
+            color: tickColor,
             font: {
               size: 12,
             },
@@ -173,10 +179,10 @@ function renderOne(field) {
         y: {
           beginAtZero: true,
           grid: {
-            color: 'rgba(0,0,0,0.05)',
+            color: gridColor,
           },
           ticks: {
-            color: '#909399',
+            color: tickSecondary,
             font: {
               size: 12,
             },
@@ -200,9 +206,9 @@ watch(() => props.tableData, renderAll, { deep: true });
 
 <style scoped>
 .result-distribution-card {
-  background-color: #fff;
+  background-color: var(--ev-bg-card);
   border-radius: 8px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+  box-shadow: var(--ev-shadow-card);
   padding: 16px 24px;
   margin-bottom: 20px;
   user-select: none;
@@ -212,7 +218,7 @@ watch(() => props.tableData, renderAll, { deep: true });
   font-weight: 600;
   font-size: 16px;
   margin-bottom: 12px;
-  color: #303133;
+  color: var(--ev-text-primary);
 }
 
 /* ===== charts layout ===== */
@@ -230,15 +236,15 @@ watch(() => props.tableData, renderAll, { deep: true });
 /* ===== chart card ===== */
 
 .chart-card {
-  background-color: #fff;
+  background-color: var(--ev-chart-bg);
   border-radius: 8px;
   padding: 12px 14px 10px;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.08);
+  box-shadow: var(--ev-shadow-card);
   transition: all 0.2s ease-in-out;
 }
 
 .chart-card:hover {
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+  box-shadow: var(--ev-shadow-card-hover);
   transform: translateY(-2px);
 }
 
@@ -248,7 +254,7 @@ watch(() => props.tableData, renderAll, { deep: true });
   text-align: center;
   font-weight: 600;
   font-size: 14px;
-  color: #606266;
+  color: var(--ev-text-regular);
   margin-bottom: 8px;
 }
 
@@ -264,7 +270,7 @@ watch(() => props.tableData, renderAll, { deep: true });
 .stats-footer {
   margin-top: 16px;
   font-weight: 500;
-  color: #909399;
+  color: var(--ev-text-secondary);
   font-size: 13px;
   display: flex;
   gap: 24px;

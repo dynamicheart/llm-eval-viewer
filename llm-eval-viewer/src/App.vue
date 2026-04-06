@@ -11,9 +11,6 @@
         :default-active="$route.path"
         class="nav-menu"
         @select="handleSelect"
-        background-color="#f5f7fa"
-        text-color="#606266"
-        active-text-color="#409eff"
       >
         <el-menu-item index="/evalscope/reviews">
           <span class="nav-group-tag">Evalscope</span>Review
@@ -25,6 +22,17 @@
       </el-menu>
 
       <div class="nav-right">
+        <!-- Dark mode toggle -->
+        <span class="icon-btn" :title="isDark ? 'Light Mode' : 'Dark Mode'" @click="toggleTheme">
+          <svg v-if="isDark" class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/><path d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg v-else class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+        </span>
+
+        <!-- Language switcher -->
         <el-dropdown size="small" @command="switchLocale">
           <span class="locale-switch">
             <svg class="locale-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
@@ -43,6 +51,7 @@
           </template>
         </el-dropdown>
 
+        <!-- Example files link (hidden on small screens) -->
         <a
           class="example-link"
           href="https://github.com/dynamicheart/llm-eval-viewer/tree/main/docs/examples"
@@ -52,6 +61,7 @@
           {{ $t('app.exampleFiles') }}
         </a>
 
+        <!-- GitHub -->
         <a
           class="github-link"
           href="https://github.com/dynamicheart/llm-eval-viewer"
@@ -59,17 +69,8 @@
           rel="noopener noreferrer"
           aria-label="GitHub Repository"
         >
-          <svg
-            height="24"
-            width="24"
-            viewBox="0 0 16 16"
-            fill="#409eff"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2 .37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 012-.27c.68.01 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"
-            />
+          <svg height="24" width="24" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+            <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2 .37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 012-.27c.68.01 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0016 8c0-4.42-3.58-8-8-8z"/>
           </svg>
         </a>
       </div>
@@ -117,6 +118,7 @@
 </template>
 
 <script>
+import { ref } from 'vue';
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
 import { setLocale, getLocale } from '@/i18n';
@@ -127,7 +129,15 @@ export default {
   components: { NewsBanner, ArrowDown },
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
-    return { showSidebar, sidebarWidth, currentLocale: getLocale() };
+    const isDark = ref(document.documentElement.classList.contains('dark'));
+
+    function toggleTheme() {
+      isDark.value = !isDark.value;
+      document.documentElement.classList.toggle('dark', isDark.value);
+      localStorage.setItem('ev_theme', isDark.value ? 'dark' : 'light');
+    }
+
+    return { showSidebar, sidebarWidth, currentLocale: getLocale(), isDark, toggleTheme };
   },
   watch: {
     '$i18n.locale': {
@@ -168,9 +178,9 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background-color: #f5f7fa;
+  background-color: var(--ev-bg-nav);
   padding: 0 16px;
-  box-shadow: 0 2px 4px rgb(0 0 0 / 0.1);
+  box-shadow: var(--ev-shadow-nav);
   position: fixed;
   top: 0;
   left: 0;
@@ -189,7 +199,12 @@ export default {
   font-size: 16px;
   flex: 1 1 auto;
   box-shadow: none;
-  background-color: transparent;
+  background-color: transparent !important;
+  --el-menu-bg-color: transparent;
+}
+
+.nav-menu :deep(.el-menu-item) {
+  background-color: transparent !important;
 }
 
 .nav-menu :deep(.el-menu-item:focus),
@@ -199,7 +214,7 @@ export default {
 
 .nav-group-tag {
   font-size: 10px;
-  color: #909399;
+  color: var(--ev-text-secondary);
   padding: 1px 5px;
   margin-right: 6px;
   font-weight: 400;
@@ -211,7 +226,7 @@ export default {
   user-select: none;
   display: flex;
   align-items: center;
-  color: #409eff;
+  color: var(--ev-color-primary);
   text-decoration: none;
   transition: opacity 0.2s;
 }
@@ -237,7 +252,7 @@ export default {
 .page-title {
   font-weight: 700;
   font-size: 2rem;
-  color: #171819;
+  color: var(--ev-text-title);
   user-select: none;
   margin: 0;
 }
@@ -246,11 +261,12 @@ export default {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-shrink: 0;
 }
 
 .example-link {
   font-size: 14px;
-  color: #409eff;
+  color: var(--ev-color-primary);
   text-decoration: none;
   font-weight: 500;
 }
@@ -262,7 +278,7 @@ export default {
 .locale-switch {
   cursor: pointer;
   font-size: 13px;
-  color: #606266;
+  color: var(--ev-text-regular);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -282,7 +298,30 @@ export default {
 }
 
 .locale-switch:hover {
-  color: #409eff;
+  color: var(--ev-color-primary);
+}
+
+.icon-btn {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--ev-text-regular);
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.icon-btn:hover {
+  background: var(--ev-bg-hover);
+  color: var(--ev-color-primary);
+}
+
+.theme-icon {
+  width: 18px;
+  height: 18px;
 }
 
 .page-footer {
@@ -290,12 +329,12 @@ export default {
   padding: 12px 0;
   text-align: center;
   font-size: 12px;
-  color: #909399;
+  color: var(--ev-text-secondary);
   user-select: none;
 }
 
 .commit-link {
-  color: #409eff;
+  color: var(--ev-color-primary);
   text-decoration: none;
   font-family: monospace;
 }
@@ -308,5 +347,38 @@ export default {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* === Mobile responsiveness === */
+@media (max-width: 768px) {
+  .nav-right {
+    gap: 8px;
+  }
+
+  .example-link {
+    display: none;
+  }
+
+  .page-title {
+    font-size: 1.2rem;
+  }
+
+  .page-header {
+    margin: 12px 0;
+  }
+
+  .nav-menu {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-wrapper {
+    padding: 0 8px;
+  }
+
+  .locale-switch span:not(.locale-icon) {
+    display: none;
+  }
 }
 </style>
