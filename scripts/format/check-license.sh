@@ -1,7 +1,7 @@
 #!/bin/sh
 #
 # Pre-commit hook: detect and auto-fix missing Copyright/License headers
-# in staged .vue / .js / .ts files under evalscope-jsonl-viewer/src/.
+# in staged .vue / .js / .ts files under llm-eval-viewer/src/.
 # Install: cp scripts/format/check-license.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 #
 
@@ -15,7 +15,7 @@ JS_HEADER="/* Copyright (c) ${YEAR} dynamicheart. Licensed under the MIT License
 
 MISSING=""
 
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(vue|js|ts)$' | grep '^evalscope-jsonl-viewer/src/'); do
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(vue|js|ts)$' | grep '^llm-eval-viewer/src/'); do
   if ! head -5 "$file" | grep -q "Copyright"; then
     MISSING="$MISSING\n  $file"
   fi
@@ -41,7 +41,7 @@ else
   echo "Non-interactive mode: auto-adding headers (year=${YEAR})."
 fi
 
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(vue|js|ts)$' | grep '^evalscope-jsonl-viewer/src/'); do
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(vue|js|ts)$' | grep '^llm-eval-viewer/src/'); do
   if ! head -5 "$file" | grep -q "Copyright"; then
     case "$file" in
       *.vue) HEADER="$VUE_HEADER" ;;

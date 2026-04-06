@@ -51,7 +51,7 @@ You can use the following example files for local or online experience:
 ## Development
 
 ```bash
-cd evalscope-jsonl-viewer
+cd llm-eval-viewer
 npm install
 npm run dev
 ```

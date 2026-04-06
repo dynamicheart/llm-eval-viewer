@@ -51,7 +51,7 @@ https://dynamicheart.github.io/llm-eval-viewer/
 ## 开发
 
 ```bash
-cd evalscope-jsonl-viewer
+cd llm-eval-viewer
 npm install
 npm run dev
 ```
