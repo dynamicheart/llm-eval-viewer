@@ -15,6 +15,7 @@ export default {
     unknown: '未知',
     cancel: '取消',
     continueLoad: '继续加载',
+    loading: '正在解析数据...',
   },
 
   // === App ===

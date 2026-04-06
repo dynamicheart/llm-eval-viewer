@@ -3,13 +3,15 @@
  * Licensed under the MIT License.
  */
 
-import { ref, computed, watch } from 'vue';
+import { ref, shallowRef, computed, watch } from 'vue';
 
 export function useTableModel(options = {}) {
   const { pageSize: defaultPageSize = 10 } = options;
 
   // ===== Base state =====
-  const tableData = ref([]);
+  // Use shallowRef: we always replace the entire array, never mutate individual rows.
+  // This avoids Vue creating deep Proxy for every row object (huge perf win for large datasets).
+  const tableData = shallowRef([]);
 
   const activeFilters = ref({}); // el-table filter
   const keywordFilters = ref({}); // header search

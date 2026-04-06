@@ -147,7 +147,7 @@
 </template>
 
 <script>
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 import FileToolbar from '@/components/FileToolbar.vue';
@@ -165,11 +165,12 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
-import { previewHtml } from '@/utils/viewHelpers';
-import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
+import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
+import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useDirIntegration } from '@/composables/useDirIntegration';
 import { useViewStats } from '@/composables/useViewStats';
+import JsonlWorker from '@/workers/jsonlParser.worker.js?worker';
 
 export default {
   components: {
@@ -183,42 +184,9 @@ export default {
 
   setup() {
     const { t } = useI18n();
-    const showHistogram = ref(true);
-    const showDistribution = ref(false);
+    const showHistogram = usePersistedToggle('pred_showHistogram', true);
+    const showDistribution = usePersistedToggle('pred_showDistribution', false);
     const idKeyword = ref('');
-
-    // Persist checkbox state
-    const histCache = localStorage.getItem('showHistogram');
-    const distCache = localStorage.getItem('showDistribution');
-    if (histCache !== null) showHistogram.value = histCache === 'true';
-    if (distCache !== null) showDistribution.value = distCache === 'true';
-
-    watch(showHistogram, (val) => localStorage.setItem('showHistogram', val));
-    watch(showDistribution, (val) => localStorage.setItem('showDistribution', val));
-
-    // ===== Domain logic =====
-
-    const getSampleId = (json, idx) => {
-      const meta = json?.metadata || {};
-      if (meta?.question_id) return String(meta.question_id);
-      if (meta?.problem_id) return String(meta.problem_id);
-      if (meta?.task_id) return String(meta.task_id);
-      return `row_${idx + 1}`;
-    };
-
-    const parseContent = (rawContent) => {
-      if (!rawContent) return { reasoning: null, text: '' };
-      if (typeof rawContent === 'string') return { reasoning: null, text: rawContent };
-      if (Array.isArray(rawContent)) {
-        const reasoningItem = rawContent.find((item) => item.type === 'reasoning');
-        const textItem = rawContent.find((item) => item.type === 'text');
-        return {
-          reasoning: reasoningItem ? reasoningItem.reasoning || null : null,
-          text: textItem ? textItem.text || '' : '',
-        };
-      }
-      return { reasoning: null, text: '' };
-    };
 
     // ===== Table model =====
     const tableModel = useTableModel();
@@ -247,44 +215,30 @@ export default {
       histogramFields,
     });
 
-    // ===== Parser =====
-    const parseJsonlPredictions = (text) => {
-      tableData.value = text
-        .split('\n')
-        .filter(Boolean)
-        .map((line, idx) => {
-          try {
-            const json = JSON.parse(line);
-            const content = json.model_output?.choices?.[0]?.message?.content || '';
-            const usage = json.model_output?.usage || {};
-            return {
-              index: json.index ?? idx + 1,
-              id: getSampleId(json, idx),
-              prompt: json.input || '',
-              pred: '', gold: '', result: '',
-              content: parseContent(content),
-              input_tokens: usage.input_tokens ?? '',
-              output_tokens: usage.output_tokens ?? '',
-              total_tokens: usage.total_tokens ?? '',
-              stop_reason: json.model_output?.choices?.[0]?.stop_reason || '',
-              rawJson: JSON.stringify(json, null, 2),
-            };
-          } catch {
-            return {
-              index: idx + 1, id: 'parse_error', prompt: '', pred: '', gold: '', result: '',
-              content: '', input_tokens: '', output_tokens: '', total_tokens: '', stop_reason: '',
-              rawJson: '',
-            };
-          }
-        });
+    // ===== Worker-based parser =====
+    const parsePredictions = (text) => {
+      return new Promise((resolve) => {
+        const worker = new JsonlWorker();
+        worker.onmessage = (e) => {
+          tableData.value = e.data.rows.map((r) => Object.freeze(r));
+          worker.terminate();
+          resolve();
+        };
+        worker.onerror = (err) => {
+          console.error('Predictions worker error:', err);
+          worker.terminate();
+          resolve();
+        };
+        worker.postMessage({ text, type: 'predictions' });
+      });
     };
 
     // ===== File handler =====
-    const fileHandler = useJsonlFileHandler({
+    const fileHandler = useFileHandler({
       storageNamespace: 'evalscope_predictions',
       storageKey: 'evalscope_predictions_cache',
       listFiles, getFile, saveFile, clearFiles, deleteFile,
-      parseJsonl: parseJsonlPredictions,
+      parseData: parsePredictions,
       tableModel,
       dirModeAware: true,
       hintText: t('predictions.hintText'),
@@ -315,7 +269,7 @@ export default {
     // ===== Directory integration =====
     const dirIntegration = useDirIntegration({
       type: 'predictions',
-      parseFile: parseJsonlPredictions,
+      parseFile: parsePredictions,
       tableModel,
       fileHandler,
       t,

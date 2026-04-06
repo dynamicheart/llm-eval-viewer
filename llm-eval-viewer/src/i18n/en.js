@@ -15,6 +15,7 @@ export default {
     unknown: 'Unknown',
     cancel: 'Cancel',
     continueLoad: 'Continue Loading',
+    loading: 'Parsing data...',
   },
 
   // === App ===

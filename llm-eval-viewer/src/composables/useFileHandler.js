@@ -1,10 +1,10 @@
 /*
- * Copyright (c) 2025 dynamicheart
+ * Copyright (c) 2026 dynamicheart
  * Licensed under the MIT License.
  */
 
 import { ref, computed, watch, onMounted } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import i18n from '@/i18n';
 import hljs from 'highlight.js/lib/core';
@@ -20,7 +20,49 @@ hljs.registerLanguage('plaintext', plaintext);
 
 const t = (key, named) => i18n.global.t(key, named || {});
 
-export function useJsonlFileHandler(options) {
+/**
+ * Run a parseData function with a fullscreen loading overlay.
+ * Supports both sync and async parsers transparently.
+ * @param {Function} fn - The parse function to execute
+ * @param {string} text - Raw file text to parse
+ */
+async function withLoading(fn, text) {
+  const loading = ElLoading.service({
+    fullscreen: true,
+    lock: true,
+    text: t('common.loading'),
+    background: 'rgba(0, 0, 0, 0.4)',
+  });
+  try {
+    // Yield to allow the loading overlay to render before heavy work
+    await new Promise((r) => setTimeout(r, 50));
+    await fn(text);
+  } finally {
+    loading.close();
+  }
+}
+
+/**
+ * Generic file handler composable for loading, caching, and displaying data files.
+ *
+ * Works with any file format (CSV, JSONL, etc.) — the caller provides a parseData
+ * function that transforms raw text into table rows.
+ *
+ * @param {Object} options
+ * @param {string} options.storageNamespace - IndexedDB namespace for file metadata
+ * @param {string} options.storageKey - localStorage key for last-opened file ID
+ * @param {Function} options.listFiles - fileDB listFiles function
+ * @param {Function} options.getFile - fileDB getFile function
+ * @param {Function} options.saveFile - fileDB saveFile function
+ * @param {Function} options.clearFiles - fileDB clearFiles function
+ * @param {Function} options.deleteFile - fileDB deleteFile function
+ * @param {Function} options.parseData - Parser function (sync or async). Receives raw text.
+ * @param {Object} options.tableModel - useTableModel() instance
+ * @param {string} [options.hintText] - Placeholder hint text
+ * @param {boolean} [options.dirModeAware] - Whether to skip auto-restore in directory mode
+ * @param {Function|null} [options.validateContent] - Optional content validation function
+ */
+export function useFileHandler(options) {
   const {
     storageNamespace,
     storageKey,
@@ -29,7 +71,7 @@ export function useJsonlFileHandler(options) {
     saveFile,
     clearFiles,
     deleteFile,
-    parseJsonl,
+    parseData,
     tableModel,
     hintText = '',
     dirModeAware = false,
@@ -120,7 +162,7 @@ export function useJsonlFileHandler(options) {
     }
 
     currentFileName.value = file.name;
-    parseJsonl(file.content);
+    await withLoading(parseData, file.content);
   };
 
   onMounted(() => {
@@ -135,13 +177,13 @@ export function useJsonlFileHandler(options) {
     }
 
     currentFileName.value = file.name;
-    parseJsonl(file.content);
+    await withLoading(parseData, file.content);
 
     item.lastOpen = Date.now();
     localStorage.setItem(storageKey, item.id);
   };
 
-  const loadJSONLFile = async (file) => {
+  const loadDataFile = async (file) => {
     const text = await file.text();
 
     if (validateContent) {
@@ -172,13 +214,13 @@ export function useJsonlFileHandler(options) {
     );
 
     currentFileName.value = file.name;
-    parseJsonl(text);
+    await withLoading(parseData, text);
     return true;
   };
 
   const handleFileSelect = async (file) => {
     currentFileName.value = file.name;
-    const ok = await loadJSONLFile(file);
+    const ok = await loadDataFile(file);
     return ok;
   };
 
@@ -203,7 +245,7 @@ export function useJsonlFileHandler(options) {
     const id = `${name}-${text.length}-0`;
     localStorage.setItem(storageKey, id);
     currentFileName.value = name;
-    parseJsonl(text);
+    await withLoading(parseData, text);
   };
 
   const removeRecentFile = (file) => {
@@ -391,7 +433,22 @@ export function useJsonlFileHandler(options) {
   };
 
   const showRawJsonDialog = (row) => {
-    const code = row.rawJson || '{}';
+    // Support multiple formats for backward compatibility:
+    // 1. row.rawJson — pre-stringified JSON string (legacy)
+    // 2. row._rawJsonObj — parsed object, stringify on demand (previous optimization)
+    // 3. row._rawJsonText — raw JSON text from worker, pretty-print on demand (current)
+    let code = row.rawJson;
+    if (!code && row._rawJsonObj) {
+      code = JSON.stringify(row._rawJsonObj, null, 2);
+    }
+    if (!code && row._rawJsonText) {
+      try {
+        code = JSON.stringify(JSON.parse(row._rawJsonText), null, 2);
+      } catch {
+        code = row._rawJsonText;
+      }
+    }
+    code = code || '{}';
     dialogRawText.value = code;
 
     let highlighted;

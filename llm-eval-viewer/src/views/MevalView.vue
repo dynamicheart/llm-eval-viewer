@@ -184,7 +184,7 @@
             <el-button type="text">{{ $t('common.view') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="showRawJsonDialog(row)">{{ $t('meval.requestDetail') }}</el-dropdown-item>
+                <el-dropdown-item @click="showRequestDetailDialog(row)">{{ $t('meval.requestDetail') }}</el-dropdown-item>
                 <el-dropdown-item @click="showResultDetailDialog(row)">{{ $t('meval.resultDetail') }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -229,7 +229,6 @@
 <script>
 import { ref, onMounted, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
-import Papa from 'papaparse';
 import { ElMessage } from 'element-plus';
 import { ArrowDown } from '@element-plus/icons-vue';
 
@@ -249,10 +248,11 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
-import { previewHtml } from '@/utils/viewHelpers';
-import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
+import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
+import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useViewStats } from '@/composables/useViewStats';
+import MevalWorker from '@/workers/mevalParser.worker.js?worker';
 
 export default {
   components: {
@@ -271,10 +271,13 @@ export default {
     const idKeyword = ref('');
     const traceIdKeyword = ref('');
     const modelName = ref('');
-    const showHistogram = ref(false);
-    const showDistribution = ref(true);
-    const showFinishReasonDist = ref(false);
-    const showDatasetStats = ref(true);
+
+    // Persisted visibility toggles
+    const showHistogram = usePersistedToggle('meval_showHistogram', false);
+    const showDistribution = usePersistedToggle('meval_showDistribution', true);
+    const showFinishReasonDist = usePersistedToggle('meval_showFinishReasonDist', false);
+    const showDatasetStats = usePersistedToggle('meval_showDatasetStats', true);
+
     const curlDialogVisible = ref(false);
     const currentRow = ref(null);
 
@@ -292,102 +295,25 @@ export default {
       curlDialogVisible.value = true;
     };
 
-    const inferDataset = (category2, question, promptId) => {
-      const c2 = (category2 || '').trim();
-      // GPQA: category2 is a science subject
-      if (['Chemistry', 'Physics', 'Biology'].includes(c2)) return 'GPQA';
-      // LiveCodeBench: category2 is difficulty level
-      if (['easy', 'medium', 'hard'].includes(c2)) return 'LiveCodeBench';
-      // Empty category: distinguish by question text
-      if (question.includes('function signature and docstring')) return 'HumanEval';
-      if (question.includes('calculation question')) {
-        const pid = Number(promptId);
-        if (!isNaN(pid)) return pid >= 44243093 ? 'AIME25' : 'AIME24';
-        return 'AIME';
-      }
-      return c2 || t('common.unknown');
-    };
-
     const parseCsv = (text) => {
-      localStorage.setItem(ONBOARDED_KEY, '1');
-      samplePromptVisible.value = false;
-      const { data, meta } = Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-      });
-      const headers = meta.fields || [];
+      return new Promise((resolve) => {
+        localStorage.setItem(ONBOARDED_KEY, '1');
+        samplePromptVisible.value = false;
 
-      // Dynamically detect model column: find "模型回答-XXX" not ending with "-请求详情"
-      const modelAnswerCols = headers.filter(
-        (h) => h.startsWith('模型回答-') && !h.endsWith('-请求详情')
-      );
-      const detectedModel = modelAnswerCols.length > 0
-        ? modelAnswerCols[0].replace('模型回答-', '')
-        : '';
-      modelName.value = detectedModel;
-
-      const requestDetailCol = `模型回答-${detectedModel}-请求详情`;
-      const resultCol = `标注结果-${detectedModel}`;
-      const resultDetailCol = `标注结果详情-${detectedModel}`;
-
-      tableData.value = data.map((row, idx) => {
-        // Parse request detail JSON
-        let promptTokens = '';
-        let completionTokens = '';
-        let totalTokens = '';
-        let costTime = null;
-        let requestDetailJson = '';
-        let finishReason = '';
-
-        try {
-          const detail = JSON.parse(row[requestDetailCol]);
-          const ri = detail[0]?.request_info || {};
-          const usage = ri.response?.usage || {};
-          promptTokens = usage.prompt_tokens ?? '';
-          completionTokens = usage.completion_tokens ?? '';
-          totalTokens = usage.total_tokens ?? '';
-          costTime = ri.cost_time ?? null;
-          finishReason = ri.response?.choices?.[0]?.finish_reason || '';
-          requestDetailJson = JSON.stringify(detail, null, 2);
-        } catch {
-          requestDetailJson = row[requestDetailCol] || '';
-        }
-
-        // Parse result detail JSON
-        let extractedAnswer = '';
-        let resultDetailJson = '';
-        try {
-          const evalDetail = JSON.parse(row[resultDetailCol]);
-          extractedAnswer = evalDetail?.evaluator?.extracted_answer || '';
-          resultDetailJson = JSON.stringify(evalDetail, null, 2);
-        } catch {
-          resultDetailJson = row[resultDetailCol] || '';
-        }
-
-        const question = row['问题'] || '';
-
-        return {
-          index: idx + 1,
-          sampleId: row['样本ID'] || '',
-          traceId: row['TraceId'] || '',
-          category1: row['一级分类'] || '',
-          category2: row['二级分类'] || '',
-          category3: row['三级分类'] || '',
-          dataset: inferDataset(row['二级分类'], question, row['提示词 ID']),
-          question,
-          referenceAnswer: row['参考答案'] || '',
-          result: row[resultCol] || '',
-          modelAnswer: row[`模型回答-${detectedModel}`] || '',
-          prompt: row['问题'] || '',
-          promptTokens,
-          completionTokens,
-          totalTokens,
-          costTime,
-          extractedAnswer,
-          rawJson: requestDetailJson,
-          resultDetailJson,
-          finishReason,
+        const worker = new MevalWorker();
+        worker.onmessage = (e) => {
+          const { rows, modelName: name } = e.data;
+          modelName.value = name;
+          tableData.value = rows.map((r) => Object.freeze(r));
+          worker.terminate();
+          resolve();
         };
+        worker.onerror = (err) => {
+          console.error('MEval worker error:', err);
+          worker.terminate();
+          resolve();
+        };
+        worker.postMessage({ text, unknownLabel: t('common.unknown') });
       });
     };
 
@@ -455,7 +381,7 @@ export default {
       showDialog,
       showRawJsonDialog,
       truncateText,
-    } = useJsonlFileHandler({
+    } = useFileHandler({
       storageNamespace: 'meval_samples',
       storageKey: 'meval_samples_cache',
       listFiles,
@@ -463,7 +389,7 @@ export default {
       saveFile,
       clearFiles,
       deleteFile,
-      parseJsonl: parseCsv,
+      parseData: parseCsv,
       tableModel,
       hintText: t('meval.hintText'),
       validateContent: (text) => {
@@ -475,9 +401,27 @@ export default {
       },
     });
 
-    // Reuse showRawJsonDialog for result detail display
+    // Lazy JSON stringify helpers — pretty-print raw text on demand
+    function getRowRawJson(row) {
+      const text = row._requestDetailText;
+      if (!text) return '{}';
+      try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
+    }
+
+    function getRowResultDetailJson(row) {
+      const text = row._resultDetailText;
+      if (!text) return '{}';
+      try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
+    }
+
+    // Show request detail
+    const showRequestDetailDialog = (row) => {
+      showRawJsonDialog({ rawJson: getRowRawJson(row) });
+    };
+
+    // Show result detail
     const showResultDetailDialog = (row) => {
-      showRawJsonDialog({ rawJson: row.resultDetailJson || '{}' });
+      showRawJsonDialog({ rawJson: getRowResultDetailJson(row) });
     };
 
     function quickFilterResult(value) {
@@ -555,7 +499,7 @@ export default {
       dialogContent,
       dialogRawText,
       showDialog,
-      showRawJsonDialog,
+      showRequestDetailDialog,
       showResultDetailDialog,
       truncateText,
       tableData,

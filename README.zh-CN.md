@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-> 本项目完全由 AI 辅助生成（Claude Opus 4.6）。
+> 本项目完全由 AI 辅助生成（[Baidu Comate IDE](https://comate.baidu.com/) + Claude Opus 4.6）。
 
 **LLM Eval Viewer** 是一个用于 **大模型评测结果可视化** 的轻量网页工具，  
 目前支持 **evalscope** 和 **MEval** 生成的评测结果格式。
@@ -74,8 +74,8 @@ npm run build
 ## AI 构建
 
 本项目完全通过 AI 辅助编程开发，使用
-[Claude Opus 4.6](https://www.anthropic.com/claude)。从架构设计到功能实现，
-所有代码均通过人机协作生成和迭代。
+[Baidu Comate IDE](https://comate.baidu.com/) 作为开发环境，[Claude Opus 4.6](https://www.anthropic.com/claude)
+作为 Agent 模型。从架构设计到功能实现，所有代码均通过人机协作生成和迭代。
 
 ## 许可证
 

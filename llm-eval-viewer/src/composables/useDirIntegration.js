@@ -17,7 +17,7 @@ import { useDirBrowser } from '@/composables/useDirBrowser';
  * @param {string} options.type - File type to read from run directories ('reviews' | 'predictions')
  * @param {Function} options.parseFile - View-specific parser function (receives raw text)
  * @param {Object} options.tableModel - useTableModel() instance
- * @param {Object} options.fileHandler - useJsonlFileHandler() return value
+ * @param {Object} options.fileHandler - useFileHandler() return value
  * @param {Function} options.t - i18n translate function
  * @param {string} options.onboardedKey - localStorage key for onboarding state
  * @param {string} options.sampleName - Display name for sample data
@@ -122,7 +122,7 @@ export function useDirIntegration(options) {
         ElMessage.warning(t(`${type === 'reviews' ? 'reviews' : 'predictions'}.notFound`));
         return;
       }
-      parseFile(text);
+      await parseFile(text);
       dataCache.set(fileKey, [...tableData.value]);
     }
 

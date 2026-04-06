@@ -39,7 +39,13 @@
       <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
 
+    <template v-if="tableData.length">
+      <div>
+        <el-checkbox v-model="showDistribution">{{ $t('stats.resultDistribution') }}</el-checkbox>
+      </div>
+
     <DistributionCard
+      v-if="showDistribution"
       :items="distributions['result'] || []"
       fieldLabel="Result"
       @filter="quickFilterResult"
@@ -47,7 +53,6 @@
 
     <!-- Table -->
     <el-table
-      v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
       :max-height="600"
@@ -137,6 +142,7 @@
       layout="total, sizes, prev, pager, next, jumper"
       style="margin-top: 20px; text-align: right"
     />
+    </template>
 
     <DetailDialog
       :dialogVisible.sync="dialogVisible"
@@ -174,11 +180,12 @@ import {
   clearFiles,
   deleteFile,
 } from '@/utils/fileDB';
-import { previewHtml } from '@/utils/viewHelpers';
-import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
+import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
+import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useDirIntegration } from '@/composables/useDirIntegration';
 import { useViewStats } from '@/composables/useViewStats';
+import JsonlWorker from '@/workers/jsonlParser.worker.js?worker';
 
 export default {
   components: {
@@ -195,48 +202,12 @@ export default {
     const currentRow = ref(null);
     const idKeyword = ref('');
 
+    // Persisted visibility toggle
+    const showDistribution = usePersistedToggle('reviews_showDistribution', true);
+
     function openCurlDialog(row) {
       currentRow.value = row;
       curlDialogVisible.value = true;
-    }
-
-    // ===== Domain logic =====
-
-    const getSolutionFromSample = (json) => {
-      const meta = json?.sample_score?.sample_metadata;
-
-      if (typeof meta?.solution === 'string' && meta.solution.trim() !== '') {
-        return { type: 'solution', content: meta.solution, render: 'markdown' };
-      }
-
-      if (meta && Object.keys(meta).length > 0) {
-        return { type: 'metadata', content: JSON.stringify(meta, null, 2), render: 'json' };
-      }
-
-      const metadata = json?.sample_score?.score?.metadata;
-      if (metadata && Object.keys(metadata).length > 0) {
-        return { type: 'metadata', content: JSON.stringify(metadata, null, 2), render: 'json' };
-      }
-
-      return { type: 'empty', content: t('detailDialog.noSolutionDetail'), render: 'text' };
-    };
-
-    const getSampleId = (json, idx) => {
-      const sample_score = json?.sample_score || {};
-      const meta = sample_score?.sample_metadata;
-      if (meta?.question_id) return String(meta.question_id);
-      if (meta?.problem_id) return String(meta.problem_id);
-      if (meta?.task_id) return String(meta.task_id);
-      if (sample_score?.sample_id) return String(sample_score.sample_id);
-      return `row_${idx + 1}`;
-    };
-
-    function getPriorityValue(obj, fields = ['acc', 'pass']) {
-      for (const field of fields) {
-        const val = obj?.[field];
-        if (val !== undefined && val !== null) return val;
-      }
-      return '';
     }
 
     // ===== Table model =====
@@ -256,43 +227,34 @@ export default {
       distributionFields: ['result'],
     });
 
-    // ===== Parser =====
-    const parseJsonlReviews = (text) => {
-      tableData.value = text
-        .split('\n')
-        .filter(Boolean)
-        .map((line, idx) => {
-          try {
-            const json = JSON.parse(line);
-            const score = json.sample_score?.score || {};
-            return {
-              index: json.index ?? idx + 1,
-              id: getSampleId(json, idx),
-              prompt: json.input || '',
-              pred: score.extracted_prediction ?? '',
-              gold: json.target ?? '',
-              result: getPriorityValue(score.value, ['acc', 'pass']),
-              content: score.prediction ?? '',
-              solution: getSolutionFromSample(json),
-              rawJson: JSON.stringify(json, null, 2),
-            };
-          } catch {
-            return {
-              index: idx + 1, id: 'parse_error', prompt: '', pred: '', gold: '',
-              result: '', content: '',
-              solution: { type: 'empty', content: t('detailDialog.parseFailed'), render: 'text' },
-              rawJson: '',
-            };
-          }
+    // ===== Worker-based parser =====
+    const parseReviews = (text) => {
+      return new Promise((resolve) => {
+        const worker = new JsonlWorker();
+        worker.onmessage = (e) => {
+          tableData.value = e.data.rows.map((r) => Object.freeze(r));
+          worker.terminate();
+          resolve();
+        };
+        worker.onerror = (err) => {
+          console.error('Reviews worker error:', err);
+          worker.terminate();
+          resolve();
+        };
+        worker.postMessage({
+          text,
+          type: 'reviews',
+          failedParseLabel: t('detailDialog.parseFailed'),
         });
+      });
     };
 
     // ===== File handler =====
-    const fileHandler = useJsonlFileHandler({
+    const fileHandler = useFileHandler({
       storageNamespace: 'evalscope_reviews',
       storageKey: 'evalscope_reviews_cache',
       listFiles, getFile, saveFile, clearFiles, deleteFile,
-      parseJsonl: parseJsonlReviews,
+      parseData: parseReviews,
       tableModel,
       dirModeAware: true,
       hintText: t('reviews.hintText'),
@@ -323,7 +285,7 @@ export default {
     // ===== Directory integration =====
     const dirIntegration = useDirIntegration({
       type: 'reviews',
-      parseFile: parseJsonlReviews,
+      parseFile: parseReviews,
       tableModel,
       fileHandler,
       t,
@@ -341,6 +303,7 @@ export default {
       curlDialogVisible,
       currentRow,
       idKeyword,
+      showDistribution,
       openCurlDialog,
       previewHtml,
       // Dir integration
