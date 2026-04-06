@@ -16,6 +16,15 @@ import 'katex/dist/katex.min.css';
 
 import router from './router';
 import i18n from './i18n';
+import { ElMessage } from 'element-plus';
+import { setCacheResetCallback } from '@/utils/fileDB';
+
+// Wire up DB self-healing notification
+setCacheResetCallback(() => {
+  setTimeout(() => {
+    ElMessage.info(i18n.global.t('fileHandler.cacheResetNotice'));
+  }, 500);
+});
 
 // Restore theme preference (light / dark / auto)
 const savedTheme = localStorage.getItem('ev_theme') || 'auto';

@@ -167,6 +167,7 @@ export default {
     hoursAgo: '{n} hr ago',
     daysAgo: '{n} days ago',
     recentFilesCleared: 'Recent files cleared',
+    cacheResetNotice: 'Cache has been reset due to a version upgrade. Recent files list has been cleared.',
     fileNotFound: 'File not found or has been cleaned up',
     noSolution: 'No solution provided',
     fileFormatConfirm: 'File Format Confirm',

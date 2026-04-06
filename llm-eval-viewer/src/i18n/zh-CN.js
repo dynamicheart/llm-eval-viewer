@@ -167,6 +167,7 @@ export default {
     hoursAgo: '{n} 小时前',
     daysAgo: '{n} 天前',
     recentFilesCleared: '已清空最近文件',
+    cacheResetNotice: '版本升级导致缓存重置，最近文件列表已清空。',
     fileNotFound: '文件不存在或已被清理',
     noSolution: '未提供 solution',
     fileFormatConfirm: '文件格式确认',

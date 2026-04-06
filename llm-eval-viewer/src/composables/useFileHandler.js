@@ -116,8 +116,13 @@ export function useFileHandler(options) {
     });
 
     try {
-      // 1. Check parsed cache
-      const cached = await getParsedData(fileId, parserVersion);
+      // 1. Check parsed cache (non-fatal if DB is broken)
+      let cached = null;
+      try {
+        cached = await getParsedData(fileId, parserVersion);
+      } catch (err) {
+        console.warn('[useFileHandler] getParsedData failed, will re-parse:', err);
+      }
       if (cached) {
         const rows = cached.rows || cached;
         tableData.value = rows.map((r) => Object.freeze(r));
@@ -178,7 +183,13 @@ export function useFileHandler(options) {
   };
 
   const loadFromCache = async () => {
-    recentFiles.value = await listFiles(storageNamespace);
+    try {
+      recentFiles.value = await listFiles(storageNamespace);
+    } catch (err) {
+      console.warn('[useFileHandler] listFiles failed:', err);
+      recentFiles.value = [];
+      return;
+    }
 
     // In directory mode, only load recent file list, do not auto-restore single file data
     if (dirModeAware) {
@@ -241,7 +252,12 @@ export function useFileHandler(options) {
     }
 
     const fileId = `${file.name}-${file.size}-${file.lastModified}`;
-    await saveRecentFile(file, text);
+    // Cache to IndexedDB, but don't block parsing if DB is broken
+    try {
+      await saveRecentFile(file, text);
+    } catch (err) {
+      console.warn('[useFileHandler] saveRecentFile failed, continuing:', err);
+    }
     localStorage.setItem(storageKey, fileId);
 
     currentFileName.value = file.name;

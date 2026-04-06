@@ -12,19 +12,60 @@ const CONTENT_STORE = 'contents';  // large file content stored separately
 const PARSED_STORE = 'parsed';     // cached parsed row data
 
 let db = null;
+let _openPromise = null;
 
+/**
+ * Optional callback invoked when the database is auto-reset due to upgrade
+ * failure. Set via setCacheResetCallback() from the application layer.
+ * Signature: (reason: string) => void
+ */
+let _onCacheReset = null;
+
+export function setCacheResetCallback(fn) {
+  _onCacheReset = fn;
+}
+
+/**
+ * Open (or upgrade) the IndexedDB database.
+ *
+ * Self-healing: if the upgrade is blocked by a stale connection or the upgrade
+ * transaction fails, the old database is automatically deleted and re-created
+ * so the user never has to clear storage manually.
+ */
 export function openDB() {
   if (db) return Promise.resolve(db);
+  if (_openPromise) return _openPromise;
 
+  _openPromise = _tryOpen().finally(() => { _openPromise = null; });
+  return _openPromise;
+}
+
+function _tryOpen(isRetry = false) {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
+    // Timeout: if blocked for > 2s, nuke the old DB and retry once.
+    let blocked = false;
+    const timer = setTimeout(() => {
+      if (!blocked) return;
+      console.warn('[fileDB] Upgrade blocked too long, deleting old database…');
+      // Abort the current open attempt — we'll deleteDatabase below
+      if (req.result) { try { req.result.close(); } catch {} }
+      db = null;
+      _nukeAndRetry().then(resolve, reject);
+    }, 2000);
+
+    req.onblocked = () => {
+      blocked = true;
+      console.warn('[fileDB] Database upgrade blocked by another connection.');
+    };
+
     req.onupgradeneeded = () => {
-      const db = req.result;
+      const database = req.result;
       let store;
 
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        store = db.createObjectStore(META_STORE, { keyPath: 'id' });
+      if (!database.objectStoreNames.contains(META_STORE)) {
+        store = database.createObjectStore(META_STORE, { keyPath: 'id' });
       } else {
         store = req.transaction.objectStore(META_STORE);
       }
@@ -44,17 +85,16 @@ export function openDB() {
       }
 
       // Content store
-      if (!db.objectStoreNames.contains(CONTENT_STORE)) {
-        db.createObjectStore(CONTENT_STORE, { keyPath: 'id' });
+      if (!database.objectStoreNames.contains(CONTENT_STORE)) {
+        database.createObjectStore(CONTENT_STORE, { keyPath: 'id' });
       }
 
       // Parsed row cache store
-      if (!db.objectStoreNames.contains(PARSED_STORE)) {
-        db.createObjectStore(PARSED_STORE, { keyPath: 'id' });
+      if (!database.objectStoreNames.contains(PARSED_STORE)) {
+        database.createObjectStore(PARSED_STORE, { keyPath: 'id' });
       }
 
       // Migration: if old records in META_STORE contain a content field, migrate it to CONTENT_STORE
-      // This is done via cursor within the upgrade transaction
       const metaStore = req.transaction.objectStore(META_STORE);
       const contentStore = req.transaction.objectStore(CONTENT_STORE);
       metaStore.openCursor().onsuccess = (e) => {
@@ -62,9 +102,7 @@ export function openDB() {
         if (cursor) {
           const record = cursor.value;
           if (record.content !== undefined) {
-            // Move content to CONTENT_STORE
             contentStore.put({ id: record.id, content: record.content });
-            // Remove content from meta record
             const { content, ...meta } = record;
             cursor.update(meta);
           }
@@ -74,11 +112,49 @@ export function openDB() {
     };
 
     req.onsuccess = () => {
+      clearTimeout(timer);
       db = req.result;
+      db.onversionchange = () => {
+        db.close();
+        db = null;
+      };
       resolve(db);
     };
 
-    req.onerror = () => reject(req.error);
+    req.onerror = () => {
+      clearTimeout(timer);
+      if (isRetry) {
+        reject(req.error);
+        return;
+      }
+      console.warn('[fileDB] openDB failed, deleting old database…', req.error);
+      _nukeAndRetry().then(resolve, reject);
+    };
+  });
+}
+
+/**
+ * Delete the database entirely, then re-open fresh.
+ * Old cached files are lost, but the app remains functional.
+ */
+function _nukeAndRetry() {
+  db = null;
+  return new Promise((resolve, reject) => {
+    const delReq = indexedDB.deleteDatabase(DB_NAME);
+    delReq.onsuccess = () => {
+      console.info('[fileDB] Old database deleted, re-creating…');
+      if (_onCacheReset) {
+        try { _onCacheReset('db_upgrade_failed'); } catch {}
+      }
+      _tryOpen(true).then(resolve, reject);
+    };
+    delReq.onerror = () => {
+      reject(delReq.error);
+    };
+    delReq.onblocked = () => {
+      // Even delete is blocked — give up gracefully
+      reject(new Error('Cannot delete blocked database'));
+    };
   });
 }
 
