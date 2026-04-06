@@ -47,11 +47,11 @@ You can use the following example files for local or online experience:
 
 ## Screenshots
 
-### Reviews View
-![Reviews View](docs/images/reviews_view.png)
+### Reviews View (Dark Mode)
+![Reviews View - Dark Mode](docs/images/reviews_view.png)
 
-### Predictions View
-![Predictions View](docs/images/predictions_view.png)
+### Predictions View (Light Mode)
+![Predictions View - Light Mode](docs/images/predictions_view_light.png)
 
 ---
 

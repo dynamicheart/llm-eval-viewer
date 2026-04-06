@@ -47,11 +47,11 @@ https://dynamicheart.github.io/llm-eval-viewer/
 
 ## 效果预览
 
-### Reviews View
-![Reviews View](docs/images/reviews_view.png)
+### Reviews View（暗黑模式）
+![Reviews View - Dark Mode](docs/images/reviews_view.png)
 
-### Predictions View
-![Predictions View](docs/images/predictions_view.png)
+### Predictions View（亮色模式）
+![Predictions View - Light Mode](docs/images/predictions_view_light.png)
 
 ---
 
