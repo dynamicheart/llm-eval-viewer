@@ -15,10 +15,10 @@
         text-color="#606266"
         active-text-color="#409eff"
       >
-        <el-menu-item index="/reviews">
+        <el-menu-item index="/evalscope/reviews">
           <span class="nav-group-tag">Evalscope</span>Review
         </el-menu-item>
-        <el-menu-item index="/predictions">Predictions</el-menu-item>
+        <el-menu-item index="/evalscope/predictions">Predictions</el-menu-item>
         <el-menu-item index="/meval">
           <span class="nav-group-tag">MEval</span>MEval
         </el-menu-item>
@@ -79,6 +79,7 @@
 
     <header class="page-header" :style="shouldOffsetForSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}">
       <img
+        v-if="$route.path === '/evalscope/reviews' || $route.path === '/evalscope/predictions'"
         src="/evalscope_icon.png"
         alt="Evalscope Icon"
         class="page-title-icon"
@@ -87,9 +88,9 @@
         {{
           $route.path === '/meval'
             ? $t('app.title.meval')
-            : $route.path === '/reviews'
+            : $route.path === '/evalscope/reviews'
               ? $t('app.title.reviews')
-              : $route.path === '/predictions'
+              : $route.path === '/evalscope/predictions'
                 ? $t('app.title.predictions')
                 : $t('app.title.default')
         }}
@@ -128,6 +129,14 @@ export default {
     const { showSidebar, sidebarWidth } = useDirBrowser();
     return { showSidebar, sidebarWidth, currentLocale: getLocale() };
   },
+  watch: {
+    '$i18n.locale': {
+      handler() {
+        document.title = this.$t('app.pageTitle');
+      },
+      immediate: true,
+    },
+  },
   methods: {
     handleSelect(index) {
       this.$router.push(index);
@@ -140,7 +149,7 @@ export default {
   computed: {
     shouldOffsetForSidebar() {
       const path = this.$route.path;
-      return this.showSidebar && (path === '/reviews' || path === '/predictions');
+      return this.showSidebar && (path === '/evalscope/reviews' || path === '/evalscope/predictions');
     },
     buildTime() {
       return typeof __BUILD_TIME__ !== 'undefined'

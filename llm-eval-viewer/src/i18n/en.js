@@ -20,6 +20,7 @@ export default {
   // === App ===
   app: {
     exampleFiles: 'Example Files',
+    pageTitle: 'LLM Eval Viewer - Lightweight LLM Evaluation Result Viewer',
     title: {
       meval: 'MEval - Sample Viewer',
       reviews: 'Evalscope Review JSONL Viewer',

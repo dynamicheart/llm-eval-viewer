@@ -4,30 +4,38 @@
  */
 
 import { createRouter, createWebHashHistory } from 'vue-router';
-import ReviewsView from '@/views/ReviewsView.vue';
-import PredictionsView from '@/views/PredictionsView.vue';
+import EvalscopeReviewsView from '@/views/EvalscopeReviewsView.vue';
+import EvalscopePredictionsView from '@/views/EvalscopePredictionsView.vue';
 import MevalView from '@/views/MevalView.vue';
 
 const routes = [
   {
     path: '/',
-    redirect: '/reviews',
+    redirect: '/evalscope/reviews',
+  },
+
+  // Evalscope routes
+  {
+    path: '/evalscope/reviews',
+    name: 'EvalscopeReviews',
+    component: EvalscopeReviewsView,
   },
   {
-    path: '/reviews',
-    name: 'Reviews',
-    component: ReviewsView,
+    path: '/evalscope/predictions',
+    name: 'EvalscopePredictions',
+    component: EvalscopePredictionsView,
   },
-  {
-    path: '/predictions',
-    name: 'Predictions',
-    component: PredictionsView,
-  },
+
+  // MEval routes
   {
     path: '/meval',
     name: 'Meval',
     component: MevalView,
   },
+
+  // Legacy redirects (backward compatibility, to be removed in the future)
+  { path: '/reviews', redirect: '/evalscope/reviews' },
+  { path: '/predictions', redirect: '/evalscope/predictions' },
 ];
 
 const router = createRouter({

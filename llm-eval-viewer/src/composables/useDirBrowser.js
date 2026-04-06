@@ -58,8 +58,11 @@ const recentDirs = ref(JSON.parse(localStorage.getItem(RECENT_DIRS_KEY) || '[]')
 // Sidebar visibility: derived state, directory mode + has directory tree = show
 const showSidebar = computed(() => hasDir.value && browseMode.value === 'directory');
 
-// Sidebar width (shared, updated in real-time during drag)
-const sidebarWidth = ref(Number(localStorage.getItem('dir_sidebar_width')) || 380);
+// Sidebar collapsed state (shared with DirBrowserDrawer)
+const sidebarCollapsed = localStorage.getItem('dir_sidebar_collapsed') === 'true';
+
+// Sidebar width (shared, updated in real-time during drag; 0 when collapsed)
+const sidebarWidth = ref(sidebarCollapsed ? 0 : (Number(localStorage.getItem('dir_sidebar_width')) || 380));
 
 // Persisted selected run node info
 const _savedRun = localStorage.getItem('evalscope_selected_run');

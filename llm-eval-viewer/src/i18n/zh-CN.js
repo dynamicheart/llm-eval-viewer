@@ -20,6 +20,7 @@ export default {
   // === App ===
   app: {
     exampleFiles: '示例文件',
+    pageTitle: 'LLM Eval Viewer - 轻量级大模型评测结果查看器',
     title: {
       meval: 'MEval - 样本查看器',
       reviews: 'Evalscope Review JSONL 查看器',

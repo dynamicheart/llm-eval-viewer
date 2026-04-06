@@ -69,7 +69,7 @@ const emit = defineEmits(['select-run', 'resize']);
 const treeRef = ref(null);
 
 const sidebarWidth = ref(DEFAULT_WIDTH);
-const collapsed = ref(false);
+const collapsed = ref(localStorage.getItem(COLLAPSED_KEY) === 'true');
 
 onMounted(() => {
   const cached = localStorage.getItem(STORAGE_KEY);
@@ -77,7 +77,6 @@ onMounted(() => {
     const w = Number(cached);
     if (w >= MIN_WIDTH && w <= MAX_WIDTH) sidebarWidth.value = w;
   }
-  collapsed.value = localStorage.getItem(COLLAPSED_KEY) === 'true';
   emit('resize', collapsed.value ? 0 : sidebarWidth.value);
 });
 
