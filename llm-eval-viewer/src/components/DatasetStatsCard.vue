@@ -45,22 +45,34 @@
     </el-table>
 
     <div class="summary-footer">
-      <span>{{ $t('stats.samples', { count: totalSamples }) }}</span>
-      <span>Avg Prompt Tokens: <b>{{ globalAvgPrompt }}</b></span>
-      <span>Avg Completion Tokens: <b>{{ globalAvgComp }}</b></span>
+      <span>{{ $t('stats.samples', { count: globalStats.totalSamples }) }}</span>
+      <span>Avg Prompt Tokens: <b>{{ globalStats.avgPrompt }}</b></span>
+      <span>Avg Completion Tokens: <b>{{ globalStats.avgComp }}</b></span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 
 const { t } = useI18n();
 
 const props = defineProps({
-  tableData: {
+  /**
+   * Pre-computed dataset stats rows from useViewStats.
+   * Array of { dataset, total, correct, wrong, accuracy, avgPromptTokens, avgCompletionTokens, nonStopCount }
+   */
+  stats: {
     type: Array,
+    required: true,
+  },
+
+  /**
+   * Pre-computed global stats from useViewStats.
+   * { totalSamples, avgPrompt, avgComp }
+   */
+  globalStats: {
+    type: Object,
     required: true,
   },
 });
@@ -70,46 +82,6 @@ const emit = defineEmits(['filter']);
 function onRowClick(row) {
   emit('filter', { dataset: row.dataset });
 }
-
-const stats = computed(() => {
-  if (!props.tableData.length) return [];
-
-  const map = {};
-  props.tableData.forEach((item) => {
-    const ds = item.dataset || t('common.unknown');
-    if (!map[ds]) map[ds] = { dataset: ds, total: 0, correct: 0, nonStopCount: 0, promptSum: 0, compSum: 0, tokenCount: 0 };
-    map[ds].total += 1;
-    if (item.result && item.result !== '0') map[ds].correct += 1;
-    if (item.finishReason && item.finishReason !== 'stop') map[ds].nonStopCount += 1;
-    const pt = Number(item.promptTokens);
-    const ct = Number(item.completionTokens);
-    if (pt >= 0 || ct >= 0) {
-      map[ds].promptSum += (pt >= 0 ? pt : 0);
-      map[ds].compSum += (ct >= 0 ? ct : 0);
-      map[ds].tokenCount += 1;
-    }
-  });
-
-  return Object.values(map).map((item) => ({
-    ...item,
-    wrong: item.total - item.correct,
-    accuracy: item.total > 0 ? Math.round((item.correct / item.total) * 100) : 0,
-    avgPromptTokens: item.tokenCount > 0 ? Math.round(item.promptSum / item.tokenCount) : '-',
-    avgCompletionTokens: item.tokenCount > 0 ? Math.round(item.compSum / item.tokenCount) : '-',
-  })).sort((a, b) => b.total - a.total);
-});
-
-const totalSamples = computed(() => props.tableData.length);
-
-const globalAvgPrompt = computed(() => {
-  const vals = props.tableData.map(r => Number(r.promptTokens)).filter(v => v >= 0);
-  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : '-';
-});
-
-const globalAvgComp = computed(() => {
-  const vals = props.tableData.map(r => Number(r.completionTokens)).filter(v => v >= 0);
-  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : '-';
-});
 </script>
 
 <style scoped>

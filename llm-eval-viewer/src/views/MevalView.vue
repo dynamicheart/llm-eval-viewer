@@ -41,7 +41,8 @@
 
     <HistogramCard
       v-if="showHistogram"
-      :table-data="tableData"
+      :histogram-data="histogramData"
+      :total-samples="globalStats.totalSamples"
       :title="$t('stats.tokenDistribution')"
       :fields="[
         { key: 'promptTokens', label: 'Prompt Tokens', color: '#409EFF' },
@@ -52,22 +53,20 @@
     <div class="distribution-row">
       <DistributionCard
         v-if="showDistribution"
-        :tableData="tableData"
-        fieldName="result"
+        :items="distributions['result'] || []"
         :fieldLabel="$t('meval.result')"
         @filter="quickFilterResult"
       />
 
       <DistributionCard
         v-if="showFinishReasonDist"
-        :tableData="tableData"
-        fieldName="finishReason"
+        :items="distributions['finishReason'] || []"
         fieldLabel="Finish Reason"
         @filter="quickFilterFinishReason"
       />
     </div>
 
-    <DatasetStatsCard v-if="showDatasetStats" :tableData="tableData" @filter="onDatasetStatsFilter" />
+    <DatasetStatsCard v-if="showDatasetStats" :stats="datasetStatsRows" :globalStats="globalStats" @filter="onDatasetStatsFilter" />
 
     <!-- Table -->
     <el-table
@@ -253,6 +252,7 @@ import {
 import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
+import { useViewStats } from '@/composables/useViewStats';
 
 export default {
   components: {
@@ -417,6 +417,24 @@ export default {
     const { filters: finishReasonFilters } = createColumnFilter('finishReason');
     const { filters: resultFilters } = createColumnFilter('result');
 
+    // ===== Pre-computed stats (single pass) =====
+    const { distributions, histogramData, datasetStatsRows, globalStats } = useViewStats(tableData, {
+      distributionFields: ['result', 'finishReason'],
+      histogramFields: [
+        { key: 'promptTokens', label: 'Prompt Tokens', color: '#409EFF' },
+        { key: 'completionTokens', label: 'Completion Tokens', color: '#67C23A' },
+      ],
+      datasetStats: {
+        datasetField: 'dataset',
+        resultField: 'result',
+        resultFalseValue: '0',
+        finishReasonField: 'finishReason',
+        promptTokenField: 'promptTokens',
+        completionTokenField: 'completionTokens',
+        unknownLabel: t('common.unknown'),
+      },
+    });
+
     const {
       hintText,
       recentFiles,
@@ -561,6 +579,11 @@ export default {
       quickFilterResult,
       quickFilterFinishReason,
       onDatasetStatsFilter,
+      // Pre-computed stats
+      distributions,
+      histogramData,
+      datasetStatsRows,
+      globalStats,
     };
   },
 };

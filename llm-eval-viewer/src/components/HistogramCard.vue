@@ -1,10 +1,10 @@
 <!--
-  Copyright (c) 2025 dynamicheart
+  Copyright (c) 2026 dynamicheart
   Licensed under the MIT License.
 -->
 
 <template>
-  <div v-if="tableData.length" class="result-distribution-card">
+  <div v-if="hasData" class="result-distribution-card">
     <div class="title">{{ $t('histogram.title') }}</div>
 
     <div class="charts-row">
@@ -22,22 +22,31 @@
     </div>
 
     <div class="stats-footer">
-      <span>{{ $t('stats.samples', { count: tableData.length }) }}</span>
+      <span>{{ $t('stats.samples', { count: totalSamples }) }}</span>
       <span v-for="field in fields" :key="field.key" class="stat-item">
-        Avg {{ field.label.replace(' Distribution', '') }}: {{ avgOf(field.key) }}
+        Avg {{ field.label.replace(' Distribution', '') }}: {{ getAvg(field.key) }}
       </span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
 const props = defineProps({
-  tableData: { type: Array, required: true },
-  fields: { type: Array, required: true }, // [{ key, label, color }]
+  /**
+   * Pre-computed histogram data from useViewStats.
+   * { [fieldKey]: { values: number[], avg: string } }
+   */
+  histogramData: { type: Object, required: true },
+
+  /** Field definitions: [{ key, label, color }] */
+  fields: { type: Array, required: true },
+
+  /** Total sample count */
+  totalSamples: { type: Number, default: 0 },
 });
 
 const canvasMap = new Map();
@@ -47,21 +56,21 @@ function setCanvas(el, key) {
   if (el) canvasMap.set(key, el);
 }
 
-function avgOf(key) {
-  const values = props.tableData
-    .map((r) => r[key])
-    .filter((v) => typeof v === 'number' && v >= 0);
-  if (!values.length) return '-';
-  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+const hasData = computed(() =>
+  props.fields.some(f => {
+    const d = props.histogramData[f.key];
+    return d && d.values && d.values.length > 0;
+  })
+);
+
+function getAvg(key) {
+  return props.histogramData[key]?.avg ?? '-';
 }
 
 /* ========= Core: equal-width, rounded bucketing ========= */
 
 function niceStep(step) {
-  if (step <= 0 || !Number.isFinite(step)) {
-    return 1;
-  }
-
+  if (step <= 0 || !Number.isFinite(step)) return 1;
   const pow = Math.pow(10, Math.floor(Math.log10(step)));
   const frac = step / pow;
   if (frac <= 1) return pow;
@@ -72,18 +81,11 @@ function niceStep(step) {
 
 function buildBuckets(values, targetBins = 6) {
   const max = Math.max(...values, 0);
-
-  // Special case: all zeros
-  if (max === 0) {
-    return [[0, 1]];
-  }
-
+  if (max === 0) return [[0, 1]];
   const rawStep = max / targetBins;
   const step = niceStep(rawStep);
-
   const bucketCount = Math.max(1, Math.ceil(max / step));
   const buckets = [];
-
   for (let i = 0; i < bucketCount; i++) {
     buckets.push([i * step, (i + 1) * step]);
   }
@@ -93,25 +95,20 @@ function buildBuckets(values, targetBins = 6) {
 function histogram(values, buckets) {
   const counts = Array(buckets.length).fill(0);
   const step = buckets[0][1] - buckets[0][0] || 1;
-
   values.forEach((v) => {
     const idx = Math.min(Math.floor(v / step), counts.length - 1);
     counts[idx]++;
   });
-
   return counts;
 }
 
 function renderOne(field) {
-  const values = props.tableData
-    .map((r) => r[field.key])
-    .filter((v) => typeof v === 'number' && v >= 0);
+  const fieldData = props.histogramData[field.key];
+  if (!fieldData || !fieldData.values || !fieldData.values.length) return;
 
-  if (!values.length) return;
-
+  const values = fieldData.values;
   const buckets = buildBuckets(values);
   const labels = buckets.map(([a, b]) => `${a}-${b}`);
-
   const data = histogram(values, buckets);
 
   const old = chartMap.get(field.key);
@@ -133,7 +130,6 @@ function renderOne(field) {
           label: field.label,
           data,
           backgroundColor: field.color,
-
           barPercentage: 0.65,
           categoryPercentage: 0.85,
           borderRadius: 4,
@@ -153,43 +149,21 @@ function renderOne(field) {
           titleFont: { size: 12, weight: '600' },
           bodyFont: { size: 12 },
           padding: 8,
-
           callbacks: {
-            // title uses bucket range (e.g. 50-100)
-            title(items) {
-              return items[0].label;
-            },
-
-            // Show count only
-            label(context) {
-              return `Count: ${context.parsed.y}`;
-            },
+            title(items) { return items[0].label; },
+            label(context) { return `Count: ${context.parsed.y}`; },
           },
         },
       },
       scales: {
         x: {
-          grid: {
-            display: false,
-          },
-          ticks: {
-            color: tickColor,
-            font: {
-              size: 12,
-            },
-          },
+          grid: { display: false },
+          ticks: { color: tickColor, font: { size: 12 } },
         },
         y: {
           beginAtZero: true,
-          grid: {
-            color: gridColor,
-          },
-          ticks: {
-            color: tickSecondary,
-            font: {
-              size: 12,
-            },
-          },
+          grid: { color: gridColor },
+          ticks: { color: tickSecondary, font: { size: 12 } },
         },
       },
     },
@@ -203,6 +177,8 @@ async function renderAll() {
   props.fields.forEach(renderOne);
 }
 
+let themeObserver;
+
 onMounted(() => {
   renderAll();
   // Re-render charts when theme changes so tooltip/tick colors update
@@ -214,12 +190,12 @@ onMounted(() => {
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 });
 
-let themeObserver;
 onUnmounted(() => {
   if (themeObserver) themeObserver.disconnect();
 });
 
-watch(() => props.tableData, renderAll, { deep: true });
+// Re-render when histogram data changes (shallow watch, not deep)
+watch(() => props.histogramData, renderAll);
 </script>
 
 <style scoped>

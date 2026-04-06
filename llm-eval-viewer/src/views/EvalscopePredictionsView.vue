@@ -49,26 +49,15 @@
 
     <HistogramCard
       v-if="showHistogram"
-      :table-data="tableData"
+      :histogram-data="histogramData"
+      :total-samples="globalStats.totalSamples"
       :title="$t('stats.tokenDistribution')"
-      :fields="[
-        {
-          key: 'input_tokens',
-          label: 'Input Tokens Distribution',
-          color: '#409EFF',
-        },
-        {
-          key: 'output_tokens',
-          label: 'Output Tokens Distribution',
-          color: '#67C23A',
-        },
-      ]"
+      :fields="histogramFields"
     />
 
     <DistributionCard
       v-if="showDistribution"
-      :tableData="tableData"
-      fieldName="stop_reason"
+      :items="distributions['stop_reason'] || []"
       fieldLabel="Stop Reason"
       @filter="quickFilterStopReason"
     />
@@ -180,6 +169,7 @@ import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useDirIntegration } from '@/composables/useDirIntegration';
+import { useViewStats } from '@/composables/useViewStats';
 
 export default {
   components: {
@@ -245,6 +235,17 @@ export default {
     const hasReasoning = computed(() =>
       tableData.value.some(row => row.content?.reasoning)
     );
+
+    // ===== Pre-computed stats (single pass) =====
+    const histogramFields = [
+      { key: 'input_tokens', label: 'Input Tokens Distribution', color: '#409EFF' },
+      { key: 'output_tokens', label: 'Output Tokens Distribution', color: '#67C23A' },
+    ];
+
+    const { distributions, histogramData, globalStats } = useViewStats(tableData, {
+      distributionFields: ['stop_reason'],
+      histogramFields,
+    });
 
     // ===== Parser =====
     const parseJsonlPredictions = (text) => {
@@ -350,6 +351,11 @@ export default {
       onTableFilterChange, onTableSortChange,
       stopReasonFilters, activeFilters,
       setKeywordFilter, quickFilterStopReason,
+      // Pre-computed stats
+      histogramFields,
+      distributions,
+      histogramData,
+      globalStats,
     };
   },
 };

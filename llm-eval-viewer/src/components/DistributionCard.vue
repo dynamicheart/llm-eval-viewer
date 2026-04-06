@@ -1,14 +1,14 @@
 <!--
-  Copyright (c) 2025 dynamicheart
+  Copyright (c) 2026 dynamicheart
   Licensed under the MIT License.
 -->
 
 <template>
-  <div v-if="tableData.length" class="distribution-card">
+  <div v-if="sortedItems.length" class="distribution-card">
     <div class="title">{{ fieldLabel }} {{ $t('stats.distributionSuffix') }}</div>
     <div class="distribution-list">
       <div
-        v-for="item in itemDistribution"
+        v-for="item in sortedItems"
         :key="item.label"
         class="distribution-item"
         @click="emit('filter', item.key)"
@@ -26,7 +26,7 @@
         </span>
       </div>
     </div>
-    <div class="total-count">{{ $t('stats.total', { count: tableData.length }) }}</div>
+    <div class="total-count">{{ $t('stats.total', { count: totalCount }) }}</div>
   </div>
 </template>
 
@@ -37,13 +37,12 @@ import { useI18n } from 'vue-i18n';
 const { t } = useI18n();
 
 const props = defineProps({
-  tableData: {
+  /**
+   * Pre-computed distribution items from useViewStats.
+   * Array of { key, label, count, percentage }
+   */
+  items: {
     type: Array,
-    required: true,
-  },
-
-  fieldName: {
-    type: String,
     required: true,
   },
 
@@ -91,35 +90,21 @@ const defaultColorPool = [
   '#409EFF', '#E6A23C', '#909399', '#5A5A5A', '#00C0FF', '#FF9F7F',
 ];
 
-/**
- * Sort weight: positive → 0 (first), negative → 2 (last), other → 1 (middle)
- */
 function sortWeight(key) {
   if (isPositive(key)) return 0;
   if (isNegative(key)) return 2;
   return 1;
 }
 
-const itemDistribution = computed(() => {
-  const total = props.tableData.length;
-  if (total === 0) return [];
-
-  const countMap = new Map();
-  props.tableData.forEach((item) => {
-    const key = item[props.fieldName] ?? t('common.unknown');
-    countMap.set(key, (countMap.get(key) || 0) + 1);
-  });
-
-  const items = Array.from(countMap.entries()).map(([key, count]) => ({
-    key,
-    label: String(key),
-    count,
-    percentage: ((count / total) * 100).toFixed(1),
-  }));
-
+const sortedItems = computed(() => {
+  const items = [...(props.items || [])];
   items.sort((a, b) => sortWeight(a.key) - sortWeight(b.key));
   return items;
 });
+
+const totalCount = computed(() =>
+  (props.items || []).reduce((sum, item) => sum + item.count, 0)
+);
 </script>
 
 <style scoped>

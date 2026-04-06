@@ -40,8 +40,7 @@
     </div>
 
     <DistributionCard
-      :tableData="tableData"
-      fieldName="result"
+      :items="distributions['result'] || []"
       fieldLabel="Result"
       @filter="quickFilterResult"
     />
@@ -179,6 +178,7 @@ import { previewHtml } from '@/utils/viewHelpers';
 import { useJsonlFileHandler } from '@/composables/useJsonlFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useDirIntegration } from '@/composables/useDirIntegration';
+import { useViewStats } from '@/composables/useViewStats';
 
 export default {
   components: {
@@ -250,6 +250,11 @@ export default {
     } = tableModel;
 
     const { filters: resultFilters } = createColumnFilter('result');
+
+    // ===== Pre-computed stats (single pass) =====
+    const { distributions } = useViewStats(tableData, {
+      distributionFields: ['result'],
+    });
 
     // ===== Parser =====
     const parseJsonlReviews = (text) => {
@@ -355,6 +360,8 @@ export default {
       resultFilters, activeFilters,
       setKeywordFilter, setColumnFilter,
       quickFilterResult,
+      // Pre-computed stats
+      distributions,
     };
   },
 };
