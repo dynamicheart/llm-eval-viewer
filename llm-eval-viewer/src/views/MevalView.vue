@@ -295,23 +295,24 @@ export default {
       curlDialogVisible.value = true;
     };
 
-    const parseCsv = (text) => {
+    const parseCsv = (text, onProgress) => {
       return new Promise((resolve) => {
         localStorage.setItem(ONBOARDED_KEY, '1');
         samplePromptVisible.value = false;
 
         const worker = new MevalWorker();
         worker.onmessage = (e) => {
-          const { rows, modelName: name } = e.data;
-          modelName.value = name;
-          tableData.value = rows.map((r) => Object.freeze(r));
-          worker.terminate();
-          resolve();
+          if (e.data.type === 'progress') {
+            if (onProgress) onProgress(e.data.percent);
+          } else if (e.data.type === 'done') {
+            worker.terminate();
+            resolve({ rows: e.data.rows, modelName: e.data.modelName });
+          }
         };
         worker.onerror = (err) => {
           console.error('MEval worker error:', err);
           worker.terminate();
-          resolve();
+          resolve({ rows: [], modelName: '' });
         };
         worker.postMessage({ text, unknownLabel: t('common.unknown') });
       });
@@ -391,6 +392,10 @@ export default {
       deleteFile,
       parseData: parseCsv,
       tableModel,
+      parserVersion: '1',
+      onParseResult: (result) => {
+        modelName.value = result.modelName || '';
+      },
       hintText: t('meval.hintText'),
       validateContent: (text) => {
         const header = (text.split('\n')[0] || '').trim();

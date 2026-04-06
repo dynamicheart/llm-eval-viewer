@@ -4,23 +4,7 @@
  */
 
 import Papa from 'papaparse';
-
-/**
- * Infer dataset name from category and question content.
- * Duplicated from MevalView because workers cannot access Vue composables.
- */
-function inferDataset(category2, question, promptId, unknownLabel) {
-  const c2 = (category2 || '').trim();
-  if (['Chemistry', 'Physics', 'Biology'].includes(c2)) return 'GPQA';
-  if (['easy', 'medium', 'hard'].includes(c2)) return 'LiveCodeBench';
-  if (question.includes('function signature and docstring')) return 'HumanEval';
-  if (question.includes('calculation question')) {
-    const pid = Number(promptId);
-    if (!isNaN(pid)) return pid >= 44243093 ? 'AIME25' : 'AIME24';
-    return 'AIME';
-  }
-  return c2 || unknownLabel;
-}
+import { inferDataset } from '@/utils/mevalHelpers';
 
 self.onmessage = (e) => {
   const { text, unknownLabel } = e.data;
@@ -44,7 +28,13 @@ self.onmessage = (e) => {
   const resultCol = `标注结果-${detectedModel}`;
   const resultDetailCol = `标注结果详情-${detectedModel}`;
 
-  const rows = data.map((row, idx) => {
+  const total = data.length;
+  const rows = new Array(total);
+  // Report progress every 500 rows
+  const PROGRESS_INTERVAL = 500;
+
+  for (let idx = 0; idx < total; idx++) {
+    const row = data[idx];
     let promptTokens = '';
     let completionTokens = '';
     let totalTokens = '';
@@ -76,7 +66,7 @@ self.onmessage = (e) => {
 
     const question = row['问题'] || '';
 
-    return {
+    rows[idx] = {
       index: idx + 1,
       sampleId: row['样本ID'] || '',
       traceId: row['TraceId'] || '',
@@ -99,7 +89,11 @@ self.onmessage = (e) => {
       _requestDetailText: requestDetailText,
       _resultDetailText: resultDetailText,
     };
-  });
 
-  self.postMessage({ rows, modelName: detectedModel });
+    if (idx % PROGRESS_INTERVAL === 0) {
+      self.postMessage({ type: 'progress', percent: Math.round((idx / total) * 100) });
+    }
+  }
+
+  self.postMessage({ type: 'done', rows, modelName: detectedModel });
 };

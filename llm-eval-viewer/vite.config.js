@@ -28,4 +28,7 @@ export default defineConfig({
     __COMMIT_HASH__: JSON.stringify(getGitCommitHash()),
   },
   base: '/llm-eval-viewer/',
+  test: {
+    include: ['src/**/*.test.js'],
+  },
 })

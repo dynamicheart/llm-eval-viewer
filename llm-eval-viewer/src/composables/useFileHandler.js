@@ -6,6 +6,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
+import { saveParsedData, getParsedData } from '@/utils/fileDB';
 import i18n from '@/i18n';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
@@ -21,32 +22,17 @@ hljs.registerLanguage('plaintext', plaintext);
 const t = (key, named) => i18n.global.t(key, named || {});
 
 /**
- * Run a parseData function with a fullscreen loading overlay.
- * Supports both sync and async parsers transparently.
- * @param {Function} fn - The parse function to execute
- * @param {string} text - Raw file text to parse
- */
-async function withLoading(fn, text) {
-  const loading = ElLoading.service({
-    fullscreen: true,
-    lock: true,
-    text: t('common.loading'),
-    background: 'rgba(0, 0, 0, 0.4)',
-  });
-  try {
-    // Yield to allow the loading overlay to render before heavy work
-    await new Promise((r) => setTimeout(r, 50));
-    await fn(text);
-  } finally {
-    loading.close();
-  }
-}
-
-/**
  * Generic file handler composable for loading, caching, and displaying data files.
  *
  * Works with any file format (CSV, JSONL, etc.) — the caller provides a parseData
- * function that transforms raw text into table rows.
+ * function that transforms raw text into a result object.
+ *
+ * Parser contract:
+ *   parseData(text, onProgress) → Promise<{ rows: Array, ...extra }>
+ *     - text: raw file content
+ *     - onProgress(percent): optional callback to report 0-100 progress
+ *     - returns: object with `rows` array and any extra fields (e.g. modelName)
+ *       OR just an array of rows for simple parsers
  *
  * @param {Object} options
  * @param {string} options.storageNamespace - IndexedDB namespace for file metadata
@@ -56,8 +42,10 @@ async function withLoading(fn, text) {
  * @param {Function} options.saveFile - fileDB saveFile function
  * @param {Function} options.clearFiles - fileDB clearFiles function
  * @param {Function} options.deleteFile - fileDB deleteFile function
- * @param {Function} options.parseData - Parser function (sync or async). Receives raw text.
+ * @param {Function} options.parseData - Parser function. See contract above.
  * @param {Object} options.tableModel - useTableModel() instance
+ * @param {string} [options.parserVersion='1'] - Version tag for parsed data cache invalidation
+ * @param {Function} [options.onParseResult] - Called with parse result after parse OR cache restore
  * @param {string} [options.hintText] - Placeholder hint text
  * @param {boolean} [options.dirModeAware] - Whether to skip auto-restore in directory mode
  * @param {Function|null} [options.validateContent] - Optional content validation function
@@ -73,6 +61,8 @@ export function useFileHandler(options) {
     deleteFile,
     parseData,
     tableModel,
+    parserVersion = '1',
+    onParseResult = null,
     hintText = '',
     dirModeAware = false,
     validateContent = null,
@@ -109,6 +99,50 @@ export function useFileHandler(options) {
     const d = new Date(ts);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
+
+  /**
+   * Core parse-or-restore method. Shows loading overlay, checks parsed cache,
+   * falls back to Worker parse, then caches the result.
+   *
+   * @param {string} text - Raw file content
+   * @param {string} fileId - Unique file identifier for cache lookup
+   */
+  async function runParseWithCache(text, fileId) {
+    const loading = ElLoading.service({
+      fullscreen: true,
+      lock: true,
+      text: t('common.loading'),
+      background: 'rgba(0, 0, 0, 0.4)',
+    });
+
+    try {
+      // 1. Check parsed cache
+      const cached = await getParsedData(fileId, parserVersion);
+      if (cached) {
+        const rows = cached.rows || cached;
+        tableData.value = rows.map((r) => Object.freeze(r));
+        if (onParseResult) onParseResult(cached);
+        return;
+      }
+
+      // 2. Parse via Worker with progress feedback
+      await new Promise((r) => setTimeout(r, 50)); // let loading overlay render
+      const result = await parseData(text, (percent) => {
+        loading.setText(`${t('common.loading')} ${percent}%`);
+      });
+
+      // Normalize result: parser may return { rows, ...extra } or just an array
+      const isPlainArray = Array.isArray(result);
+      const rows = isPlainArray ? result : result.rows;
+      tableData.value = rows.map((r) => Object.freeze(r));
+      if (onParseResult) onParseResult(isPlainArray ? { rows } : result);
+
+      // 3. Cache parsed result (async, don't block UI)
+      saveParsedData(fileId, parserVersion, isPlainArray ? { rows } : result).catch(() => {});
+    } finally {
+      loading.close();
+    }
+  }
 
   const saveRecentFile = async (file, content) => {
     const id = `${file.name}-${file.size}-${file.lastModified}`;
@@ -162,7 +196,7 @@ export function useFileHandler(options) {
     }
 
     currentFileName.value = file.name;
-    await withLoading(parseData, file.content);
+    await runParseWithCache(file.content, lastId);
   };
 
   onMounted(() => {
@@ -177,7 +211,7 @@ export function useFileHandler(options) {
     }
 
     currentFileName.value = file.name;
-    await withLoading(parseData, file.content);
+    await runParseWithCache(file.content, item.id);
 
     item.lastOpen = Date.now();
     localStorage.setItem(storageKey, item.id);
@@ -206,15 +240,12 @@ export function useFileHandler(options) {
       }
     }
 
+    const fileId = `${file.name}-${file.size}-${file.lastModified}`;
     await saveRecentFile(file, text);
-
-    localStorage.setItem(
-      storageKey,
-      `${file.name}-${file.size}-${file.lastModified}`
-    );
+    localStorage.setItem(storageKey, fileId);
 
     currentFileName.value = file.name;
-    await withLoading(parseData, text);
+    await runParseWithCache(text, fileId);
     return true;
   };
 
@@ -245,7 +276,7 @@ export function useFileHandler(options) {
     const id = `${name}-${text.length}-0`;
     localStorage.setItem(storageKey, id);
     currentFileName.value = name;
-    await withLoading(parseData, text);
+    await runParseWithCache(text, id);
   };
 
   const removeRecentFile = (file) => {
@@ -500,5 +531,6 @@ export function useFileHandler(options) {
     showRawJsonDialog,
     truncateText,
     formatResultMeta,
+    runParseWithCache,
   };
 }

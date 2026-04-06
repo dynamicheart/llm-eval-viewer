@@ -228,18 +228,21 @@ export default {
     });
 
     // ===== Worker-based parser =====
-    const parseReviews = (text) => {
+    const parseReviews = (text, onProgress) => {
       return new Promise((resolve) => {
         const worker = new JsonlWorker();
         worker.onmessage = (e) => {
-          tableData.value = e.data.rows.map((r) => Object.freeze(r));
-          worker.terminate();
-          resolve();
+          if (e.data.type === 'progress') {
+            if (onProgress) onProgress(e.data.percent);
+          } else if (e.data.type === 'done') {
+            worker.terminate();
+            resolve({ rows: e.data.rows });
+          }
         };
         worker.onerror = (err) => {
           console.error('Reviews worker error:', err);
           worker.terminate();
-          resolve();
+          resolve({ rows: [] });
         };
         worker.postMessage({
           text,

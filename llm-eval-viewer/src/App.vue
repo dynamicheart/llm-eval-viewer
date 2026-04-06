@@ -238,6 +238,7 @@ export default {
   font-weight: 600;
   font-size: 16px;
   flex: 1 1 auto;
+  min-width: 0;
   box-shadow: none;
   background-color: transparent !important;
   --el-menu-bg-color: transparent;
@@ -399,6 +400,10 @@ export default {
     display: none;
   }
 
+  .nav-group-tag {
+    display: none;
+  }
+
   .page-title {
     font-size: 1.2rem;
   }
@@ -410,15 +415,32 @@ export default {
   .nav-menu {
     font-size: 14px;
   }
+
+  .nav-menu :deep(.el-menu-item) {
+    padding: 0 10px;
+  }
 }
 
 @media (max-width: 480px) {
   .nav-wrapper {
-    padding: 0 8px;
+    padding: 0 4px;
+    overflow-x: auto;
+  }
+
+  .nav-right {
+    gap: 6px;
   }
 
   .locale-switch span:not(.locale-icon) {
     display: none;
+  }
+
+  .nav-menu {
+    font-size: 13px;
+  }
+
+  .nav-menu :deep(.el-menu-item) {
+    padding: 0 6px;
   }
 }
 </style>

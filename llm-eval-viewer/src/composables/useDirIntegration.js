@@ -69,7 +69,8 @@ export function useDirIntegration(options) {
     selectedRunInfo.value ? `run_${selectedRunInfo.value.runDir}` : ''
   );
 
-  // In-memory parsed data cache per file key
+  // In-memory parsed data cache per file key (LRU, capped at MAX_CACHE entries)
+  const MAX_CACHE = 10;
   const dataCache = new Map();
 
   // Sample prompt
@@ -115,15 +116,26 @@ export function useDirIntegration(options) {
     setSelectedRun(node.runDir, node.datasetName);
 
     if (dataCache.has(fileKey)) {
-      tableData.value = dataCache.get(fileKey);
+      // LRU: move to end by re-inserting
+      const cached = dataCache.get(fileKey);
+      dataCache.delete(fileKey);
+      dataCache.set(fileKey, cached);
+      tableData.value = cached;
     } else {
       const text = await readRunFile(node.handle, type, node.isDirect);
       if (!text) {
         ElMessage.warning(t(`${type === 'reviews' ? 'reviews' : 'predictions'}.notFound`));
         return;
       }
-      await parseFile(text);
+      const result = await parseFile(text);
+      const rows = (result && result.rows) || [];
+      tableData.value = rows.map((r) => Object.freeze(r));
       dataCache.set(fileKey, [...tableData.value]);
+      // Evict oldest entry if cache exceeds limit
+      if (dataCache.size > MAX_CACHE) {
+        const oldest = dataCache.keys().next().value;
+        dataCache.delete(oldest);
+      }
     }
 
     currentFileName.value = `${node.datasetName} / ${node.label}`;
