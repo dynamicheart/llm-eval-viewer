@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-> 本项目完全由 AI 辅助生成（[Baidu Comate IDE](https://comate.baidu.com/) + Claude Opus 4.6）。
+> 本项目完全由 AI 辅助生成（[Baidu Comate IDE](https://comate.baidu.com/) + [Claude Opus 4.6](https://www.anthropic.com/claude)）。
 
 **LLM Eval Viewer** 是一个用于 **大模型评测结果可视化** 的轻量网页工具，  
 目前支持 **evalscope** 和 **MEval** 生成的评测结果格式。
@@ -14,18 +14,13 @@ https://dynamicheart.github.io/llm-eval-viewer/
 
 ## 功能特性
 
-- **多视图支持**：Predictions、Reviews 和 MEval 样本查看器
+- **多格式支持**：Evalscope Predictions / Reviews 和 MEval 评测结果
 - **目录浏览**：选择目录自动扫描结构，快速切换不同实验和数据集（Chrome/Edge）
-- **暗黑模式**：亮色 / 暗色 / 自动主题，支持跟随系统偏好
-- **Token 分布**：直方图展示，含平均 Prompt/Completion Token 统计
-- **结果分布**：可交互的分布图表，点击可快速筛选
-- **数据集统计**：按数据集展示准确率、平均 Token、Finish Reason；点击可筛选主表格
-- **悬浮预览**：鼠标悬停截断文本可预览内容，点击查看完整详情
-- **表头冻结**：固定表头，方便浏览大量数据
+- **统计与分布**：Token 直方图、结果/Finish Reason 分布、按数据集统计准确率 —— 均可点击交互筛选
 - **Reasoning 支持**：展示推理内容，标记为 [R]，可分别查看 Text 和 Reasoning
+- **暗黑模式**：亮色 / 暗色 / 自动主题，支持跟随系统偏好
 - **cURL 导出**：从请求详情生成 cURL 命令，快速回放 API 调用
 - **国际化**：支持中英文切换
-- **样例数据**：首次使用可加载内置样例数据，快速体验功能
 
 ---
 
