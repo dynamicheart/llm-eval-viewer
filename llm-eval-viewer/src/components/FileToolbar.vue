@@ -65,7 +65,7 @@
                       <el-icon style="margin-right: 4px; vertical-align: middle"><FolderOpened /></el-icon>
                       {{ d.name }}
                     </div>
-                    <div class="meta">{{ $t('fileToolbar.directory') }} · {{ formatTime(d.time) }}</div>
+                    <div class="meta">{{ $t('fileToolbar.directory') }} · {{ d.fileCount || 0 }} {{ $t('fileToolbar.fileCount') }} · {{ formatTime(d.time) }}</div>
                   </div>
                   <el-icon
                     class="delete-icon"
@@ -132,6 +132,7 @@
       <!-- Current info: directory mode shows dir name, file mode shows file name -->
       <span v-if="browseMode === 'directory' && dirName" class="current-info">
         {{ $t('fileToolbar.currentDir') }}<b>{{ dirName }}</b>
+        <span v-if="dirFileCount" class="dir-file-count">（{{ dirFileCount }} {{ $t('fileToolbar.fileCount') }}）</span>
         <template v-if="currentFileName">
           / {{ currentFileName }}
         </template>
@@ -173,6 +174,7 @@ const props = defineProps({
   supportsDirPicker: { type: Boolean, default: false },
   browseMode: { type: String, default: 'file' },
   dirName: { type: String, default: '' },
+  dirFileCount: { type: Number, default: 0 },
   recentDirs: { type: Array, default: () => [] },
 });
 
@@ -223,6 +225,11 @@ const totalCacheSize = computed(() => {
 
 .current-info {
   color: var(--ev-text-regular);
+}
+
+.dir-file-count {
+  color: var(--ev-text-secondary);
+  font-size: 12px;
 }
 
 .cache-info {

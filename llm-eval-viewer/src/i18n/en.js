@@ -45,6 +45,7 @@ export default {
     recentRecords: 'Recent',
     directory: 'Directory',
     singleFile: 'Single File',
+    fileCount: 'files',
     noRecords: 'No records',
     clearFileRecords: 'Clear File Records',
     cacheTotal: 'Cache: {size}',

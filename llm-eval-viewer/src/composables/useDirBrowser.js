@@ -105,9 +105,18 @@ async function persistHandle(handle) {
   updateRecentDirs(name);
 }
 
-function updateRecentDirs(name) {
+function countLeafNodes(nodes) {
+  let count = 0;
+  for (const node of nodes) {
+    if (node.isLeaf) count++;
+    else if (node.children) count += countLeafNodes(node.children);
+  }
+  return count;
+}
+
+function updateRecentDirs(name, fileCount) {
   const list = recentDirs.value.filter((d) => d.name !== name);
-  list.unshift({ name, time: Date.now() });
+  list.unshift({ name, time: Date.now(), fileCount: fileCount ?? 0 });
   if (list.length > MAX_RECENT_DIRS) list.length = MAX_RECENT_DIRS;
   recentDirs.value = list;
   localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(list));
@@ -358,6 +367,14 @@ async function rescanTree() {
   dirName.value = name;
   cachedDirName.value = name;
   localStorage.setItem('evalscope_cached_dir_name', name);
+
+  // Update file count in recent dirs
+  const fileCount = countLeafNodes(tree);
+  const entry = recentDirs.value.find((d) => d.name === name);
+  if (entry) {
+    entry.fileCount = fileCount;
+    localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(recentDirs.value));
+  }
 }
 
 // ===== Selected run node management =====
@@ -411,14 +428,14 @@ export function useDirBrowser() {
   async function openDirectory() {
     if (!supportsDirectoryPicker) {
       ElMessage.error(t('dirBrowser.browserNotSupported'));
-      return;
+      return false;
     }
 
     let handle;
     try {
       handle = await window.showDirectoryPicker({ mode: 'read' });
     } catch (e) {
-      if (e.name === 'AbortError') return;
+      if (e.name === 'AbortError') return false;
       throw e;
     }
 
@@ -426,6 +443,7 @@ export function useDirBrowser() {
     await persistHandle(handle);
     await rescanTree();
     setBrowseMode('directory');
+    return true;
   }
 
   /**
@@ -480,6 +498,7 @@ export function useDirBrowser() {
     try {
       const handle = await loadCachedHandle(name);
       if (!handle) {
+        await removeCachedHandle(name);
         ElMessage.warning(t('dirBrowser.noCachedDir'));
         return false;
       }
@@ -495,6 +514,7 @@ export function useDirBrowser() {
       setBrowseMode('directory');
       return true;
     } catch {
+      await removeCachedHandle(name).catch(() => {});
       ElMessage.error(t('dirBrowser.restoreFailed'));
       return false;
     }

@@ -76,22 +76,34 @@ export function useDirIntegration(options) {
   // Sample prompt
   const samplePromptVisible = ref(false);
 
+  // Compute leaf file count from directory tree
+  const dirFileCount = computed(() => {
+    function count(nodes) {
+      let n = 0;
+      for (const node of nodes) {
+        if (node.isLeaf) n++;
+        else if (node.children) n += count(node.children);
+      }
+      return n;
+    }
+    return count(dirTree.value);
+  });
+
   // ===== Directory event handlers =====
 
   async function onOpenDirectory() {
+    const ok = await openDirectory();
+    if (!ok) return;
     clearSelectedRun();
-    await openDirectory();
-    if (browseMode.value === 'directory') {
-      tableData.value = [];
-      reset();
-      currentFileName.value = '';
-    }
+    tableData.value = [];
+    reset();
+    currentFileName.value = '';
   }
 
   async function onRestoreDirectory(dirNameArg) {
-    clearSelectedRun();
     const ok = await restoreCachedDirectory(dirNameArg);
     if (ok) {
+      clearSelectedRun();
       tableData.value = [];
       reset();
       currentFileName.value = '';
@@ -199,6 +211,7 @@ export function useDirIntegration(options) {
     currentNodeKey,
     browseMode,
     dirName,
+    dirFileCount,
     recentDirs,
     supportsDirectoryPicker,
 

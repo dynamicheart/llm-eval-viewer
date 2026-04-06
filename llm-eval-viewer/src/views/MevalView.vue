@@ -73,7 +73,7 @@
       v-if="tableData.length"
       :data="paginatedData"
       style="width: 100%; margin-top: 20px"
-      :max-height="600"
+      max-height="calc(100vh - 280px)"
       @filter-change="onTableFilterChange"
       @sort-change="onTableSortChange"
       border

@@ -45,6 +45,7 @@ export default {
     recentRecords: '最近记录',
     directory: '目录',
     singleFile: '单文件',
+    fileCount: '个文件',
     noRecords: '暂无记录',
     clearFileRecords: '清空文件记录',
     cacheTotal: '缓存总量：{size}',
