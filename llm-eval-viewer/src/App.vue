@@ -218,6 +218,7 @@ export default {
   background-color: var(--ev-bg-nav);
   padding: 0 16px;
   box-shadow: var(--ev-shadow-nav);
+  border-bottom: 1px solid var(--ev-border-color);
   position: fixed;
   top: 0;
   left: 0;
