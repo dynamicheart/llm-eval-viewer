@@ -238,8 +238,10 @@ export default {
   flex: 1 1 auto;
   min-width: 0;
   box-shadow: none;
+  border-bottom: none;
   background-color: transparent !important;
   --el-menu-bg-color: transparent;
+  --el-menu-border-color: transparent;
 }
 
 .nav-menu :deep(.el-menu-item) {
