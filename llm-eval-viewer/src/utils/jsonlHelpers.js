@@ -88,6 +88,7 @@ export function parseContent(rawContent) {
     const reasoningItem = rawContent.find((item) => item.type === 'reasoning');
     const textItem = rawContent.find((item) => item.type === 'text');
     return {
+      isReasoning: !!reasoningItem,
       reasoning: reasoningItem ? reasoningItem.reasoning || null : null,
       text: textItem ? textItem.text || '' : '',
     };

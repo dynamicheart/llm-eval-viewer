@@ -1,0 +1,83 @@
+任务 ID,样本ID,样本加密ID,提示词 ID,一级分类,二级分类,三级分类,翻译,答案是否可接受,备注,评测人,样本状态,tag,是否overlap,评测用时,更新时间,Prompt序列号,TraceId,问题,参考答案,模型回答-TestModel-API,模型回答-TestModel-API-请求详情,标注结果-TestModel-API,标注结果备注-TestModel-API,标注结果详情-TestModel-API,反馈-TestModel-API
+10001,50000000,abc000,40000000,推理能力,medium,algorithms,,,,auto-evaluator,已评测,,否,00:00:04,2026-03-21 07:59:37,TESTPROMPT0000,test-api:test-trace-0,"第1轮: You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.
+
+### Question:
+Given a string S and a string T, find the minimum window in S which will contain all the characters in T.
+
+### Format:
+```python
+# YOUR CODE HERE
+```",,"第1轮
+Q: You are an expert Python programmer...
+
+A: ```python
+from collections import Counter
+
+def min_window(s, t):
+    if not t or not s:
+        return ''
+    target = Counter(t)
+    required = len(target)
+    formed = 0
+    window = {}
+    ans = float('inf'), None, None
+    l = 0
+    for r, char in enumerate(s):
+        window[char] = window.get(char, 0) + 1
+        if char in target and window[char] == target[char]:
+            formed += 1
+        while l <= r and formed == required:
+            char = s[l]
+            if r - l + 1 < ans[0]:
+                ans = (r - l + 1, l, r)
+            window[char] -= 1
+            if char in target and window[char] < target[char]:
+                formed -= 1
+            l += 1
+    return '' if ans[0] == float('inf') else s[ans[1]:ans[2]+1]
+```","[{""query_id"": """", ""request_info"": {""begin_time"": 1774030168403, ""cost_time"": 143773, ""end_time"": 1774030312176, ""request"": {""max_tokens"": 65536, ""messages"": [{""content"": """", ""role"": ""system""}, {""content"": ""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.\n### Question:\nGiven a string S and a string T, find the minimum window in S which will contain all the characters in T.\n### Format:\n```python\n# YOUR CODE HERE\n```\n"", ""role"": ""user""}], ""model"": ""test-model-v1"", ""temperature"": 0.6}, ""response"": {""choices"": [{""finish_reason"": ""stop"", ""index"": 0, ""message"": {""content"": ""```python\nfrom collections import Counter\n\ndef min_window(s, t):\n    if not t or not s:\n        return ''\n    target = Counter(t)\n    required = len(target)\n    formed = 0\n    window = {}\n    ans = float('inf'), None, None\n    l = 0\n    for r, char in enumerate(s):\n        window[char] = window.get(char, 0) + 1\n        if char in target and window[char] == target[char]:\n            formed += 1\n        while l <= r and formed == required:\n            char = s[l]\n            if r - l + 1 < ans[0]:\n                ans = (r - l + 1, l, r)\n            window[char] -= 1\n            if char in target and window[char] < target[char]:\n                formed -= 1\n            l += 1\n    return '' if ans[0] == float('inf') else s[ans[1]:ans[2]+1]\n```"", ""role"": ""assistant""}}], ""created"": 1774030168, ""id"": ""chatcmpl-582"", ""model"": ""test-model-v1"", ""usage"": {""completion_tokens"": 3986, ""prompt_tokens"": 857, ""total_tokens"": 4843}}, ""url"": ""https://api.example.com/v1/chat/completions""}}]",100,"[{""execution time"": 0.6134853363037109}]","{""evaluator"": {""extracted_answer"": ""from collections import Counter\ndef min_window(s, t):\n    pass\n"", ""error_info"": """", ""original_out"": ""[{\""execution time\"": 0.6134853363037109}]""}, ""request_id"": """"}",
+10001,50000001,abc001,40000001,推理能力,easy,algorithms,,,,auto-evaluator,已评测,,否,00:00:03,2026-03-21 07:59:36,TESTPROMPT0001,test-api:test-trace-1,"第1轮: You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.
+
+### Question:
+Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.
+
+### Format:
+```python
+# YOUR CODE HERE
+```",,"第1轮
+Q: You are an expert Python programmer...
+
+A: ```python
+def two_sum(nums, target):
+    seen = {}
+    for i, num in enumerate(nums):
+        complement = target - num
+        if complement in seen:
+            return [seen[complement], i]
+        seen[num] = i
+    return []
+```","[{""query_id"": """", ""request_info"": {""begin_time"": 1774043599567, ""cost_time"": 23380, ""end_time"": 1774043622947, ""request"": {""max_tokens"": 65536, ""messages"": [{""content"": """", ""role"": ""system""}, {""content"": ""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.\n### Question:\nGiven an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\n### Format:\n```python\n# YOUR CODE HERE\n```\n"", ""role"": ""user""}], ""model"": ""test-model-v1"", ""temperature"": 0.6}, ""response"": {""choices"": [{""finish_reason"": ""stop"", ""index"": 0, ""message"": {""content"": ""```python\ndef two_sum(nums, target):\n    seen = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in seen:\n            return [seen[complement], i]\n        seen[num] = i\n    return []\n```"", ""role"": ""assistant""}}], ""created"": 1774043599, ""id"": ""chatcmpl-1312"", ""model"": ""test-model-v1"", ""usage"": {""completion_tokens"": 676, ""prompt_tokens"": 621, ""total_tokens"": 1297}}, ""url"": ""https://api.example.com/v1/chat/completions""}}]",100,"[{""execution time"": 0.060320377349853516}]","{""evaluator"": {""extracted_answer"": ""def two_sum(nums, target):\n    seen = {}\n    for i, num in enumerate(nums):\n        complement = target - num\n        if complement in seen:\n            return [seen[complement], i]\n        seen[num] = i\n    return []\n"", ""error_info"": """", ""original_out"": ""[{\""execution time\"": 0.060320377349853516}]""}, ""request_id"": """"}",
+10001,50000002,abc002,40000002,推理能力,easy,algorithms,,,,auto-evaluator,已评测,,否,00:00:18,2026-03-21 07:59:52,TESTPROMPT0002,test-api:test-trace-2,"第1轮: You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.
+
+### Question:
+Given an array of integers called nums, you can perform the following operation while nums contains at least 2 elements: Choose the first two elements and delete them. The score is the sum of the deleted elements. Find the maximum number of operations with the same score.
+
+### Format:
+```python
+# YOUR CODE HERE
+```",,"第1轮
+Q: You are an expert Python programmer...
+
+A: ```python
+class Solution:
+    def maxOperations(self, nums):
+        if len(nums) < 2:
+            return 0
+        target = nums[0] + nums[1]
+        count = 0
+        while len(nums) >= 2 and nums[0] + nums[1] == target:
+            count += 1
+            nums.pop(0)
+            nums.pop(0)
+        return count
+```","[{""query_id"": """", ""request_info"": {""begin_time"": 1774026147485, ""cost_time"": 72669, ""end_time"": 1774026220154, ""request"": {""max_tokens"": 65536, ""messages"": [{""content"": """", ""role"": ""system""}, {""content"": ""You are an expert Python programmer. You will be given a question (problem specification) and will generate a correct Python program.\n### Question:\nGiven an array of integers called nums, you can perform the following operation while nums contains at least 2 elements: Choose the first two elements and delete them. The score is the sum of the deleted elements. Find the maximum number of operations with the same score.\n### Format:\n```python\n# YOUR CODE HERE\n```\n"", ""role"": ""user""}], ""model"": ""test-model-v1"", ""temperature"": 0.6}, ""response"": {""choices"": [{""finish_reason"": ""stop"", ""index"": 0, ""message"": {""content"": ""```python\nclass Solution:\n    def maxOperations(self, nums):\n        if len(nums) < 2:\n            return 0\n        target = nums[0] + nums[1]\n        count = 0\n        while len(nums) >= 2 and nums[0] + nums[1] == target:\n            count += 1\n            nums.pop(0)\n            nums.pop(0)\n        return count\n```"", ""role"": ""assistant""}}], ""created"": 1774026147, ""id"": ""chatcmpl-400"", ""model"": ""test-model-v1"", ""usage"": {""completion_tokens"": 2240, ""prompt_tokens"": 390, ""total_tokens"": 2630}}, ""url"": ""https://api.example.com/v1/chat/completions""}}]",100,"[{""execution time"": 7.104873657226562e-05}]","{""evaluator"": {""extracted_answer"": ""class Solution:\n    def maxOperations(self, nums):\n        if len(nums) < 2:\n            return 0\n        target = nums[0] + nums[1]\n        count = 0\n        while len(nums) >= 2 and nums[0] + nums[1] == target:\n            count += 1\n            nums.pop(0)\n            nums.pop(0)\n        return count\n"", ""error_info"": """", ""original_out"": ""[{\""execution time\"": 7.104873657226562e-05}]""}, ""request_id"": """"}",

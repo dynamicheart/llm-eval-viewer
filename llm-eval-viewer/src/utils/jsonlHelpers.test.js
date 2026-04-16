@@ -31,6 +31,7 @@ describe('parseContent', () => {
       { type: 'text', text: 'The answer is 42' },
     ];
     expect(parseContent(content)).toEqual({
+      isReasoning: true,
       reasoning: 'Let me think...',
       text: 'The answer is 42',
     });
@@ -38,12 +39,12 @@ describe('parseContent', () => {
 
   it('handles array with only text item', () => {
     const content = [{ type: 'text', text: 'just text' }];
-    expect(parseContent(content)).toEqual({ reasoning: null, text: 'just text' });
+    expect(parseContent(content)).toEqual({ isReasoning: false, reasoning: null, text: 'just text' });
   });
 
   it('handles array with only reasoning item', () => {
     const content = [{ type: 'reasoning', reasoning: 'thinking' }];
-    expect(parseContent(content)).toEqual({ reasoning: 'thinking', text: '' });
+    expect(parseContent(content)).toEqual({ isReasoning: true, reasoning: 'thinking', text: '' });
   });
 
   it('handles array with empty reasoning field', () => {
@@ -51,7 +52,7 @@ describe('parseContent', () => {
       { type: 'reasoning', reasoning: '' },
       { type: 'text', text: 'answer' },
     ];
-    expect(parseContent(content)).toEqual({ reasoning: null, text: 'answer' });
+    expect(parseContent(content)).toEqual({ isReasoning: true, reasoning: null, text: 'answer' });
   });
 
   it('returns empty result for non-string non-array objects', () => {

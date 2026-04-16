@@ -7,6 +7,7 @@ import { createRouter, createWebHashHistory } from 'vue-router';
 import EvalscopeReviewsView from '@/views/EvalscopeReviewsView.vue';
 import EvalscopePredictionsView from '@/views/EvalscopePredictionsView.vue';
 import MevalView from '@/views/MevalView.vue';
+import CustomViewerView from '@/views/CustomViewerView.vue';
 
 const routes = [
   {
@@ -31,6 +32,13 @@ const routes = [
     path: '/meval',
     name: 'Meval',
     component: MevalView,
+  },
+
+  // Custom Viewer routes
+  {
+    path: '/custom',
+    name: 'CustomViewer',
+    component: CustomViewerView,
   },
 
   // Legacy redirects (backward compatibility, to be removed in the future)

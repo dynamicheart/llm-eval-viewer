@@ -1,3 +1,7 @@
-*.csv
 .comate/
+.vite/
+node_modules/
 docs/article.md
+plan.md
+/*.ndjson
+/*.csv

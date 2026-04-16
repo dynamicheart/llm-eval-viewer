@@ -26,6 +26,7 @@ export default {
       meval: 'MEval - Sample Viewer',
       reviews: 'Evalscope Review JSONL Viewer',
       predictions: 'Evalscope Predictions JSONL Viewer',
+      custom: 'Custom Viewer - JSON/CSV/TSV Viewer',
       default: 'Evalscope JSONL Viewer',
     },
     theme: {
@@ -38,6 +39,7 @@ export default {
   // === File Toolbar ===
   fileToolbar: {
     selectJsonlFile: 'Select JSONL File',
+    selectFile: 'Select File',
     selectCsvFile: 'Select CSV File',
     selectDirectory: 'Select Directory',
     dirBrowseNeedChrome: 'Directory browsing requires Chrome or Edge browser',
@@ -62,6 +64,7 @@ export default {
       predictions: '📋 Sample Data (Predictions)',
       reviews: '📋 Sample Data (Reviews)',
       meval: '📋 Sample Data (MEval)',
+      custom: '📋 Sample Data (Custom)',
     },
   },
 
@@ -147,6 +150,7 @@ export default {
     validateNotPredictions: 'This file does not appear to be a Predictions JSONL file. Continue loading?',
     validateNotJsonl: 'This file is not a valid JSONL format. Continue loading?',
     reasoningBanner: 'Reasoning content detected, marked as [R]. Click "View" to see Text and Reasoning separately; click distribution chart to filter quickly',
+    reasoningEmpty: 'Reasoning mode is enabled, but reasoning content is empty.',
     wrongDirType: 'Current directory is a {type} directory, cannot view predictions data. Please select the parent directory',
     notFound: 'Predictions JSONL file not found',
   },
@@ -179,14 +183,57 @@ export default {
     experimentFallback: 'Experiment {n}',
   },
 
+  // === Custom Viewer ===
+  custom: {
+    hintText: 'Upload any JSON, NDJSON, CSV, or TSV file to visualize',
+    fieldConfig: 'Field Config',
+    statsConfig: 'Statistics Config',
+    columnConfig: 'Column Config',
+    fieldDistribution: 'Field Distribution',
+    numericDistribution: 'Numeric Distribution',
+    distributionFields: 'Distribution (Pie Chart)',
+    histogramFields: 'Histogram',
+    searchable: 'Searchable (S)',
+    filterable: 'Filterable (F)',
+    previewable: 'Previewable (P)',
+    searchPrefix: 'Search ',
+    autoExpanded: 'Auto-expanded JSON string fields:',
+    resetDefaults: 'Reset Defaults',
+    conversationTitle: 'Conversation',
+    preset: 'Preset',
+    savePreset: 'Save Preset',
+    deletePreset: 'Delete',
+    noPreset: 'No Preset',
+    schemaPreview: 'Data Structure Preview',
+    searchFields: 'Search fields...',
+    showAll: 'Show All',
+    showOnlyVisible: 'Visible Only',
+    topLevelFields: 'Top-level Fields',
+    noFieldsMatch: 'No fields match the search',
+    expandToolContent: 'Expand',
+    collapseToolContent: 'Collapse',
+    empty: 'empty',
+    visibilityReason: {
+      conversation: 'Auto: chat',
+      highPriority: 'Auto: important',
+      default: 'Auto: shown',
+      lowPriority: 'Auto: metadata',
+      duplicate: 'Auto: duplicate',
+      maxVisible: 'Auto: limit',
+      mostlyEmpty: 'Auto: mostly empty',
+      expandedNonChat: 'Auto: expanded',
+      constant: 'Auto: constant',
+    },
+  },
+
   // === News Banner ===
   news: {
     items: [
       {
-        date: '2026-04-06',
+        date: '2026-04-16',
         items: [
-          '1. Dark mode support: click the theme icon in the top-right corner to switch between Light / Dark / Auto',
-          '2. Directory browsing: select a directory to auto-scan its structure, quickly switch between experiments and datasets',
+          '1. [Beta] Custom Viewer: upload any JSON/NDJSON/CSV/TSV file to visualize, with auto field detection, tree-structured field config, data structure preview, and preset management',
+          '2. Conversation Dialog: supports tool calls / function calls rendering with syntax-highlighted JSON, collapsible blocks, and markdown in assistant messages',
         ],
       },
     ],

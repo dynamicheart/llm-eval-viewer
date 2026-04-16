@@ -92,10 +92,10 @@
       </el-table-column>
       <el-table-column prop="content" label="Content" width="500">
         <template #default="{ row }">
-          <el-tooltip raw-content :content="previewHtml(row.content?.text)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!row.content?.text || row.content.text.length <= 100">
+          <el-tooltip raw-content :content="previewHtml(row.content?.text || row.content?.reasoning)" placement="top" :show-after="300" popper-class="preview-tooltip" :disabled="!(row.content?.text || row.content?.reasoning) || (row.content.text || row.content.reasoning || '').length <= 100">
             <span class="clickable-cell" @click="showDialog(row.content || {})">
-              <span v-if="row.content?.reasoning" class="reasoning-tag">[R]</span>
-              {{ truncateText(row.content.text, 100) }}
+              <span v-if="row.content?.isReasoning" class="reasoning-tag">[R]</span>
+              {{ row.content?.text ? truncateText(row.content.text, 100) : truncateText(row.content?.reasoning, 100) }}
             </span>
           </el-tooltip>
         </template>
@@ -202,7 +202,7 @@ export default {
     const { filters: stopReasonFilters } = createColumnFilter('stop_reason');
 
     const hasReasoning = computed(() =>
-      tableData.value.some(row => row.content?.reasoning)
+      tableData.value.some(row => row.content?.isReasoning)
     );
 
     // ===== Pre-computed stats (single pass) =====

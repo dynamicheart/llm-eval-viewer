@@ -143,7 +143,10 @@ export function useFileHandler(options) {
       if (onParseResult) onParseResult(isPlainArray ? { rows } : result);
 
       // 3. Cache parsed result (async, don't block UI)
-      saveParsedData(fileId, parserVersion, isPlainArray ? { rows } : result).catch(() => {});
+      // Skip caching empty results (parse errors / unsupported formats)
+      if (rows.length > 0) {
+        saveParsedData(fileId, parserVersion, isPlainArray ? { rows } : result).catch(() => {});
+      }
     } finally {
       loading.close();
     }
@@ -344,9 +347,11 @@ export function useFileHandler(options) {
 
     const reasoning = data.reasoning || '';
     const text = data.text || '';
+    const isReasoning = !!data.isReasoning;
 
     // Both reasoning + text → two-level structure
-    if (reasoning && text) {
+    // Also handle: reasoning mode active but reasoning content is empty
+    if ((reasoning && text) || (isReasoning && text)) {
       const textMdContent = await renderMathMarkdown(normalizeLatex(text));
 
       let textTxtHighlighted;
@@ -360,20 +365,29 @@ export function useFileHandler(options) {
 
       const textTxtContent = `<pre><code class="hljs plaintext">${textTxtHighlighted}</code></pre>`;
 
-      const reasoningMdContent = await renderMathMarkdown(
-        normalizeLatex(reasoning)
-      );
+      let reasoningMdContent;
+      let reasoningTxtContent;
 
-      let reasoningTxtHighlighted;
-      try {
-        reasoningTxtHighlighted = hljs.highlight(reasoning, {
-          language: 'plaintext',
-        }).value;
-      } catch {
-        reasoningTxtHighlighted = hljs.highlightAuto(reasoning).value;
+      if (reasoning) {
+        reasoningMdContent = await renderMathMarkdown(
+          normalizeLatex(reasoning)
+        );
+
+        let reasoningTxtHighlighted;
+        try {
+          reasoningTxtHighlighted = hljs.highlight(reasoning, {
+            language: 'plaintext',
+          }).value;
+        } catch {
+          reasoningTxtHighlighted = hljs.highlightAuto(reasoning).value;
+        }
+
+        reasoningTxtContent = `<pre><code class="hljs plaintext">${reasoningTxtHighlighted}</code></pre>`;
+      } else {
+        const emptyHint = `<p style="color: var(--ev-text-secondary); font-style: italic;">${t('predictions.reasoningEmpty')}</p>`;
+        reasoningMdContent = emptyHint;
+        reasoningTxtContent = emptyHint;
       }
-
-      const reasoningTxtContent = `<pre><code class="hljs plaintext">${reasoningTxtHighlighted}</code></pre>`;
 
       dialogHasTabs.value = true;
 

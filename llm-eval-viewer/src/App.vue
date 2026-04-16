@@ -16,6 +16,9 @@
           <span class="nav-group-tag">Evalscope</span>Review
         </el-menu-item>
         <el-menu-item index="/evalscope/predictions">Predictions</el-menu-item>
+        <el-menu-item index="/custom">
+          <span class="nav-group-tag">Toolkit</span>Custom<span class="nav-beta-tag">Beta</span>
+        </el-menu-item>
       </el-menu>
 
       <div class="nav-right">
@@ -97,7 +100,9 @@
               ? $t('app.title.reviews')
               : $route.path === '/evalscope/predictions'
                 ? $t('app.title.predictions')
-                : $t('app.title.default')
+                : $route.path === '/custom'
+                  ? $t('app.title.custom')
+                  : $t('app.title.default')
         }}
       </h1>
     </header>
@@ -260,6 +265,19 @@ export default {
   margin-right: 6px;
   font-weight: 400;
   vertical-align: middle;
+}
+
+.nav-beta-tag {
+  font-size: 9px;
+  color: #fff;
+  background: linear-gradient(135deg, #f56c6c, #e6a23c);
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 6px;
+  font-weight: 600;
+  vertical-align: middle;
+  line-height: 1.4;
+  letter-spacing: 0.5px;
 }
 
 .github-link {

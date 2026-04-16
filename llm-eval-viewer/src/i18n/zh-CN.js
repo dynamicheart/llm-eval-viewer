@@ -26,6 +26,7 @@ export default {
       meval: 'MEval - 样本查看器',
       reviews: 'Evalscope Review JSONL 查看器',
       predictions: 'Evalscope Predictions JSONL 查看器',
+      custom: '自定义查看器 - JSON/CSV/TSV 可视化',
       default: 'Evalscope JSONL 查看器',
     },
     theme: {
@@ -38,6 +39,7 @@ export default {
   // === File Toolbar ===
   fileToolbar: {
     selectJsonlFile: '选择 JSONL 单文件',
+    selectFile: '选择文件',
     selectCsvFile: '选择 CSV 文件',
     selectDirectory: '选择目录',
     dirBrowseNeedChrome: '目录浏览功能需要使用 Chrome 或 Edge 浏览器',
@@ -62,6 +64,7 @@ export default {
       predictions: '📋 样例数据 (Predictions)',
       reviews: '📋 样例数据 (Reviews)',
       meval: '📋 样例数据 (MEval)',
+      custom: '📋 样例数据 (Custom)',
     },
   },
 
@@ -147,6 +150,7 @@ export default {
     validateNotPredictions: '该文件不像是 Predictions JSONL，确定要加载吗？',
     validateNotJsonl: '该文件不是有效的 JSONL 格式，确定要加载吗？',
     reasoningBanner: '检测到 Reasoning 内容，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning；点击分布图可快速筛选',
+    reasoningEmpty: 'Reasoning 模式已启用，但 Reasoning 内容为空。',
     wrongDirType: '当前目录是 {type} 目录，无法查看 predictions 数据，请选择上一级目录',
     notFound: '未找到 predictions JSONL 文件',
   },
@@ -179,14 +183,57 @@ export default {
     experimentFallback: '实验 {n}',
   },
 
+  // === Custom Viewer ===
+  custom: {
+    hintText: '上传任意 JSON、NDJSON、CSV 或 TSV 文件进行可视化',
+    fieldConfig: '字段配置',
+    statsConfig: '统计配置',
+    columnConfig: '列配置',
+    fieldDistribution: '字段分布',
+    numericDistribution: '数值分布',
+    distributionFields: '分布图（饼图）',
+    histogramFields: '直方图',
+    searchable: '可搜索 (S)',
+    filterable: '可过滤 (F)',
+    previewable: '可预览 (P)',
+    searchPrefix: '搜索 ',
+    autoExpanded: '自动展开的 JSON 字符串字段：',
+    resetDefaults: '恢复默认',
+    conversationTitle: '对话详情',
+    preset: '预设',
+    savePreset: '保存预设',
+    deletePreset: '删除',
+    noPreset: '无预设',
+    schemaPreview: '数据结构预览',
+    searchFields: '搜索字段...',
+    showAll: '显示全部',
+    showOnlyVisible: '仅已选',
+    topLevelFields: '顶层字段',
+    noFieldsMatch: '无匹配字段',
+    expandToolContent: '展开',
+    collapseToolContent: '收起',
+    empty: '为空',
+    visibilityReason: {
+      conversation: '自动: 对话',
+      highPriority: '自动: 重要',
+      default: '自动: 已显示',
+      lowPriority: '自动: 元数据',
+      duplicate: '自动: 重复',
+      maxVisible: '自动: 已达上限',
+      mostlyEmpty: '自动: 大部分为空',
+      expandedNonChat: '自动: 展开字段',
+      constant: '自动: 值固定',
+    },
+  },
+
   // === News Banner ===
   news: {
     items: [
       {
-        date: '2026-04-06',
+        date: '2026-04-16',
         items: [
-          '1. 支持暗黑模式：点击右上角主题图标，可切换 浅色 / 深色 / 自动',
-          '2. 目录浏览功能：支持选择目录，自动扫描目录结构，快速切换不同实验和数据集',
+          '1. [Beta] 自定义查看器：上传任意 JSON/NDJSON/CSV/TSV 文件进行可视化，支持字段自动检测、树形字段配置、数据结构预览和预设管理',
+          '2. 对话弹窗：支持 Tool Calls / Function Calls 渲染，JSON 语法高亮，可折叠代码块，助手消息支持 Markdown 渲染',
         ],
       },
     ],
