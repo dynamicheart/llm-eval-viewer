@@ -238,8 +238,8 @@ export default {
 
   setup() {
     const { t } = useI18n();
-    const showDistribution = usePersistedToggle('custom_showDistribution', true);
-    const showHistogram = usePersistedToggle('custom_showHistogram', true);
+    const showDistribution = usePersistedToggle('custom_showDistribution', false);
+    const showHistogram = usePersistedToggle('custom_showHistogram', false);
     const showFieldConfig = ref(false);
     const conversationVisible = ref(false);
     const conversationText = ref('');

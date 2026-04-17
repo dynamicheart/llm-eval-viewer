@@ -224,6 +224,14 @@ export default {
       expandedNonChat: '自动: 展开字段',
       constant: '自动: 值固定',
     },
+    smartTag: {
+      stopReason: '推荐',
+      model: '推荐',
+      errorCode: '推荐',
+      tokenUsage: '推荐',
+      latency: '推荐',
+      cost: '推荐',
+    },
   },
 
   // === News Banner ===

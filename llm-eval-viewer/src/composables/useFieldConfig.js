@@ -82,6 +82,79 @@ export function useFieldConfig(options = {}) {
     return result;
   });
 
+  // --- Smart selection patterns ---
+  const FINISH_REASON_RE = /finish_?reason/i;
+  const STOP_REASON_RE = /stop_?reason/i;
+  const MODEL_RE = /^model(_name)?$/i;
+  const ERROR_CODE_RE = /^error[_]?code$/i;
+  const INPUT_TOKEN_RE = /input.?token|prompt.?token/i;
+  const OUTPUT_TOKEN_RE = /output.?token|completion.?token/i;
+  const LATENCY_RE = /^(latency|duration)/i;
+  const TOTAL_TOKEN_RE = /total.?token/i;
+  const COST_RE = /^cost$/i;
+
+  function _lastSegment(key) {
+    return key.split('.').pop();
+  }
+
+  function _tryAdd(selected, reasons, field, reason, max) {
+    if (selected.length >= max || !field || selected.includes(field.key)) return;
+    selected.push(field.key);
+    reasons[field.key] = reason;
+  }
+
+  /**
+   * Smart-select distribution fields from enum fields (max 2).
+   * Only selects fields matching known high-value patterns; returns empty if none match.
+   */
+  function _smartSelectDistFields(enumFields, max = 2) {
+    const selected = [];
+    const reasons = {};
+    const add = (f, r) => _tryAdd(selected, reasons, f, r, max);
+
+    // P1: FinishReason / StopReason — pick one
+    add(
+      enumFields.find((f) => FINISH_REASON_RE.test(_lastSegment(f.key)))
+        || enumFields.find((f) => STOP_REASON_RE.test(_lastSegment(f.key))),
+      'stopReason',
+    );
+
+    // P2: model / model_name
+    add(enumFields.find((f) => MODEL_RE.test(_lastSegment(f.key))), 'model');
+
+    // P3: error_code
+    add(enumFields.find((f) => ERROR_CODE_RE.test(_lastSegment(f.key))), 'errorCode');
+
+    return { selected, reasons };
+  }
+
+  /**
+   * Smart-select histogram fields from numeric fields (max 2).
+   * Only selects fields matching known high-value patterns; returns empty if none match.
+   */
+  function _smartSelectHistFields(numericFields, max = 2) {
+    const selected = [];
+    const reasons = {};
+    const add = (f, r) => _tryAdd(selected, reasons, f, r, max);
+
+    // P1: input tokens
+    add(numericFields.find((f) => INPUT_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
+
+    // P2: output tokens
+    add(numericFields.find((f) => OUTPUT_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
+
+    // P3: latency / duration
+    add(numericFields.find((f) => LATENCY_RE.test(_lastSegment(f.key))), 'latency');
+
+    // P4: total tokens
+    add(numericFields.find((f) => TOTAL_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
+
+    // P5: cost
+    add(numericFields.find((f) => COST_RE.test(_lastSegment(f.key))), 'cost');
+
+    return { selected, reasons };
+  }
+
   const CONFIG_VERSION = 5;
 
   // ===== Debounced auto-save =====
@@ -138,16 +211,14 @@ export function useFieldConfig(options = {}) {
       sortable: f.sortable ?? true,
     }));
 
-    // Auto-configure stats: enum fields → distribution, numeric fields → histogram
-    const distributionFields = fields
-      .filter((f) => f.detectedType === 'enum' && f.visible)
-      .slice(0, 5)
-      .map((f) => f.key);
+    // Auto-configure stats: smart-select only pattern-matched fields
+    // Distribution: keep constant fields (e.g. all "stop" FinishReason is still informative)
+    const visibleEnums = fields.filter((f) => f.detectedType === 'enum' && f.visible);
+    const { selected: distributionFields, reasons: distReasons } = _smartSelectDistFields(visibleEnums);
 
-    const histogramFields = fields
-      .filter((f) => f.detectedType === 'number' && f.visible)
-      .slice(0, 5)
-      .map((f) => f.key);
+    // Histogram: skip constant fields (single-bar histogram is useless)
+    const visibleNumbers = fields.filter((f) => f.detectedType === 'number' && f.visible && f.constantRate < 1.0);
+    const { selected: histogramFields, reasons: histReasons } = _smartSelectHistFields(visibleNumbers);
 
     return {
       version: CONFIG_VERSION,
@@ -155,6 +226,7 @@ export function useFieldConfig(options = {}) {
       statsConfig: {
         distributionFields,
         histogramFields,
+        selectionReasons: { ...distReasons, ...histReasons },
       },
     };
   }
@@ -250,6 +322,11 @@ export function useFieldConfig(options = {}) {
     const existingKeys = new Set(fields.map((f) => f.key));
     const savedDist = savedConfig.statsConfig?.distributionFields || [];
     const savedHist = savedConfig.statsConfig?.histogramFields || [];
+    const savedReasons = savedConfig.statsConfig?.selectionReasons || {};
+    const filteredReasons = {};
+    for (const [k, v] of Object.entries(savedReasons)) {
+      if (existingKeys.has(k)) filteredReasons[k] = v;
+    }
 
     return {
       version: CONFIG_VERSION,
@@ -257,6 +334,7 @@ export function useFieldConfig(options = {}) {
       statsConfig: {
         distributionFields: savedDist.filter((k) => existingKeys.has(k)),
         histogramFields: savedHist.filter((k) => existingKeys.has(k)),
+        selectionReasons: filteredReasons,
       },
     };
   }
@@ -321,7 +399,8 @@ export function useFieldConfig(options = {}) {
 
   function setStatsConfig(distributionFields, histogramFields) {
     if (!fieldConfig.value) return;
-    fieldConfig.value.statsConfig = { distributionFields, histogramFields };
+    const existingReasons = fieldConfig.value.statsConfig?.selectionReasons || {};
+    fieldConfig.value.statsConfig = { distributionFields, histogramFields, selectionReasons: existingReasons };
   }
 
   function resetToDefaults() {
@@ -373,8 +452,9 @@ export function useFieldConfig(options = {}) {
         ? {
             distributionFields: [...(config.statsConfig.distributionFields || [])],
             histogramFields: [...(config.statsConfig.histogramFields || [])],
+            selectionReasons: { ...(config.statsConfig.selectionReasons || {}) },
           }
-        : { distributionFields: [], histogramFields: [] },
+        : { distributionFields: [], histogramFields: [], selectionReasons: {} },
     };
   }
 

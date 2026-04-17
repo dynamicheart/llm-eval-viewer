@@ -224,6 +224,14 @@ export default {
       expandedNonChat: 'Auto: expanded',
       constant: 'Auto: constant',
     },
+    smartTag: {
+      stopReason: 'Suggested',
+      model: 'Suggested',
+      errorCode: 'Suggested',
+      tokenUsage: 'Suggested',
+      latency: 'Suggested',
+      cost: 'Suggested',
+    },
   },
 
   // === News Banner ===

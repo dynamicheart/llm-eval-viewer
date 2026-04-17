@@ -71,6 +71,7 @@
             size="small"
           >
             {{ f.label }}
+            <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
           </el-checkbox>
         </el-checkbox-group>
       </div>
@@ -85,6 +86,7 @@
             size="small"
           >
             {{ f.label }}
+            <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
           </el-checkbox>
         </el-checkbox-group>
       </div>
@@ -400,12 +402,18 @@ export default {
 
     function typeTagType(type) {
       switch (type) {
-        case 'number': return '';
+        case 'number': return 'primary';
         case 'boolean': return 'warning';
         case 'enum': return 'success';
         case 'conversation': return 'danger';
         default: return 'info';
       }
+    }
+
+    function getSmartTag(fieldKey) {
+      const reason = props.statsConfig?.selectionReasons?.[fieldKey];
+      if (!reason) return '';
+      return t(`custom.smartTag.${reason}`);
     }
 
     function getReasonLabel(reason) {
@@ -438,6 +446,7 @@ export default {
       onSavePreset,
       onPresetChange,
       typeTagType,
+      getSmartTag,
       getReasonLabel,
       getReasonTooltip,
     };
@@ -524,6 +533,19 @@ export default {
   font-size: 13px;
   color: var(--ev-text-secondary);
   margin-bottom: 6px;
+}
+
+.smart-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ev-color-primary);
+  background: var(--ev-color-primary-light-9, rgba(64, 158, 255, 0.1));
+  padding: 0 5px;
+  border-radius: 3px;
+  line-height: 1.5;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 /* Field toolbar */

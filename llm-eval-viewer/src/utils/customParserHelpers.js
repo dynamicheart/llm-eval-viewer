@@ -233,6 +233,12 @@ export function detectFieldTypes(rows, allKeys) {
     let detectedType = 'string';
     let isLongString = false;
 
+    // Compute average string length first — needed for enum exclusion
+    if (acc.stringCount > 0) {
+      const avgLen = acc.stringLengthSum / acc.stringCount;
+      isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
+    }
+
     const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) + (acc.typeCounts.boolean || 0);
 
     if (acc.typeCounts.number === total && total > 0) {
@@ -243,16 +249,11 @@ export function detectFieldTypes(rows, allKeys) {
       // Check conversation pattern first (before enum check)
       if ((acc.conversationVotes || 0) > sampleSize * 0.3) {
         detectedType = 'conversation';
-      } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize) {
+      } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize && !isLongString) {
         detectedType = 'enum';
       } else {
         detectedType = 'string';
       }
-    }
-
-    if (acc.stringCount > 0) {
-      const avgLen = acc.stringLengthSum / acc.stringCount;
-      isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
     }
 
     const emptyRate = sampleSize > 0 ? acc.emptyCount / sampleSize : 0;
