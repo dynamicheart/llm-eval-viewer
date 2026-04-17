@@ -28,12 +28,16 @@ export function useFieldConfig(options = {}) {
 
   const enumFields = computed(() => {
     if (!fieldConfig.value) return [];
-    return fieldConfig.value.fields.filter((f) => f.detectedType === 'enum');
+    return fieldConfig.value.fields.filter(
+      (f) => f.detectedType === 'enum' && (f.emptyRate || 0) < 0.95,
+    );
   });
 
   const numericFields = computed(() => {
     if (!fieldConfig.value) return [];
-    return fieldConfig.value.fields.filter((f) => f.detectedType === 'number');
+    return fieldConfig.value.fields.filter(
+      (f) => f.detectedType === 'number' && (f.emptyRate || 0) < 0.95 && (f.constantRate || 0) < 1.0,
+    );
   });
 
   /**
