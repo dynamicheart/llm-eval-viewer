@@ -149,7 +149,7 @@ export default {
     hintText: '⚠️ 请上传 predictions 目录下的 JSONL 文件',
     validateNotPredictions: '该文件不像是 Predictions JSONL，确定要加载吗？',
     validateNotJsonl: '该文件不是有效的 JSONL 格式，确定要加载吗？',
-    reasoningBanner: '检测到 Reasoning 内容，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning；点击分布图可快速筛选',
+    reasoningBanner: '检测到 Reasoning 内容，标记为 [R]，点击「查看」可分别查看 Text 和 Reasoning',
     reasoningEmpty: 'Reasoning 模式已启用，但 Reasoning 内容为空。',
     wrongDirType: '当前目录是 {type} 目录，无法查看 predictions 数据，请选择上一级目录',
     notFound: '未找到 predictions JSONL 文件',

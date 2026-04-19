@@ -149,7 +149,7 @@ export default {
     hintText: '⚠️ Please upload a JSONL file from the predictions directory',
     validateNotPredictions: 'This file does not appear to be a Predictions JSONL file. Continue loading?',
     validateNotJsonl: 'This file is not a valid JSONL format. Continue loading?',
-    reasoningBanner: 'Reasoning content detected, marked as [R]. Click "View" to see Text and Reasoning separately; click distribution chart to filter quickly',
+    reasoningBanner: 'Reasoning content detected, marked as [R]. Click "View" to see Text and Reasoning separately',
     reasoningEmpty: 'Reasoning mode is enabled, but reasoning content is empty.',
     wrongDirType: 'Current directory is a {type} directory, cannot view predictions data. Please select the parent directory',
     notFound: 'Predictions JSONL file not found',
