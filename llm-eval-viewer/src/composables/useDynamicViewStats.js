@@ -107,7 +107,7 @@ export function useDynamicViewStats(tableData, config = {}) {
     globalStats.value = { totalSamples: len };
   }
 
-  watch(tableData, recompute);
+  watch([tableData, () => getDistributionFields(), () => getHistogramFields()], recompute);
   recompute();
 
   return {
