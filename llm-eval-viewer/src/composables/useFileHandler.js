@@ -255,7 +255,7 @@ export function useFileHandler(options) {
   };
 
   const loadDataFile = async (file) => {
-    const loading = ElLoading.service({
+    let loading = ElLoading.service({
       fullscreen: true,
       lock: true,
       text: t('common.loading'),
@@ -264,11 +264,9 @@ export function useFileHandler(options) {
     try {
       const text = await file.text();
 
-      let dialogShown = false;
       if (validateContent) {
         const warning = validateContent(text);
         if (warning) {
-          dialogShown = true;
           loading.close();
           try {
             await ElMessageBox.confirm(
@@ -284,6 +282,13 @@ export function useFileHandler(options) {
             currentFileName.value = '';
             return false;
           }
+          // Reopen loading for the parse phase
+          loading = ElLoading.service({
+            fullscreen: true,
+            lock: true,
+            text: t('common.loading'),
+            background: 'rgba(0, 0, 0, 0.4)',
+          });
         }
       }
 
@@ -297,16 +302,10 @@ export function useFileHandler(options) {
       localStorage.setItem(storageKey, fileId);
 
       currentFileName.value = file.name;
-      // If loading was closed for the validation dialog, create a fresh one
-      const activeLoading = dialogShown
-        ? ElLoading.service({ fullscreen: true, lock: true, text: t('common.loading'), background: 'rgba(0, 0, 0, 0.4)' })
-        : loading;
-      await runParseWithCache(text, fileId, activeLoading);
-      if (dialogShown) activeLoading.close();
+      await runParseWithCache(text, fileId, loading);
       return true;
-    } catch (err) {
+    } finally {
       loading.close();
-      throw err;
     }
   };
 

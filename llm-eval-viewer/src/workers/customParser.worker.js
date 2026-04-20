@@ -21,6 +21,7 @@ import {
 const PROGRESS_INTERVAL = 500;
 const MAX_EXPAND_DEPTH = 5;
 const DEFAULT_VISIBLE_FIELDS = 10;
+const PHASE1_WEIGHT = 0.5; // Step 1 (parsing) occupies 0-50%, Step 2 (expanding) occupies 50-100%
 
 // ===== Message handler =====
 
@@ -30,6 +31,7 @@ self.onmessage = (e) => {
   // 1. Parse input format
   let records;
   let isCsv = false;
+  let phase1Done = false; // whether Step 1 needed per-line parsing
 
   const trimmed = text.trimStart();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -57,15 +59,26 @@ self.onmessage = (e) => {
         records = [parsed];
       }
     } catch {
+      // JSONL: parse line by line with progress reporting
       const lines = text.split('\n').filter(Boolean);
-      records = [];
-      for (const line of lines) {
+      const lineTotal = lines.length;
+      records = new Array(lineTotal);
+      let recordIdx = 0;
+      for (let i = 0; i < lineTotal; i++) {
         try {
-          records.push(JSON.parse(line));
+          records[recordIdx] = JSON.parse(lines[i]);
+          recordIdx++;
         } catch {
           // Skip malformed lines
         }
+        if (i % PROGRESS_INTERVAL === 0) {
+          const phase1Percent = Math.round((i / lineTotal) * 100 * PHASE1_WEIGHT);
+          self.postMessage({ type: 'progress', percent: phase1Percent });
+        }
       }
+      records.length = recordIdx;
+      self.postMessage({ type: 'progress', percent: Math.round(100 * PHASE1_WEIGHT) });
+      phase1Done = true;
     }
   }
 
@@ -104,7 +117,11 @@ self.onmessage = (e) => {
     rows[idx] = record;
 
     if (idx % PROGRESS_INTERVAL === 0) {
-      self.postMessage({ type: 'progress', percent: Math.round((idx / total) * 100) });
+      const rawPercent = Math.round((idx / total) * 100);
+      const percent = phase1Done
+        ? Math.round(PHASE1_WEIGHT * 100 + rawPercent * (1 - PHASE1_WEIGHT))
+        : rawPercent;
+      self.postMessage({ type: 'progress', percent });
     }
   }
 
