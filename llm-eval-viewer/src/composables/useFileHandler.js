@@ -3,7 +3,7 @@
  * Licensed under the MIT License.
  */
 
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import { saveParsedData, getParsedData } from '@/utils/fileDB';
@@ -107,8 +107,9 @@ export function useFileHandler(options) {
    * @param {string} text - Raw file content
    * @param {string} fileId - Unique file identifier for cache lookup
    */
-  async function runParseWithCache(text, fileId) {
-    const loading = ElLoading.service({
+  async function runParseWithCache(text, fileId, externalLoading) {
+    const ownLoading = !externalLoading;
+    const loading = externalLoading || ElLoading.service({
       fullscreen: true,
       lock: true,
       text: t('common.loading'),
@@ -148,7 +149,9 @@ export function useFileHandler(options) {
         saveParsedData(fileId, parserVersion, isPlainArray ? { rows } : result).catch(() => {});
       }
     } finally {
-      loading.close();
+      // Wait for reactive watchers (e.g. useDynamicViewStats) to flush
+      await nextTick();
+      if (ownLoading) loading.close();
     }
   }
 
@@ -203,14 +206,24 @@ export function useFileHandler(options) {
     const lastId = localStorage.getItem(storageKey);
     if (!lastId) return;
 
-    const file = await getFile(lastId);
-    if (!file) {
-      localStorage.removeItem(storageKey);
-      return;
-    }
+    const loading = ElLoading.service({
+      fullscreen: true,
+      lock: true,
+      text: t('common.loading'),
+      background: 'rgba(0, 0, 0, 0.4)',
+    });
+    try {
+      const file = await getFile(lastId);
+      if (!file) {
+        localStorage.removeItem(storageKey);
+        return;
+      }
 
-    currentFileName.value = file.name;
-    await runParseWithCache(file.content, lastId);
+      currentFileName.value = file.name;
+      await runParseWithCache(file.content, lastId, loading);
+    } finally {
+      loading.close();
+    }
   };
 
   onMounted(() => {
@@ -218,54 +231,83 @@ export function useFileHandler(options) {
   });
 
   const openRecentFile = async (item) => {
-    const file = await getFile(item.id);
-    if (!file) {
-      ElMessage.error(t('fileHandler.fileNotFound'));
-      return;
+    const loading = ElLoading.service({
+      fullscreen: true,
+      lock: true,
+      text: t('common.loading'),
+      background: 'rgba(0, 0, 0, 0.4)',
+    });
+    try {
+      const file = await getFile(item.id);
+      if (!file) {
+        ElMessage.error(t('fileHandler.fileNotFound'));
+        return;
+      }
+
+      currentFileName.value = file.name;
+      await runParseWithCache(file.content, item.id, loading);
+
+      item.lastOpen = Date.now();
+      localStorage.setItem(storageKey, item.id);
+    } finally {
+      loading.close();
     }
-
-    currentFileName.value = file.name;
-    await runParseWithCache(file.content, item.id);
-
-    item.lastOpen = Date.now();
-    localStorage.setItem(storageKey, item.id);
   };
 
   const loadDataFile = async (file) => {
-    const text = await file.text();
+    const loading = ElLoading.service({
+      fullscreen: true,
+      lock: true,
+      text: t('common.loading'),
+      background: 'rgba(0, 0, 0, 0.4)',
+    });
+    try {
+      const text = await file.text();
 
-    if (validateContent) {
-      const warning = validateContent(text);
-      if (warning) {
-        try {
-          await ElMessageBox.confirm(
-            warning,
-            t('fileHandler.fileFormatConfirm'),
-            {
-              confirmButtonText: t('common.continueLoad'),
-              cancelButtonText: t('common.cancel'),
-              type: 'warning',
-            }
-          );
-        } catch {
-          currentFileName.value = '';
-          return false;
+      let dialogShown = false;
+      if (validateContent) {
+        const warning = validateContent(text);
+        if (warning) {
+          dialogShown = true;
+          loading.close();
+          try {
+            await ElMessageBox.confirm(
+              warning,
+              t('fileHandler.fileFormatConfirm'),
+              {
+                confirmButtonText: t('common.continueLoad'),
+                cancelButtonText: t('common.cancel'),
+                type: 'warning',
+              }
+            );
+          } catch {
+            currentFileName.value = '';
+            return false;
+          }
         }
       }
-    }
 
-    const fileId = `${file.name}-${file.size}-${file.lastModified}`;
-    // Cache to IndexedDB, but don't block parsing if DB is broken
-    try {
-      await saveRecentFile(file, text);
+      const fileId = `${file.name}-${file.size}-${file.lastModified}`;
+      // Cache to IndexedDB, but don't block parsing if DB is broken
+      try {
+        await saveRecentFile(file, text);
+      } catch (err) {
+        console.warn('[useFileHandler] saveRecentFile failed, continuing:', err);
+      }
+      localStorage.setItem(storageKey, fileId);
+
+      currentFileName.value = file.name;
+      // If loading was closed for the validation dialog, create a fresh one
+      const activeLoading = dialogShown
+        ? ElLoading.service({ fullscreen: true, lock: true, text: t('common.loading'), background: 'rgba(0, 0, 0, 0.4)' })
+        : loading;
+      await runParseWithCache(text, fileId, activeLoading);
+      if (dialogShown) activeLoading.close();
+      return true;
     } catch (err) {
-      console.warn('[useFileHandler] saveRecentFile failed, continuing:', err);
+      loading.close();
+      throw err;
     }
-    localStorage.setItem(storageKey, fileId);
-
-    currentFileName.value = file.name;
-    await runParseWithCache(text, fileId);
-    return true;
   };
 
   const handleFileSelect = async (file) => {
