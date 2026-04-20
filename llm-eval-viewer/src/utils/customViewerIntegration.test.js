@@ -15,13 +15,13 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import Papa from 'papaparse';
 import {
   flattenValue,
   tryParseJsonString,
   detectFieldTypes,
   assignFieldVisibility,
   formatConversationArray,
-  isConversationLikeArray,
   LOW_PRIORITY_PATTERNS,
   HIGH_PRIORITY_PATTERNS,
 } from './customParserHelpers';
@@ -117,7 +117,7 @@ describe('Integration: Inference Log NDJSON', () => {
   });
 
   it('expands RequestData JSON string into dot-notation fields', () => {
-    const { rows, fields } = runPipeline(records);
+    const { fields } = runPipeline(records);
 
     // RequestData was a JSON string → should be expanded
     const rdFields = fields.filter(f => f.key.startsWith('RequestData.'));
@@ -308,6 +308,306 @@ describe('Pattern rules are generic', () => {
     for (const name of unrelatedFields) {
       const matched = HIGH_PRIORITY_PATTERNS.some(p => p.test(name));
       expect(matched).toBe(false);
+    }
+  });
+});
+
+// ===== Regression: inference log field priority =====
+// These tests lock down the exact visible/hidden behavior for a typical
+// LLM inference log NDJSON file. The synthetic data mirrors the structure
+// of real production logs without containing actual data.
+
+describe('Regression: inference log field priority (ndjson)', () => {
+  /**
+   * Create a set of field descriptors matching a typical inference log.
+   * Covers: conversation, high-priority, low-priority, expanded,
+   * constant, empty, and default-priority fields.
+   */
+  function makeInferenceLogFields() {
+    return [
+      // Conversation (always first)
+      { key: 'RequestData.messages', detectedType: 'conversation', isExpanded: true, isLongString: true },
+      // High priority (original fields)
+      { key: 'Model', detectedType: 'enum', isLongString: false },
+      { key: 'Cost', detectedType: 'number', isLongString: false },
+      { key: 'AnswerContent', detectedType: 'string', isLongString: true },
+      { key: 'ReasoningContent', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+      { key: 'OutputTokens', detectedType: 'number', isLongString: false },
+      { key: 'InputTokens', detectedType: 'number', isLongString: false },
+      { key: 'TotalTokens', detectedType: 'number', isLongString: false },
+      { key: 'FinishReason', detectedType: 'enum', isLongString: false },
+      { key: 'StopReason', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+      { key: 'ErrorMessage', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+      { key: 'ErrorCode', detectedType: 'number', isLongString: false },
+      { key: 'FirstTokenTime', detectedType: 'enum', isLongString: false },
+      // Default priority (no pattern match) — these compete for maxVisible slots
+      { key: 'AnswerTokens', detectedType: 'number', isLongString: false },
+      { key: 'ReasoningTokens', detectedType: 'number', isLongString: false },
+      { key: 'PreModelCost', detectedType: 'number', isLongString: false },
+      { key: 'FirstCharCost', detectedType: 'number', isLongString: false },
+      { key: 'TokenIntervalAvg', detectedType: 'enum', isLongString: false },
+      { key: 'StreamIntervalAvg', detectedType: 'enum', isLongString: false },
+      { key: 'StreamIntervalMax', detectedType: 'number', isLongString: false },
+      { key: 'ScheduleCost', detectedType: 'number', isLongString: false },
+      { key: 'RequestID', detectedType: 'string', isLongString: false },
+      { key: 'Interface', detectedType: 'enum', isLongString: false },
+      { key: 'RemoteIP', detectedType: 'enum', isLongString: false },
+      { key: 'ModelServiceName', detectedType: 'enum', isLongString: false },
+      { key: 'IsStream', detectedType: 'boolean', isLongString: false },
+      { key: 'Tapp', detectedType: 'enum', isLongString: false },
+      { key: 'tinymsg', detectedType: 'string', isLongString: true },
+      { key: 'level', detectedType: 'enum', isLongString: false },
+      { key: 'caller', detectedType: 'enum', isLongString: false },
+      // Low priority (metadata patterns)
+      { key: '@timestamp', detectedType: 'enum', isLongString: false },
+      { key: '@offset', detectedType: 'number', isLongString: false },
+      { key: '@host', detectedType: 'enum', isLongString: false },
+      { key: '@log_size', detectedType: 'number', isLongString: false, emptyRate: 0.33 },
+      { key: '@message', detectedType: 'string', isLongString: true },
+      { key: 'request_id', detectedType: 'string', isLongString: false },
+      { key: 'trace_id', detectedType: 'enum', isLongString: false },
+      { key: 'span_id', detectedType: 'enum', isLongString: false },
+      { key: 'service', detectedType: 'enum', isLongString: false, constantRate: 1.0 },
+      { key: 'func', detectedType: 'enum', isLongString: false, constantRate: 1.0 },
+      { key: 'local_addr', detectedType: 'enum', isLongString: false },
+      { key: 'remote_addr', detectedType: 'enum', isLongString: false },
+      { key: 'RequestHeader', detectedType: 'string', isLongString: false },
+      { key: 'ModelUrl', detectedType: 'enum', isLongString: false, constantRate: 1.0 },
+      { key: 'index', detectedType: 'number', isLongString: false },
+      // Expanded fields (non-chat → hidden)
+      { key: 'RequestData.model', detectedType: 'string', isExpanded: true, isLongString: false },
+      { key: 'RequestData.stream', detectedType: 'boolean', isExpanded: true, isLongString: false },
+      { key: 'RequestData.max_tokens', detectedType: 'number', isExpanded: true, isLongString: false },
+      { key: 'RequestData.temperature', detectedType: 'number', isExpanded: true, isLongString: false },
+      // Empty fields (mostlyEmpty → hidden)
+      { key: 'SessionID', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+      { key: 'AppID', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+      { key: 'OrignalModel', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
+    ];
+  }
+
+  it('conversation field is always visible and sorted first', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    expect(fields[0].key).toBe('RequestData.messages');
+    expect(fields[0].visible).toBe(true);
+    expect(fields[0].visibilityReason).toBe('conversation');
+  });
+
+  it('high-priority fields are visible: Model, Cost, AnswerContent, InputTokens, TotalTokens, OutputTokens, FinishReason', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+
+    expect(visibleKeys).toContain('Model');
+    expect(visibleKeys).toContain('Cost');
+    expect(visibleKeys).toContain('AnswerContent');
+    expect(visibleKeys).toContain('InputTokens');
+    expect(visibleKeys).toContain('TotalTokens');
+    expect(visibleKeys).toContain('OutputTokens');
+    expect(visibleKeys).toContain('FinishReason');
+  });
+
+  it('high-priority fields have visibilityReason=highPriority', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+
+    const highPri = ['Model', 'Cost', 'AnswerContent', 'InputTokens', 'TotalTokens', 'OutputTokens', 'FinishReason'];
+    for (const key of highPri) {
+      const f = fields.find(f => f.key === key);
+      expect(f.visibilityReason).toBe('highPriority');
+    }
+  });
+
+  it('metadata fields are hidden: @timestamp, trace_id, span_id, request_id, local_addr, remote_addr, service', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    const hiddenKeys = fields.filter(f => !f.visible).map(f => f.key);
+
+    expect(hiddenKeys).toContain('@timestamp');
+    expect(hiddenKeys).toContain('@offset');
+    expect(hiddenKeys).toContain('@host');
+    expect(hiddenKeys).toContain('@message');
+    expect(hiddenKeys).toContain('trace_id');
+    expect(hiddenKeys).toContain('span_id');
+    expect(hiddenKeys).toContain('request_id');
+    expect(hiddenKeys).toContain('local_addr');
+    expect(hiddenKeys).toContain('remote_addr');
+    expect(hiddenKeys).toContain('service');
+  });
+
+  it('metadata fields have correct visibilityReason', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+
+    const ts = fields.find(f => f.key === '@timestamp');
+    expect(ts.visibilityReason).toBe('lowPriority');
+
+    const svc = fields.find(f => f.key === 'service');
+    expect(svc.visibilityReason).toBe('constant');
+
+    const reqId = fields.find(f => f.key === 'request_id');
+    expect(reqId.visibilityReason).toBe('lowPriority');
+  });
+
+  it('expanded non-chat fields are hidden', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+
+    expect(visibleKeys).not.toContain('RequestData.model');
+    expect(visibleKeys).not.toContain('RequestData.stream');
+    expect(visibleKeys).not.toContain('RequestData.max_tokens');
+
+    const expanded = fields.find(f => f.key === 'RequestData.model');
+    expect(expanded.visibilityReason).toBe('expandedNonChat');
+  });
+
+  it('mostly-empty fields are hidden even if they match high-priority patterns', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+
+    const reasoning = fields.find(f => f.key === 'ReasoningContent');
+    expect(reasoning.visible).toBe(false);
+    expect(reasoning.visibilityReason).toBe('mostlyEmpty');
+
+    const errorMsg = fields.find(f => f.key === 'ErrorMessage');
+    expect(errorMsg.visible).toBe(false);
+    expect(errorMsg.visibilityReason).toBe('mostlyEmpty');
+  });
+
+  it('maxVisible limit hides default-priority fields with lower scores', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    const hiddenKeys = fields.filter(f => !f.visible).map(f => f.key);
+
+    // These are default-priority (0) but outside maxVisible limit
+    expect(hiddenKeys).toContain('AnswerTokens');
+    expect(hiddenKeys).toContain('ReasoningTokens');
+    // ErrorCode is high-priority (/error/i), so it's visible — verify it's NOT hidden
+    expect(hiddenKeys).not.toContain('ErrorCode');
+  });
+
+  it('isLongString tiebreaker sorts long-content default fields before short ones', () => {
+    const fields = [
+      { key: 'short_meta_1', detectedType: 'string', isLongString: false },
+      { key: 'short_meta_2', detectedType: 'string', isLongString: false },
+      { key: 'long_content', detectedType: 'string', isLongString: true },
+      { key: 'short_meta_3', detectedType: 'string', isLongString: false },
+    ];
+    assignFieldVisibility(fields, 3);
+
+    const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+    // long_content should be visible (sorted before short fields)
+    expect(visibleKeys).toContain('long_content');
+    // One short field should be pushed out by maxVisible
+    expect(visibleKeys.length).toBe(3);
+  });
+
+  it('isLongString tiebreaker does NOT override pattern-based priorities', () => {
+    const fields = [
+      { key: '@timestamp', detectedType: 'enum', isLongString: true },  // low priority + long
+      { key: 'Model', detectedType: 'string', isLongString: false },     // high priority + short
+    ];
+    assignFieldVisibility(fields, 10);
+
+    // Model should come before @timestamp in sort order despite isLongString difference
+    const modelIdx = fields.findIndex(f => f.key === 'Model');
+    const tsIdx = fields.findIndex(f => f.key === '@timestamp');
+    expect(modelIdx).toBeLessThan(tsIdx);
+
+    expect(fields.find(f => f.key === 'Model').visible).toBe(true);
+    expect(fields.find(f => f.key === '@timestamp').visible).toBe(false);
+  });
+
+  it('every field has a non-empty visibilityReason', () => {
+    const fields = makeInferenceLogFields();
+    assignFieldVisibility(fields, 10);
+    for (const f of fields) {
+      expect(f.visibilityReason).toBeTruthy();
+    }
+  });
+});
+
+// ===== Regression: Chinese CSV field priority (meval format) =====
+// Tests that Chinese-named fields are properly prioritized.
+// Uses a synthetic CSV fixture — no actual production data.
+
+describe('Regression: Chinese CSV field priority (meval format)', () => {
+  const text = loadFixture('sample-chinese-meval.csv');
+
+  /**
+   * Parse CSV and run the field detection + visibility pipeline.
+   * Mirrors what the customParser.worker.js does for CSV input.
+   */
+  function runCsvPipeline(csvText) {
+    const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    const allKeys = result.meta.fields;
+
+    const typeInfo = detectFieldTypes(result.data, allKeys);
+    const fields = allKeys.map(key => ({
+      key,
+      label: key.split('.').pop(),
+      detectedType: (typeInfo[key] || {}).detectedType || 'string',
+      isExpanded: false,
+      emptyRate: (typeInfo[key] || {}).emptyRate || 0,
+      constantRate: (typeInfo[key] || {}).constantRate || 0,
+      isLongString: (typeInfo[key] || {}).isLongString || false,
+    }));
+    assignFieldVisibility(fields, 10);
+    return { fields, typeInfo };
+  }
+
+  it('long-content fields (问题, 参考答案, 模型回答) are visible', () => {
+    const { fields } = runCsvPipeline(text);
+    const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+
+    expect(visibleKeys).toContain('问题');
+    expect(visibleKeys).toContain('参考答案');
+    expect(visibleKeys).toContain('模型回答-TestModel');
+  });
+
+  it('metadata fields (任务 ID, 样本ID, 一级分类) are deprioritized by isLongString tiebreaker', () => {
+    const { fields } = runCsvPipeline(text);
+    const questionIdx = fields.findIndex(f => f.key === '问题');
+    const metaIdx = fields.findIndex(f => f.key === '任务 ID');
+
+    // Long-content 问题 should sort before short-content 任务 ID
+    expect(questionIdx).toBeLessThan(metaIdx);
+  });
+
+  it('long-content fields take visible slots before short metadata fields', () => {
+    const { fields } = runCsvPipeline(text);
+    const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+
+    // With maxVisible=10 and only 9 total fields, all are visible.
+    // But the sort order matters: long-content fields should come first.
+    const questionIdx = visibleKeys.indexOf('问题');
+    const metaIdx = visibleKeys.indexOf('任务 ID');
+    expect(questionIdx).toBeLessThan(metaIdx);
+
+    const refAnswerIdx = visibleKeys.indexOf('参考答案');
+    const categoryIdIdx = visibleKeys.indexOf('一级分类');
+    expect(refAnswerIdx).toBeLessThan(categoryIdIdx);
+  });
+
+  it('field types are correctly detected for Chinese-named columns', () => {
+    const { typeInfo } = runCsvPipeline(text);
+
+    // 问题 has long text (avg >50 chars) → detected as string (not enum, despite ≤20 unique values)
+    expect(typeInfo['问题'].detectedType).toBe('string');
+    expect(typeInfo['问题'].isLongString).toBe(true);
+    expect(typeInfo['参考答案'].isLongString).toBe(true);
+
+    // 一级分类 has short text → detected as enum
+    expect(typeInfo['一级分类'].detectedType).toBe('enum');
+    expect(typeInfo['一级分类'].isLongString).toBe(false);
+  });
+
+  it('every field has a visibilityReason', () => {
+    const { fields } = runCsvPipeline(text);
+    for (const f of fields) {
+      expect(f.visibilityReason).toBeTruthy();
     }
   });
 });

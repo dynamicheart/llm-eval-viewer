@@ -371,6 +371,9 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     const pb = fieldPriority(b);
     if (pa !== pb) return pa - pb;
     if (a.isExpanded !== b.isExpanded) return a.isExpanded ? 1 : -1;
+    // Tiebreaker: long-content fields first (helps Chinese/non-English formats
+    // where field names don't match English priority patterns)
+    if (a.isLongString !== b.isLongString) return a.isLongString ? -1 : 1;
     return 0;
   });
 
