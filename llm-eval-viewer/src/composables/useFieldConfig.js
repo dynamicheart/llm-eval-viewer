@@ -96,6 +96,7 @@ export function useFieldConfig(options = {}) {
   const LATENCY_RE = /^(latency|duration)/i;
   const TOTAL_TOKEN_RE = /total.?token/i;
   const COST_RE = /^cost$/i;
+  const RESULT_RE = /result|结果/i; // 标注结果-XXX, result (evalscope)
 
   function _lastSegment(key) {
     return key.split('.').pop();
@@ -128,6 +129,9 @@ export function useFieldConfig(options = {}) {
 
     // P3: error_code
     add(enumFields.find((f) => ERROR_CODE_RE.test(_lastSegment(f.key))), 'errorCode');
+
+    // P4: result / 标注结果 (evaluation outcome)
+    add(enumFields.find((f) => RESULT_RE.test(_lastSegment(f.key))), 'result');
 
     return { selected, reasons };
   }

@@ -32,6 +32,7 @@ self.onmessage = (e) => {
   let records;
   let isCsv = false;
   let phase1Done = false; // whether Step 1 needed per-line parsing
+  let rawLines = null; // original JSONL lines (used for _rawJsonText)
 
   const trimmed = text.trimStart();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -63,7 +64,7 @@ self.onmessage = (e) => {
       const lines = text.split('\n');
       const lineTotal = lines.length;
       records = new Array(lineTotal);
-      const rawLines = new Array(lineTotal);
+      rawLines = new Array(lineTotal);
       let recordIdx = 0;
       for (let i = 0; i < lineTotal; i++) {
         const line = lines[i];
@@ -105,7 +106,7 @@ self.onmessage = (e) => {
   for (let idx = 0; idx < total; idx++) {
     let record = records[idx];
 
-    if (!isCsv && expandNestedJsonStrings) {
+    if (expandNestedJsonStrings) {
       record = expandRecord(record);
 
       const origKeys = new Set(Object.keys(records[idx]));

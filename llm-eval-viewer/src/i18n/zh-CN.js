@@ -231,6 +231,7 @@ export default {
       tokenUsage: '推荐',
       latency: '推荐',
       cost: '推荐',
+      result: '推荐',
     },
   },
 

@@ -579,16 +579,24 @@ describe('Regression: Chinese CSV field priority (meval format)', () => {
   it('long-content fields take visible slots before short metadata fields', () => {
     const { fields } = runCsvPipeline(text);
     const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
+    const hiddenKeys = fields.filter(f => !f.visible).map(f => f.key);
 
-    // With maxVisible=10 and only 9 total fields, all are visible.
-    // But the sort order matters: long-content fields should come first.
+    // 任务 ID matches /样本|任务\s*ID/i → low priority → hidden
+    expect(hiddenKeys).toContain('任务 ID');
+    // 样本ID matches /_?id$/i → low priority → hidden
+    expect(hiddenKeys).toContain('样本ID');
+    // 评测用时 matches /用时$/ → low priority → hidden
+    expect(hiddenKeys).toContain('评测用时');
+
+    // Long-content fields should still be visible
+    expect(visibleKeys).toContain('问题');
+    expect(visibleKeys).toContain('参考答案');
+    expect(visibleKeys).toContain('模型回答-TestModel');
+
+    // And sorted before short metadata fields like 一级分类
     const questionIdx = visibleKeys.indexOf('问题');
-    const metaIdx = visibleKeys.indexOf('任务 ID');
-    expect(questionIdx).toBeLessThan(metaIdx);
-
-    const refAnswerIdx = visibleKeys.indexOf('参考答案');
     const categoryIdIdx = visibleKeys.indexOf('一级分类');
-    expect(refAnswerIdx).toBeLessThan(categoryIdIdx);
+    expect(questionIdx).toBeLessThan(categoryIdIdx);
   });
 
   it('field types are correctly detected for Chinese-named columns', () => {

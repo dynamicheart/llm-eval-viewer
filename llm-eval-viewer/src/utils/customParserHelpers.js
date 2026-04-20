@@ -279,7 +279,7 @@ export const LOW_PRIORITY_PATTERNS = [
   /^@/,              // @timestamp, @host, @offset ...
   /^_raw/,           // internal expansion artifacts
   /^index$/i,        // row index
-  /_id$/i,           // request_id, trace_id, span_id ...
+  /_?id$/i,          // request_id, 样本ID, TraceId ...
   /_addr$/i,         // local_addr, remote_addr ...
   /^trace/i,         // trace* series
   /^span/i,          // span* series
@@ -289,6 +289,10 @@ export const LOW_PRIORITY_PATTERNS = [
   /header$/i,        // RequestHeader, ResponseHeader ...
   /^strategy/i,      // StrategyType, ...
   /^(request|schedule)(start|end)time$/i,  // timestamp details
+  /用时$/,            // 评测用时 (evaluation duration)
+  /时间$/,            // 更新时间, RequestStartTime ...
+  /序号$/,            // Prompt序列号 (serial number)
+  /^(样本|任务)\s*ID$/i,  // 样本ID, 任务 ID (sample/task identifiers)
 ];
 
 /**
@@ -303,6 +307,7 @@ export const HIGH_PRIORITY_PATTERNS = [
   /^stop_?reason$/i,             // StopReason, stop_reason
   /^error[_]?(message|code|msg)?$/i,  // ErrorMessage, error_code, ErrorCode (NOT generic_error_rate)
   /^(answer|reasoning)_?content$/i,      // AnswerContent, ReasoningContent
+  /result/i,                     // 标注结果-XXX, result, model_output (evalscope)
   /^(latency|duration)/i,      // latency, latency_ms, duration (NOT sub-metrics like StreamIntervalAvg)
   /^model_?output$/i,           // model_output (evalscope)
 ];

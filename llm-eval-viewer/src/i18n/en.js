@@ -231,6 +231,7 @@ export default {
       tokenUsage: 'Suggested',
       latency: 'Suggested',
       cost: 'Suggested',
+      result: 'Suggested',
     },
   },
 
