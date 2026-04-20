@@ -161,7 +161,10 @@ export function tryParseJsonString(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   if (trimmed.length < 2) return null;
-  if ((trimmed[0] !== '{' && trimmed[0] !== '[') || trimmed.length > 2000000) return null;
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first !== '{' || last !== '}') && (first !== '[' || last !== ']')) return null;
+  if (trimmed.length > 2000000) return null;
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed !== null && typeof parsed === 'object') return parsed;

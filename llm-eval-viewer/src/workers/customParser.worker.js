@@ -60,13 +60,17 @@ self.onmessage = (e) => {
       }
     } catch {
       // JSONL: parse line by line with progress reporting
-      const lines = text.split('\n').filter(Boolean);
+      const lines = text.split('\n');
       const lineTotal = lines.length;
       records = new Array(lineTotal);
+      const rawLines = new Array(lineTotal);
       let recordIdx = 0;
       for (let i = 0; i < lineTotal; i++) {
+        const line = lines[i];
+        if (!line) continue;
         try {
-          records[recordIdx] = JSON.parse(lines[i]);
+          records[recordIdx] = JSON.parse(line);
+          rawLines[recordIdx] = line;
           recordIdx++;
         } catch {
           // Skip malformed lines
@@ -77,6 +81,7 @@ self.onmessage = (e) => {
         }
       }
       records.length = recordIdx;
+      rawLines.length = recordIdx;
       self.postMessage({ type: 'progress', percent: Math.round(100 * PHASE1_WEIGHT) });
       phase1Done = true;
     }
@@ -112,7 +117,8 @@ self.onmessage = (e) => {
     }
 
     record.index = idx + 1;
-    record._rawJsonText = JSON.stringify(records[idx]);
+    // JSONL: reuse original line text (zero-cost). JSON/CSV: must re-serialize.
+    record._rawJsonText = phase1Done ? rawLines[idx] : JSON.stringify(records[idx]);
 
     rows[idx] = record;
 

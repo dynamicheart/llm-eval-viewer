@@ -293,12 +293,10 @@ export function useFileHandler(options) {
       }
 
       const fileId = `${file.name}-${file.size}-${file.lastModified}`;
-      // Cache to IndexedDB, but don't block parsing if DB is broken
-      try {
-        await saveRecentFile(file, text);
-      } catch (err) {
-        console.warn('[useFileHandler] saveRecentFile failed, continuing:', err);
-      }
+      // Save to IndexedDB without blocking parsing — large file writes can take seconds
+      saveRecentFile(file, text).catch((err) =>
+        console.warn('[useFileHandler] saveRecentFile failed, continuing:', err)
+      );
       localStorage.setItem(storageKey, fileId);
 
       currentFileName.value = file.name;
