@@ -465,6 +465,7 @@ export default {
       getSmartTag,
       getReasonLabel,
       getReasonTooltip,
+      getReasonDesc,
     };
   },
 };
