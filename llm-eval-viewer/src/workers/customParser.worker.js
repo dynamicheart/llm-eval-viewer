@@ -179,7 +179,7 @@ self.onmessage = (e) => {
     };
   });
 
-  const { debugMeta } = assignFieldVisibility(detectedFields, DEFAULT_VISIBLE_FIELDS);
+  const { debugMeta, patternMatchCounts } = assignFieldVisibility(detectedFields, DEFAULT_VISIBLE_FIELDS);
 
   timings.buildFields = performance.now() - tBuildFields;
 
@@ -197,6 +197,7 @@ self.onmessage = (e) => {
       expandCandidates: Array.from(allExpandedKeys).filter(k => !k.includes('.')),
       schemaSnapshot,
       priorityDebug: debugMeta,
+      patternMatchCounts,
     },
   });
 };

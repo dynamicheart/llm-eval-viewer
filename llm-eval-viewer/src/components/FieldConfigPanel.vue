@@ -253,40 +253,153 @@
     <template #header>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span>{{ $t('custom.debugTitle') }}</span>
-        <el-button size="small" @click="copyDebugAsMarkdown">
-          {{ $t('common.copy') }} Markdown
-        </el-button>
+        <div style="display:flex;gap:8px">
+          <el-button size="small" @click="onRecalculate">
+            <el-icon><Refresh /></el-icon>
+            {{ $t('custom.recalculateScores') }}
+          </el-button>
+          <el-button size="small" @click="copyDebugAsMarkdown">
+            {{ $t('common.copy') }} Markdown
+          </el-button>
+        </div>
       </div>
     </template>
-    <el-table :data="debugTableData" border size="small" max-height="50vh" style="width:100%" default-sort="{prop:'priority',order:'descending'}">
-      <el-table-column prop="key" label="Field" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="priority" label="Priority" width="90" sortable sort-by="priority">
-        <template #default="{row}">
-          <span :style="{ color: row.priority > 0 ? 'var(--el-color-success)' : row.priority < -30 ? 'var(--el-color-danger)' : '' }">
-            {{ row.priority > 0 ? '+' : '' }}{{ row.priority }}
-          </span>
+
+    <el-tabs v-model="debugActiveTab">
+      <!-- Tab 1: Field Scoring -->
+      <el-tab-pane :label="$t('custom.debugFieldScoring')" name="scoring">
+        <el-table :data="debugTableData" border size="small" max-height="50vh" style="width:100%" default-sort="{prop:'priority',order:'descending'}">
+          <el-table-column prop="key" label="Field" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="priority" label="Priority" width="90" sortable sort-by="priority">
+            <template #default="{row}">
+              <span :style="{ color: row.priority > 0 ? 'var(--el-color-success)' : row.priority < -30 ? 'var(--el-color-danger)' : '' }">
+                {{ row.priority > 0 ? '+' : '' }}{{ row.priority }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Breakdown" min-width="200">
+            <template #default="{row}">
+              <span class="breakdown-text">{{ formatBreakdown(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Visible" width="80">
+            <template #default="{row}">
+              <el-tag :type="row.currentVisible?'success':'info'" size="small">{{ row.currentVisible ? 'Yes' : 'No' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="visibilityReason" label="Reason" width="140" />
+        </el-table>
+        <template v-if="statsDebugEntries.length">
+          <el-divider content-position="left">{{ $t('custom.debugStatsSelection') }}</el-divider>
+          <el-table :data="statsDebugEntries" border size="small" style="width:100%">
+            <el-table-column prop="key" label="Field" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="type" label="Type" width="120" />
+            <el-table-column prop="reason" label="Reason" min-width="180" />
+          </el-table>
         </template>
-      </el-table-column>
-      <el-table-column label="Breakdown" min-width="200">
-        <template #default="{row}">
-          <span class="breakdown-text">{{ formatBreakdown(row) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="Visible" width="80">
-        <template #default="{row}">
-          <el-tag :type="row.currentVisible?'success':'info'" size="small">{{ row.currentVisible ? 'Yes' : 'No' }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column prop="visibilityReason" label="Reason" width="140" />
-    </el-table>
-    <template v-if="statsDebugEntries.length">
-      <el-divider content-position="left">{{ $t('custom.debugStatsSelection') }}</el-divider>
-      <el-table :data="statsDebugEntries" border size="small" style="width:100%">
-        <el-table-column prop="key" label="Field" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="type" label="Type" width="120" />
-        <el-table-column prop="reason" label="Reason" min-width="180" />
-      </el-table>
-    </template>
+      </el-tab-pane>
+
+      <!-- Tab 2: Priority Rules -->
+      <el-tab-pane :label="$t('custom.debugPriorityRules')" name="rules">
+        <div style="max-height:62vh;overflow-y:auto">
+          <!-- HIGH Priority Patterns -->
+          <div class="rules-section">
+            <div class="rules-section-header">
+              <el-tag type="success" effect="dark" size="small">HIGH</el-tag>
+              <span class="rules-section-title">{{ $t('custom.highPriorityPatterns') }}</span>
+              <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: highPatterns.length }) }}</span>
+            </div>
+            <p class="rules-note">{{ $t('custom.scoringStepPatternDesc') }}</p>
+            <el-table :data="highPatterns" border size="small" style="width:100%">
+              <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
+              <el-table-column :label="$t('custom.patternRegex')" min-width="240">
+                <template #default="{ row }">
+                  <code class="regex-code">{{ row.source }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.scoringDescription')" min-width="160">
+                <template #default="{ row }">
+                  {{ row.comment }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.scoringDelta')" width="100">
+                <template #default>
+                  <span class="delta-bonus">+50/+40</span>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
+                <template #default="{ row }">
+                  <el-tag :type="row.matchCount > 0 ? 'success' : 'info'" size="small" effect="plain">
+                    {{ row.matchCount }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- LOW Priority Patterns -->
+          <div class="rules-section" style="margin-top:16px">
+            <div class="rules-section-header">
+              <el-tag type="danger" effect="dark" size="small">LOW</el-tag>
+              <span class="rules-section-title">{{ $t('custom.lowPriorityPatterns') }}</span>
+              <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: lowPatterns.length }) }}</span>
+            </div>
+            <el-table :data="lowPatterns" border size="small" style="width:100%">
+              <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
+              <el-table-column :label="$t('custom.patternRegex')" min-width="240">
+                <template #default="{ row }">
+                  <code class="regex-code">{{ row.source }}</code>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.scoringDescription')" min-width="160">
+                <template #default="{ row }">
+                  {{ row.comment }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.scoringDelta')" width="100">
+                <template #default>
+                  <span class="delta-penalty">-40</span>
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
+                <template #default="{ row }">
+                  <el-tag :type="row.matchCount > 0 ? 'danger' : 'info'" size="small" effect="plain">
+                    {{ row.matchCount }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <!-- Scoring Algorithm -->
+          <el-divider content-position="left">{{ $t('custom.scoringAlgorithm') }}</el-divider>
+          <p class="rules-note">{{ $t('custom.bonus') }}: {{ $t('custom.scoringDelta') }} &gt; 0 (green) &nbsp;|&nbsp; {{ $t('custom.penalty') }}: {{ $t('custom.scoringDelta') }} &lt; 0 (red)</p>
+          <el-table :data="scoringSteps" border size="small" style="width:100%">
+            <el-table-column prop="step" :label="$t('custom.scoringStep')" width="55" />
+            <el-table-column :label="$t('custom.scoringFactor')" min-width="180">
+              <template #default="{ row }">
+                {{ $t('custom.' + row.nameKey) }}
+              </template>
+            </el-table-column>
+            <el-table-column :label="$t('custom.scoringCondition')" min-width="300">
+              <template #default="{ row }">
+                <code class="condition-code">{{ row.condition }}</code>
+              </template>
+            </el-table-column>
+            <el-table-column :label="$t('custom.scoringDelta')" width="110">
+              <template #default="{ row }">
+                <span :class="getDeltaClass(row.delta)">{{ row.delta }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="$t('custom.scoringDescription')" min-width="240">
+              <template #default="{ row }">
+                <span class="step-description">{{ $t('custom.' + row.nameKey.replace('Name', 'Desc')) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </el-tab-pane>
+    </el-tabs>
   </el-dialog>
 </template>
 
@@ -294,10 +407,11 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessageBox, ElMessage } from 'element-plus';
-import { ArrowRight, Search, QuestionFilled } from '@element-plus/icons-vue';
+import { ArrowRight, Search, QuestionFilled, Refresh } from '@element-plus/icons-vue';
+import { HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, SCORING_STEPS } from '@/utils/customParserHelpers';
 
 export default {
-  components: { ArrowRight, Search, QuestionFilled },
+  components: { ArrowRight, Search, QuestionFilled, Refresh },
 
   props: {
     visible: Boolean,
@@ -311,10 +425,11 @@ export default {
     schemaSnapshot: { type: Object, default: null },
     priorityDebug: { type: Array, default: () => [] },
     debugMode: { type: Boolean, default: false },
+    patternMatchCounts: { type: Object, default: () => null },
   },
 
   emits: [
-    'close', 'save', 'stats-change', 'reset',
+    'close', 'save', 'stats-change', 'reset', 'recalculate',
     'save-preset', 'apply-preset', 'delete-preset', 'clear-preset',
     'toggle-group',
   ],
@@ -586,10 +701,24 @@ export default {
     });
 
     async function copyDebugAsMarkdown() {
+      let text;
+      if (debugActiveTab.value === 'rules') {
+        text = copyRulesAsMarkdown();
+      } else {
+        text = copyScoringAsMarkdown();
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        ElMessage.success(t('common.copiedToClipboard'));
+      } catch {
+        ElMessage.error(t('common.copyFailed'));
+      }
+    }
+
+    function copyScoringAsMarkdown() {
       const tableHeader = '| Field | Priority | Breakdown | Visible | Reason |';
       const tableSep = '|---|---|---|---|---|';
 
-      // Group fields by dot-notation prefix
       const groups = new Map();
       const TOP_KEY = '__top__';
       for (const d of debugTableData.value) {
@@ -602,14 +731,12 @@ export default {
       const lines = ['## Field Priority Debug', ''];
       const theaders = [tableHeader, tableSep];
 
-      // Top-level fields first
       if (groups.has(TOP_KEY)) {
         const items = groups.get(TOP_KEY).slice().sort((a, b) => b.priority - a.priority);
         lines.push('### Top-level Fields', '', ...theaders);
         for (const d of items) lines.push(formatRow(d));
         lines.push('');
       }
-      // Then grouped fields
       for (const [gk, items] of groups) {
         if (gk === TOP_KEY) continue;
         const sorted = items.slice().sort((a, b) => b.priority - a.priority);
@@ -625,17 +752,112 @@ export default {
           lines.push(`| ${e.key} | ${e.type} | ${e.reason} |`);
         }
       }
-      try {
-        await navigator.clipboard.writeText(lines.join('\n'));
-        ElMessage.success(t('common.copiedToClipboard'));
-      } catch {
-        ElMessage.error(t('common.copyFailed'));
-      }
 
       function formatRow(d) {
         const prio = d.priority > 0 ? `+${d.priority}` : `${d.priority}`;
         return `| ${d.key} | ${prio} | ${formatBreakdown(d)} | ${d.currentVisible ? 'Yes' : 'No'} | ${d.visibilityReason} |`;
       }
+
+      return lines.join('\n');
+    }
+
+    function copyRulesAsMarkdown() {
+      const lines = ['## Priority Rules', ''];
+
+      // HIGH patterns
+      lines.push('### HIGH Priority Patterns', '',
+        '| # | Pattern | Description | Delta | Matches |', '|---|---|---|---|---|');
+      highPatterns.value.forEach((p, i) => {
+        lines.push(`| ${i + 1} | \`${p.source}\` | ${p.comment} | +50/+40 | ${p.matchCount} |`);
+      });
+
+      lines.push('');
+
+      // LOW patterns
+      lines.push('### LOW Priority Patterns', '',
+        '| # | Pattern | Description | Delta | Matches |', '|---|---|---|---|---|');
+      lowPatterns.value.forEach((p, i) => {
+        lines.push(`| ${i + 1} | \`${p.source}\` | ${p.comment} | -40 | ${p.matchCount} |`);
+      });
+
+      lines.push('');
+
+      // Scoring algorithm
+      lines.push('### Scoring Algorithm', '',
+        '| Step | Factor | Condition | Delta | Description |', '|---|---|---|---|---|');
+      for (const s of SCORING_STEPS) {
+        const name = t('custom.' + s.nameKey);
+        const desc = t('custom.' + s.nameKey.replace('Name', 'Desc'));
+        lines.push(`| ${s.step} | ${name} | \`${s.condition}\` | ${s.delta} | ${desc} |`);
+      }
+
+      return lines.join('\n');
+    }
+
+    // ===== Priority Rules tab =====
+    const debugActiveTab = ref('scoring');
+
+    const HIGH_PATTERN_COMMENTS = {
+      '^model(_name)?$': 'Model, model_name',
+      'token': 'OutputTokens, total_tokens, prompt_tokens',
+      '^cost$': 'Cost',
+      '^(latency|duration)': 'latency, latency_ms, duration',
+      'finish\\w*[\\s_]*reason$': 'finish_reason, FinishedReason',
+      '^stop_?reason$': 'StopReason, stop_reason',
+      '^error[_]?(message|code|msg)?$': 'ErrorMessage, ErrorCode',
+      '^(answer|reasoning)_?content$': 'AnswerContent, ReasoningContent',
+      'result': 'result',
+      '^model_?output$': 'model_output',
+      '结果': '标注结果, 评分结果',
+      '^(回答|答案|模型回答)': '模型回答, 回答内容',
+    };
+
+    const LOW_PATTERN_COMMENTS = {
+      '^@': '@timestamp, @host, @offset',
+      '^_raw': 'Internal expansion artifacts',
+      '^index$': 'Row index',
+      '^trace': 'trace_id, traceId',
+      '^span': 'span_id, spanId',
+      '^service$': 'service',
+      '^func$': 'func',
+      '_addr$': 'local_addr, remote_addr',
+      'url$': 'ModelUrl, RequestUrl',
+      'header$': 'RequestHeader, ResponseHeader',
+      '^strategy': 'StrategyType',
+      '^(request|schedule)(start|end)time$': 'RequestStartTime, ScheduleEndTime',
+      '用时$': '评测用时',
+      '时间$': '更新时间, 创建时间',
+      '_?id$': 'request_id, 样本ID, TraceId',
+      '^(样本|任务)\\s*ID$': '样本ID, 任务 ID',
+      '序号$': 'Prompt序列号',
+      '^(评测|标注|评审|打分)(人|员|者)?$': '评测人, 标注员, 评审者',
+      '状态$': '样本状态, 审核状态',
+      '^(一|二|三|四|五)级?分类': '一级分类, 二级分类',
+      '^是否': '是否overlap, 是否正确',
+    };
+
+    function buildPatternTable(patterns, comments) {
+      const counts = props.patternMatchCounts || {};
+      return patterns.map(re => ({
+        source: re.source,
+        comment: comments[re.source] || '',
+        matchCount: counts[re.source] || 0,
+      }));
+    }
+
+    const highPatterns = computed(() => buildPatternTable(HIGH_PRIORITY_PATTERNS, HIGH_PATTERN_COMMENTS));
+    const lowPatterns = computed(() => buildPatternTable(LOW_PRIORITY_PATTERNS, LOW_PATTERN_COMMENTS));
+    const scoringSteps = computed(() => SCORING_STEPS);
+
+    function getDeltaClass(delta) {
+      if (delta === 'variable') return 'delta-variable';
+      if (delta.startsWith('+')) return 'delta-bonus';
+      if (delta.startsWith('-')) return 'delta-penalty';
+      return 'delta-neutral';
+    }
+
+    function onRecalculate() {
+      emit('recalculate');
     }
 
     return {
@@ -667,6 +889,12 @@ export default {
       statsDebugEntries,
       formatBreakdown,
       copyDebugAsMarkdown,
+      debugActiveTab,
+      highPatterns,
+      lowPatterns,
+      scoringSteps,
+      getDeltaClass,
+      onRecalculate,
     };
   },
 };
@@ -961,5 +1189,78 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Priority Rules tab */
+.rules-section {
+  margin-bottom: 4px;
+}
+
+.rules-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.rules-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ev-text-primary);
+}
+
+.rules-section-count {
+  font-size: 12px;
+  color: var(--ev-text-secondary);
+}
+
+.rules-note {
+  font-size: 12px;
+  color: var(--ev-text-secondary);
+  margin: 0 0 6px 0;
+  line-height: 1.5;
+}
+
+.regex-code,
+.condition-code {
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: var(--ev-fill-color);
+  padding: 2px 6px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+.regex-code {
+  color: var(--el-color-primary);
+}
+
+.condition-code {
+  color: var(--ev-text-primary);
+}
+
+.delta-bonus {
+  color: var(--el-color-success);
+  font-weight: 600;
+}
+
+.delta-penalty {
+  color: var(--el-color-danger);
+  font-weight: 600;
+}
+
+.delta-variable {
+  color: var(--el-color-warning);
+  font-weight: 500;
+}
+
+.delta-neutral {
+  color: var(--ev-text-secondary);
+}
+
+.step-description {
+  font-size: 12px;
+  color: var(--ev-text-secondary);
+  line-height: 1.5;
 }
 </style>

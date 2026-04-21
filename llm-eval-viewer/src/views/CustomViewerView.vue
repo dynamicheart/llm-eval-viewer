@@ -180,6 +180,7 @@
       :schema-snapshot="schemaSnapshot"
       :priority-debug="priorityDebug"
       :debug-mode="debugMode"
+      :pattern-match-counts="patternMatchCounts"
       @close="showFieldConfig = false"
       @save="onFieldConfigSave"
       @stats-change="onStatsChange"
@@ -189,6 +190,7 @@
       @delete-preset="onDeletePreset"
       @clear-preset="clearActivePreset"
       @toggle-group="onToggleGroup"
+      @recalculate="onRecalculateScores"
     />
 
     <ConversationDialog
@@ -292,6 +294,8 @@ export default {
       deletePreset,
       clearAllConfigs,
       priorityDebug,
+      recalculateScores,
+      patternMatchCounts,
     } = fieldConfigState;
 
     // ===== Schema snapshot =====
@@ -612,6 +616,11 @@ export default {
       ElMessage.success(t('common.resetSuccess'));
     }
 
+    function onRecalculateScores() {
+      recalculateScores();
+      ElMessage.success(t('custom.recalculateSuccess'));
+    }
+
     function onToggleGroup(groupKey) {
       toggleGroupVisibility(groupKey);
     }
@@ -677,6 +686,7 @@ export default {
       fieldTree,
       schemaSnapshot,
       priorityDebug,
+      patternMatchCounts,
       getFieldLabel,
       // Debug
       debugMode,
@@ -720,6 +730,7 @@ export default {
       onFieldConfigSave,
       onStatsChange,
       onFieldReset,
+      onRecalculateScores,
       onToggleGroup,
       onSavePreset,
       onApplyPreset,

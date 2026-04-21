@@ -408,6 +408,56 @@ export const LOW_PRIORITY_PATTERNS = [
   /^是否/,                          // 是否overlap, 是否正确
 ];
 
+/**
+ * Scoring algorithm step descriptors for debug visualization.
+ * Display convention: positive = bonus (green), negative = penalty (red).
+ * Internally the algorithm uses inverted signs (lower score = higher priority).
+ */
+export const SCORING_STEPS = [
+  {
+    step: 1,
+    nameKey: 'scoringStepConversationName',
+    condition: 'detectedType === "conversation" || detectedType === "toolList"',
+    delta: '+100',
+  },
+  {
+    step: 2,
+    nameKey: 'scoringStepPatternName',
+    condition: 'HIGH: +50/+40 | LOW: -40 | depth(>3 dots): -20',
+    delta: 'variable',
+  },
+  {
+    step: 3,
+    nameKey: 'scoringStepEmptyName',
+    condition: 'emptyRate >= 0.95 → -80 | emptyRate >= 0.80 → -20',
+    delta: '-80 / -20',
+  },
+  {
+    step: 4,
+    nameKey: 'scoringStepConstantName',
+    condition: 'constantRate >= 1.0 (all identical)',
+    delta: '-55',
+  },
+  {
+    step: 5,
+    nameKey: 'scoringStepUniqueName',
+    condition: 'uniqueCount > 5 → +5 | uniqueCount 2-5 → +2',
+    delta: '+5 / +2',
+  },
+  {
+    step: 6,
+    nameKey: 'scoringStepContentName',
+    condition: 'avgValueLength > 50 → +5 | avgValueLength > 10 → +2',
+    delta: '+5 / +2',
+  },
+  {
+    step: 7,
+    nameKey: 'scoringStepTypeName',
+    condition: 'enum: +3 | number: +1 | boolean: -3 | string: 0',
+    delta: '+3 ~ -3',
+  },
+];
+
 // ===== Stats Smart Selection =====
 //
 // Patterns for auto-selecting fields in distribution (pie) and histogram charts.
@@ -441,6 +491,20 @@ export const HISTOGRAM_SELECT_PATTERNS = [
 
 function matchesPatterns(patterns, key, lastSegment) {
   return patterns.some(p => p.test(key) || p.test(lastSegment));
+}
+
+/**
+ * Find which specific patterns match a key, keyed by regex source.
+ * Returns an array of matched regex source strings.
+ */
+function findMatchingPatternSources(patterns, key, lastSegment) {
+  const matched = [];
+  for (const p of patterns) {
+    if (p.test(key) || p.test(lastSegment)) {
+      matched.push(p.source);
+    }
+  }
+  return matched;
 }
 
 /**
@@ -658,5 +722,17 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     };
   });
 
-  return { fields, debugMeta };
+  // Count per-pattern match frequency across all fields
+  const patternMatchCounts = {};
+  for (const field of fields) {
+    const lastSegment = field.key.split('.').pop();
+    for (const src of findMatchingPatternSources(HIGH_PRIORITY_PATTERNS, field.key, lastSegment)) {
+      patternMatchCounts[src] = (patternMatchCounts[src] || 0) + 1;
+    }
+    for (const src of findMatchingPatternSources(LOW_PRIORITY_PATTERNS, field.key, lastSegment)) {
+      patternMatchCounts[src] = (patternMatchCounts[src] || 0) + 1;
+    }
+  }
+
+  return { fields, debugMeta, patternMatchCounts };
 }

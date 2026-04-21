@@ -4,7 +4,7 @@
  */
 
 import { ref, computed, watch } from 'vue';
-import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS, assignFieldVisibility } from '@/utils/customParserHelpers';
+import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS, HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, assignFieldVisibility } from '@/utils/customParserHelpers';
 
 /**
  * Field configuration manager for the Custom Viewer.
@@ -22,6 +22,7 @@ export function useFieldConfig(options = {}) {
   const lastFileId = ref(null);
   const _cachedFieldMeta = ref(null);
   const _cachedPriorityDebug = ref(null);
+  const _cachedPatternMatchCounts = ref(null);
 
   const activeColumns = computed(() => {
     if (!fieldConfig.value) return [];
@@ -210,12 +211,32 @@ export function useFieldConfig(options = {}) {
   }
 
   /**
+   * Compute per-pattern match counts from detected fields.
+   * Used as fallback when worker result doesn't include patternMatchCounts.
+   */
+  function computePatternMatchCounts(detectedFields) {
+    if (!detectedFields?.length) return null;
+    const counts = {};
+    for (const field of detectedFields) {
+      const lastSegment = field.key.split('.').pop();
+      for (const p of HIGH_PRIORITY_PATTERNS) {
+        if (p.test(field.key) || p.test(lastSegment)) counts[p.source] = (counts[p.source] || 0) + 1;
+      }
+      for (const p of LOW_PRIORITY_PATTERNS) {
+        if (p.test(field.key) || p.test(lastSegment)) counts[p.source] = (counts[p.source] || 0) + 1;
+      }
+    }
+    return Object.keys(counts).length ? counts : null;
+  }
+
+  /**
    * Initialize field config: restore from localStorage or auto-configure.
    */
   function initFromMeta(fileId, fieldMeta) {
     lastFileId.value = fileId;
     _cachedFieldMeta.value = fieldMeta;
     _cachedPriorityDebug.value = fieldMeta.priorityDebug || null;
+    _cachedPatternMatchCounts.value = fieldMeta.patternMatchCounts || computePatternMatchCounts(fieldMeta.detectedFields);
     const storageKey = `${storagePrefix}_${fileId}`;
 
     const saved = localStorage.getItem(storageKey);
@@ -386,11 +407,21 @@ export function useFieldConfig(options = {}) {
     if (!_cachedFieldMeta.value) return;
     if (rescore) {
       const detectedFields = _cachedFieldMeta.value.detectedFields;
-      const { debugMeta } = assignFieldVisibility(detectedFields);
+      const { debugMeta, patternMatchCounts } = assignFieldVisibility(detectedFields);
       _cachedPriorityDebug.value = debugMeta;
+      _cachedPatternMatchCounts.value = patternMatchCounts;
     }
     fieldConfig.value = autoConfigure(_cachedFieldMeta.value);
     saveConfig();
+  }
+
+  function recalculateScores() {
+    if (!_cachedFieldMeta.value) return;
+    const detectedFields = _cachedFieldMeta.value.detectedFields;
+    if (!detectedFields || !detectedFields.length) return;
+    const { debugMeta, patternMatchCounts } = assignFieldVisibility(detectedFields);
+    _cachedPriorityDebug.value = debugMeta;
+    _cachedPatternMatchCounts.value = patternMatchCounts;
   }
 
   // ===== Preset management =====
@@ -510,6 +541,7 @@ export function useFieldConfig(options = {}) {
     lastFileId.value = null;
     _cachedFieldMeta.value = null;
     _cachedPriorityDebug.value = null;
+    _cachedPatternMatchCounts.value = null;
     activePresetId.value = null;
   }
 
@@ -559,5 +591,7 @@ export function useFieldConfig(options = {}) {
     deletePreset,
     // Debug
     priorityDebug: computed(() => _cachedPriorityDebug.value),
+    patternMatchCounts: computed(() => _cachedPatternMatchCounts.value),
+    recalculateScores,
   };
 }
