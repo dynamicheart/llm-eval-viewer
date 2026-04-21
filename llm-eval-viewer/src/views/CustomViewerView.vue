@@ -103,6 +103,7 @@
             <template v-if="col.detectedType === 'conversation' || col.detectedType === 'toolList'">
               <span class="clickable-cell conversation-cell" @click="openConversation(row[col.key], row, col.key, col)">
                 <span class="conversation-tag">{{ col.detectedType === 'toolList' ? 'tool' : 'chat' }}</span>
+                <span class="conversation-count">{{ countConversationItems(String(row[col.key] ?? '')) }}</span>
                 {{ truncateText(String(row[col.key] ?? ''), 80) }}
               </span>
             </template>
@@ -177,6 +178,8 @@
       :presets="presets"
       :active-preset-id="activePresetId"
       :schema-snapshot="schemaSnapshot"
+      :priority-debug="priorityDebug"
+      :debug-mode="debugMode"
       @close="showFieldConfig = false"
       @save="onFieldConfigSave"
       @stats-change="onStatsChange"
@@ -193,7 +196,9 @@
       :text="conversationText"
       :messages="conversationMessages"
       :title="conversationTitle"
-      :show-filter="conversationShowFilter"
+      :show-filter="true"
+      :filter-placeholder="conversationFilterPlaceholder"
+      :is-tool-list="conversationIsToolList"
       @update:visible="(val) => (conversationVisible = val)"
     />
   </div>
@@ -202,6 +207,7 @@
 <script>
 import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { ElMessage } from 'element-plus';
 
 import FileToolbar from '@/components/FileToolbar.vue';
 import DetailDialog from '@/components/DetailDialog.vue';
@@ -222,6 +228,7 @@ import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
 import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useFieldConfig } from '@/composables/useFieldConfig';
+import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
 import CustomWorker from '@/workers/customParser.worker.js?worker';
@@ -246,7 +253,8 @@ export default {
     const conversationText = ref('');
     const conversationMessages = ref(null);
     const conversationTitle = ref('');
-    const conversationShowFilter = ref(false);
+    const conversationFilterPlaceholder = ref('');
+    const conversationIsToolList = ref(false);
     const samplePromptVisible = ref(false);
 
     const ONBOARDED_KEY = 'custom_viewer_onboarded';
@@ -263,6 +271,7 @@ export default {
 
     // ===== Field configuration =====
     const fieldConfigState = useFieldConfig();
+    const { debugMode } = useDebugMode();
     const {
       fieldConfig,
       lastFileId,
@@ -282,6 +291,7 @@ export default {
       clearActivePreset,
       deletePreset,
       clearAllConfigs,
+      priorityDebug,
     } = fieldConfigState;
 
     // ===== Schema snapshot =====
@@ -349,7 +359,8 @@ export default {
 
     function formatNumber(value) {
       if (typeof value !== 'number') return value;
-      return value.toLocaleString();
+      if (Number.isInteger(value)) return value.toLocaleString();
+      return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
     }
 
     /**
@@ -418,7 +429,8 @@ export default {
       conversationText.value = cellValue || '';
       const isToolList = col?.detectedType === 'toolList';
       conversationTitle.value = isToolList ? t('custom.toolsTitle') : t('custom.conversationTitle');
-      conversationShowFilter.value = isToolList;
+      conversationFilterPlaceholder.value = isToolList ? t('custom.filterTools') : t('custom.filterConversation');
+      conversationIsToolList.value = isToolList;
 
       if (row && colKey) {
         const dotIdx = colKey.indexOf('.');
@@ -452,6 +464,11 @@ export default {
       }
 
       conversationVisible.value = true;
+    }
+
+    function countConversationItems(text) {
+      const matches = text.match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/gim);
+      return matches ? matches.length : 0;
     }
 
     function getColumnMinWidth(col) {
@@ -493,7 +510,7 @@ export default {
               const tReceive = performance.now();
               worker.terminate();
 
-              if (e.data.timings && import.meta.env.DEV) {
+              if (e.data.timings && isDebugLogging()) {
                 const t = e.data.timings;
                 console.log(
                   '%c[Parser Pipeline]%c ' +
@@ -583,7 +600,7 @@ export default {
 
     function onFieldConfigSave() {
       saveFieldConfig();
-      showFieldConfig.value = false;
+      ElMessage.success(t('common.copiedToClipboard'));
     }
 
     function onStatsChange(config) {
@@ -591,7 +608,8 @@ export default {
     }
 
     function onFieldReset() {
-      resetToDefaults();
+      resetToDefaults(debugMode.value);
+      ElMessage.success(t('common.resetSuccess'));
     }
 
     function onToggleGroup(groupKey) {
@@ -644,7 +662,8 @@ export default {
       conversationText,
       conversationMessages,
       conversationTitle,
-      conversationShowFilter,
+      conversationFilterPlaceholder,
+      conversationIsToolList,
       expandInfo,
       // Sample prompt
       samplePromptVisible,
@@ -657,7 +676,10 @@ export default {
       numericFields,
       fieldTree,
       schemaSnapshot,
+      priorityDebug,
       getFieldLabel,
+      // Debug
+      debugMode,
       // Presets
       presets,
       activePresetId,
@@ -684,6 +706,7 @@ export default {
       isLongValue,
       formatNumber,
       openConversation,
+      countConversationItems,
       getColumnMinWidth,
       // File handler
       hintText, formatSize, formatTime,
@@ -725,8 +748,10 @@ export default {
 }
 
 /* Ensure filter popover is not clipped by fixed table header */
+/* Only allow vertical overflow visible, keep horizontal scrolling intact */
 :deep(.el-table__header-wrapper) {
-  overflow: visible;
+  overflow-x: scroll;
+  overflow-y: visible;
 }
 
 .conversation-tag {
@@ -738,6 +763,14 @@ export default {
   border-radius: 3px;
   margin-right: 4px;
   font-weight: 600;
+  vertical-align: middle;
+}
+
+.conversation-count {
+  font-size: 10px;
+  color: var(--ev-text-secondary);
+  opacity: 0.6;
+  margin-right: 4px;
   vertical-align: middle;
 }
 </style>

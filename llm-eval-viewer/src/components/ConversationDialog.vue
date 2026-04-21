@@ -9,18 +9,17 @@
     @update:model-value="$emit('update:visible', $event)"
     width="60%"
     top="6vh"
-    :z-index="3000"
   >
     <template #header>
       <div style="display: flex; justify-content: space-between; align-items: center">
-        <span>{{ title }}</span>
+        <span>{{ title }} <span v-if="blockCount > 0" class="title-count">{{ itemCountText }}</span></span>
         <div style="display: flex; gap: 8px; align-items: center">
           <el-input
             v-if="showFilter"
             v-model="filterText"
             size="small"
             clearable
-            :placeholder="$t('custom.filterConversation')"
+            :placeholder="filterPlaceholder || $t('custom.filterConversation')"
             style="width: 200px"
           />
           <el-button size="small" type="primary" plain @click="copyContent">
@@ -49,7 +48,8 @@
           </span>
           <span class="role-label">{{ msg.displayRole }}</span>
           <span v-if="msg.fnName" class="fn-name">{{ msg.fnName }}</span>
-          <span v-if="isCollapsible(idx, msg)" class="msg-length">{{ msg.content.length }} chars</span>
+          <span v-if="msg.callId" class="call-id" @click.stop="copyText(msg.callId)">{{ msg.callId }}</span>
+          <span v-if="msg.content" class="msg-length">{{ msg.content.length }} chars</span>
         </div>
 
         <!-- Tool call / tool result: render as collapsible JSON -->
@@ -104,7 +104,10 @@ export default {
     text: { type: String, default: '' },
     messages: { type: Array, default: null },
     title: { type: String, default: '' },
-    showFilter: { type: Boolean, default: false },
+    showFilter: { type: Boolean, default: true },
+    filterFn: { type: Function, default: null },
+    filterPlaceholder: { type: String, default: '' },
+    isToolList: { type: Boolean, default: false },
   },
   emits: ['update:visible'],
 
@@ -153,12 +156,19 @@ export default {
             const fn = tc.function || tc;
             const name = fn.name || 'unknown';
             const args = typeof fn.arguments === 'string' ? fn.arguments : JSON.stringify(fn.arguments || {});
+            // Store the full tool_call object as content
+            const fullObj = {
+              id: tc.id || '',
+              function: { name, arguments: args },
+              type: tc.type || 'function',
+            };
             blocks.push({
               role: 'tool_call',
               roleClass: 'tool-call',
               displayRole: 'TOOL CALL',
               fnName: name,
-              content: args,
+              callId: tc.id || '',
+              content: JSON.stringify(fullObj, null, 2),
               isToolBlock: true,
             });
           }
@@ -171,7 +181,8 @@ export default {
             role: 'tool',
             roleClass: 'tool-result',
             displayRole: 'TOOL RESULT',
-            fnName: msg.name || msg.tool_call_id || '',
+            fnName: msg.name || '',
+            callId: msg.tool_call_id || '',
             content,
             isToolBlock: true,
           });
@@ -232,12 +243,22 @@ export default {
         if (tcMatch) {
           if (current) blocks.push(current);
           const parts = tcMatch[1].split(':');
+          const fnName = parts[0];
+          const callId = parts.length > 1 ? parts.slice(1).join(':') : '';
+          const args = tcMatch[2] || '{}';
+          // Reconstruct full tool_call object
+          const fullObj = {
+            id: callId || undefined,
+            function: { name: fnName, arguments: args },
+            type: 'function',
+          };
           current = {
             role: 'tool_call',
             roleClass: 'tool-call',
             displayRole: 'TOOL CALL',
-            fnName: parts[0],
-            content: tcMatch[2] || '',
+            fnName,
+            callId,
+            content: JSON.stringify(fullObj, null, 2),
             isToolBlock: true,
           };
           continue;
@@ -247,12 +268,17 @@ export default {
         if (trMatch) {
           if (current) blocks.push(current);
           const content = trMatch[2] || '';
-          const isDef = content.trimStart().startsWith('{');
+          const tag = trMatch[1];
+          // Distinguish between tool_call_id (starts with "call") and tool name
+          const isCallId = tag.startsWith('call');
+          // Tool definitions have a tool name tag and JSON content; tool results have call IDs
+          const isDef = !isCallId && content.trimStart().startsWith('{');
           current = {
             role: isDef ? 'tool_def' : 'tool',
             roleClass: isDef ? 'tool-def' : 'tool-result',
             displayRole: isDef ? 'TOOL' : 'TOOL RESULT',
-            fnName: trMatch[1],
+            fnName: isCallId ? '' : tag,
+            callId: isCallId ? tag : '',
             content,
             isToolBlock: true,
           };
@@ -292,12 +318,22 @@ export default {
       return blocks;
     });
 
+    const blockCount = computed(() => parsed.value.length);
+    const itemCountText = computed(() =>
+      props.isToolList
+        ? t('custom.toolCount', { count: blockCount.value })
+        : t('custom.messageCount', { count: blockCount.value }),
+    );
+
     const filterText = ref('');
     const filteredBlocks = computed(() => {
       const q = filterText.value.trim().toLowerCase();
       if (!q) return parsed.value;
+      if (props.filterFn) return parsed.value.filter(b => props.filterFn(b, q));
       return parsed.value.filter(b =>
-        (b.fnName || '').toLowerCase().includes(q),
+        (b.fnName || '').toLowerCase().includes(q) ||
+        (b.callId || '').toLowerCase().includes(q) ||
+        (b.content || '').toLowerCase().includes(q),
       );
     });
 
@@ -305,7 +341,7 @@ export default {
      * Whether a message at index `idx` supports collapsing (long content).
      */
     function isCollapsible(idx, msg) {
-      return msg.content.length >= 500;
+      return msg.content.length > 0;
     }
 
     /**
@@ -366,7 +402,6 @@ export default {
     }
 
     const copyContent = async () => {
-      // Prefer text prop; fallback to serializing structured messages
       let content = props.text;
       if (!content && Array.isArray(props.messages) && props.messages.length > 0) {
         content = JSON.stringify(props.messages, null, 2);
@@ -383,12 +418,28 @@ export default {
       }
     };
 
-    return { parsed, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent };
+    const copyText = async (text) => {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        ElMessage.success(t('common.copiedToClipboard'));
+      } catch {
+        ElMessage.error(t('common.copyFailed'));
+      }
+    };
+
+    return { parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText };
   },
 };
 </script>
 
 <style scoped>
+.title-count {
+  font-size: 12px;
+  opacity: 0.5;
+  font-weight: 400;
+}
+
 .chat-container {
   max-height: 72vh;
   overflow-y: auto;
@@ -452,6 +503,23 @@ export default {
   border-radius: 3px;
   background: rgba(0, 0, 0, 0.06);
   color: var(--ev-text-secondary);
+}
+
+.call-id {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--ev-text-secondary);
+  opacity: 0.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.call-id:hover {
+  opacity: 0.85;
+  text-decoration: underline;
 }
 
 .chat-text {

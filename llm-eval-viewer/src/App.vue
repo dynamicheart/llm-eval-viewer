@@ -112,7 +112,7 @@
     <router-view />
     <footer class="page-footer">
       <span>Author: yangjianbang</span>
-      <span> · Build: {{ buildTime }}</span>
+      <span @click="onFooterBuildClick"> · Build: {{ buildTime }}</span>
       <span v-if="commitHash">
         · Commit:
         <a
@@ -130,15 +130,18 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
+import { useDebugMode } from '@/composables/useDebugMode';
 import { setLocale, getLocale } from '@/i18n';
 import { useI18n } from 'vue-i18n';
 import { ArrowDown } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
 
 export default {
   name: 'App',
   components: { NewsBanner, ArrowDown },
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
+    const { debugMode } = useDebugMode();
     const { t } = useI18n();
 
     // Theme: 'light' | 'dark' | 'auto'
@@ -179,7 +182,26 @@ export default {
       systemQuery.removeEventListener('change', onSystemChange);
     });
 
-    return { showSidebar, sidebarWidth, currentLocale: getLocale(), themeMode, cycleTheme, themeTip };
+    // Debug mode: click footer build timestamp 6 times to toggle
+    const footerClickCount = ref(0);
+    let footerClickTimer = null;
+
+    function onFooterBuildClick() {
+      footerClickCount.value++;
+      clearTimeout(footerClickTimer);
+      footerClickTimer = setTimeout(() => { footerClickCount.value = 0; }, 500);
+      if (footerClickCount.value >= 6) {
+        debugMode.value = !debugMode.value;
+        footerClickCount.value = 0;
+        ElMessage({
+          message: debugMode.value ? 'Debug mode ON' : 'Debug mode OFF',
+          type: 'info',
+          duration: 2000,
+        });
+      }
+    }
+
+    return { showSidebar, sidebarWidth, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick };
   },
   watch: {
     '$i18n.locale': {

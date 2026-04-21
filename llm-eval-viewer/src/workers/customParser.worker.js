@@ -174,10 +174,12 @@ self.onmessage = (e) => {
       isLongString: info.isLongString || false,
       emptyRate: info.emptyRate || 0,
       constantRate: info.constantRate || 0,
+      uniqueCount: info.uniqueCount || 0,
+      avgValueLength: info.avgValueLength || 0,
     };
   });
 
-  assignFieldVisibility(detectedFields, DEFAULT_VISIBLE_FIELDS);
+  const { debugMeta } = assignFieldVisibility(detectedFields, DEFAULT_VISIBLE_FIELDS);
 
   timings.buildFields = performance.now() - tBuildFields;
 
@@ -194,6 +196,7 @@ self.onmessage = (e) => {
       detectedFields,
       expandCandidates: Array.from(allExpandedKeys).filter(k => !k.includes('.')),
       schemaSnapshot,
+      priorityDebug: debugMeta,
     },
   });
 };

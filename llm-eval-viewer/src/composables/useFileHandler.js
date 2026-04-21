@@ -8,6 +8,7 @@ import { ElMessage, ElMessageBox, ElLoading } from 'element-plus';
 import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import { saveParsedData, getParsedData } from '@/utils/fileDB';
 import i18n from '@/i18n';
+import { isDebugLogging } from '@/composables/useDebugMode';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -148,7 +149,7 @@ export function useFileHandler(options) {
       if (onParseResult) onParseResult(isPlainArray ? { rows } : result);
       const tPostProcess = performance.now();
 
-      if (import.meta.env.DEV) {
+      if (isDebugLogging()) {
         console.log(
         '%c[Main Thread Timings]%c ' +
           `worker=${(tParsed - t0).toFixed(1)}ms | ` +

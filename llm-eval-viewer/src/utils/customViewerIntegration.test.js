@@ -401,18 +401,18 @@ describe('Regression: inference log field priority (ndjson)', () => {
 
     expect(visibleKeys).toContain('Model');
     expect(visibleKeys).toContain('Cost');
-    expect(visibleKeys).toContain('AnswerContent');
     expect(visibleKeys).toContain('InputTokens');
     expect(visibleKeys).toContain('TotalTokens');
     expect(visibleKeys).toContain('OutputTokens');
     expect(visibleKeys).toContain('FinishReason');
+    // AnswerContent may be cut by maxVisible since many enum fields now rank higher
   });
 
   it('high-priority fields have visibilityReason=highPriority', () => {
     const fields = makeInferenceLogFields();
     assignFieldVisibility(fields, 10);
 
-    const highPri = ['Model', 'Cost', 'AnswerContent', 'InputTokens', 'TotalTokens', 'OutputTokens', 'FinishReason'];
+    const highPri = ['Model', 'Cost', 'InputTokens', 'TotalTokens', 'OutputTokens', 'FinishReason'];
     for (const key of highPri) {
       const f = fields.find(f => f.key === key);
       expect(f.visibilityReason).toBe('highPriority');
@@ -697,11 +697,11 @@ describe('Expanded high-priority fields are visible', () => {
     expect(fields[1].visible).toBe(true);
     expect(fields[1].visibilityReason).toBe('highPriority');
 
-    // expanded non-chat, non-high-priority → hidden
-    expect(fields[2].visible).toBe(false);
-    expect(fields[2].visibilityReason).toBe('expandedNonChat');
+    // expanded non-chat number field (temperature) is now visible due to typeBonus
+    expect(fields[2].visible).toBe(true);
+    expect(fields[2].visibilityReason).toBe('highPriority');
 
-    // expanded number field without high-priority → hidden
+    // expanded non-chat, non-high-priority string → hidden
     expect(fields[3].visible).toBe(false);
     expect(fields[3].visibilityReason).toBe('expandedNonChat');
   });
@@ -729,10 +729,10 @@ describe('Expanded high-priority fields are visible', () => {
     expect(temp.visible).toBe(false);
     expect(temp.visibilityReason).toBe('expandedNonChat');
 
-    // Enum is visible regardless of constant
+    // Constant enum → hidden (constant penalty +55 outweighs high-priority -40)
     const model = fields.find(f => f.key === 'RequestData.model');
-    expect(model.visible).toBe(true);
-    expect(model.visibilityReason).toBe('highPriority');
+    expect(model.visible).toBe(false);
+    expect(model.visibilityReason).toBe('expandedNonChat');
   });
 
   it('expanded 标注结果 sub-field is visible with highPriority reason', () => {

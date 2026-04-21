@@ -136,6 +136,9 @@
             />
             <span class="group-label">
               {{ group.groupKey === '__top__' ? $t('custom.topLevelFields') : group.groupLabel }}
+              <span class="group-nest-badge">
+                {{ group.groupKey === '__top__' ? 'L0' : 'L1' }}
+              </span>
             </span>
             <span class="group-count">{{ group.visibleCount }} / {{ group.totalCount }}</span>
           </div>
@@ -147,7 +150,8 @@
               class="field-row"
               :class="{
                 'field-row-expanded': field.isExpanded,
-                'field-row-nested': field.key.split('.').length > 2,
+                'field-row-nested': getFieldNestingLevel(field.key, group.groupKey) > 0,
+                'field-row-deep': getFieldNestingLevel(field.key, group.groupKey) > 1,
               }"
             >
               <!-- Visible toggle -->
@@ -156,7 +160,10 @@
               <!-- Key path + label -->
               <div class="field-info">
                 <span class="field-key" :title="field.key">
-                  {{ getDisplayKey(field.key, group.groupKey) }}
+                  {{ getFieldDisplayPath(field.key, group.groupKey) }}
+                </span>
+                <span class="field-nest-badge">
+                  L{{ getFieldNestingLevel(field.key, group.groupKey) + 1 }}
                 </span>
               </div>
 
@@ -221,20 +228,72 @@
     </template>
 
     <template #footer>
-      <el-button @click="onReset">
-        {{ $t('custom.resetDefaults') }}
-      </el-button>
-      <el-button type="primary" @click="$emit('save')">
-        {{ $t('common.copy') }} {{ $t('custom.fieldConfig') }}
-      </el-button>
+      <div class="footer-bar">
+        <el-button @click="onReset">
+          {{ $t('custom.resetDefaults') }}
+        </el-button>
+        <div style="flex:1"></div>
+        <el-button v-if="debugMode" @click="debugDialogVisible = true">
+          {{ $t('custom.debug') }}
+        </el-button>
+        <el-button type="primary" @click="$emit('save')">
+          {{ $t('common.copy') }} {{ $t('custom.fieldConfig') }}
+        </el-button>
+      </div>
     </template>
   </el-drawer>
+
+  <!-- Debug dialog -->
+  <el-dialog
+    :model-value="debugDialogVisible"
+    @update:model-value="debugDialogVisible = $event"
+    width="80%"
+    top="5vh"
+  >
+    <template #header>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span>{{ $t('custom.debugTitle') }}</span>
+        <el-button size="small" @click="copyDebugAsMarkdown">
+          {{ $t('common.copy') }} Markdown
+        </el-button>
+      </div>
+    </template>
+    <el-table :data="debugTableData" border size="small" max-height="50vh" style="width:100%" default-sort="{prop:'priority',order:'descending'}">
+      <el-table-column prop="key" label="Field" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="priority" label="Priority" width="90" sortable sort-by="priority">
+        <template #default="{row}">
+          <span :style="{ color: row.priority > 0 ? 'var(--el-color-success)' : row.priority < -30 ? 'var(--el-color-danger)' : '' }">
+            {{ row.priority > 0 ? '+' : '' }}{{ row.priority }}
+          </span>
+        </template>
+      </el-table-column>
+      <el-table-column label="Breakdown" min-width="200">
+        <template #default="{row}">
+          <span class="breakdown-text">{{ formatBreakdown(row) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="Visible" width="80">
+        <template #default="{row}">
+          <el-tag :type="row.currentVisible?'success':'info'" size="small">{{ row.currentVisible ? 'Yes' : 'No' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column prop="visibilityReason" label="Reason" width="140" />
+    </el-table>
+    <template v-if="statsDebugEntries.length">
+      <el-divider content-position="left">{{ $t('custom.debugStatsSelection') }}</el-divider>
+      <el-table :data="statsDebugEntries" border size="small" style="width:100%">
+        <el-table-column prop="key" label="Field" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="type" label="Type" width="120" />
+        <el-table-column prop="reason" label="Reason" min-width="180" />
+      </el-table>
+    </template>
+  </el-dialog>
 </template>
 
 <script>
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ElMessageBox } from 'element-plus';
+import { ElMessageBox, ElMessage } from 'element-plus';
 import { ArrowRight, Search, QuestionFilled } from '@element-plus/icons-vue';
 
 export default {
@@ -250,6 +309,8 @@ export default {
     presets: { type: Array, default: () => [] },
     activePresetId: { type: String, default: null },
     schemaSnapshot: { type: Object, default: null },
+    priorityDebug: { type: Array, default: () => [] },
+    debugMode: { type: Boolean, default: false },
   },
 
   emits: [
@@ -365,6 +426,29 @@ export default {
       return key.startsWith(prefix) ? key.substring(prefix.length) : key;
     }
 
+    /**
+     * Get nesting depth relative to group (0 = direct child, 1 = grandchild, etc.)
+     */
+    function getFieldNestingLevel(key, groupKey) {
+      if (groupKey === '__top__') return 0;
+      const prefix = groupKey + '.';
+      if (!key.startsWith(prefix)) return 0;
+      const remaining = key.substring(prefix.length);
+      return Math.max(0, remaining.split('.').length - 2);
+    }
+
+    /**
+     * Display key path with hierarchy separators for nested fields.
+     * e.g. 'ResponseData.usage.input_tokens' → 'usage › input_tokens'
+     *       'RequestData.model' → 'model'
+     */
+    function getFieldDisplayPath(key, groupKey) {
+      const displayKey = getDisplayKey(key, groupKey);
+      if (!displayKey.includes('.')) return displayKey;
+      // Replace dots with › to show hierarchy
+      return displayKey.replace(/\./g, ' \u203A ');
+    }
+
     function toggleGroupCollapse(groupKey) {
       collapsedGroups.value[groupKey] = !collapsedGroups.value[groupKey];
     }
@@ -444,6 +528,116 @@ export default {
       return t(`custom.visibilityReasonDesc.${reason}`, '');
     }
 
+    // ===== Debug panel =====
+    const debugDialogVisible = ref(false);
+
+    function formatBreakdown(row) {
+      // Display in "higher = better" terms: negate internal penalties
+      const parts = [];
+      const cat = row.patternCategory;
+      if (cat === 'conversation') {
+        parts.push('conversation +100');
+      } else if (cat === 'high') {
+        parts.push(`high ${row.patternPenalty > 0 ? '+' : ''}${-row.patternPenalty}`);
+      } else if (cat === 'low') {
+        parts.push(`low ${-row.patternPenalty}`);
+      } else if (cat === 'depth') {
+        parts.push(`depth ${-row.patternPenalty}`);
+      }
+      if (row.emptyPenalty) {
+        const pct = Math.round(row.emptyRate * 100);
+        parts.push(`empty(${pct}%) ${-row.emptyPenalty}`);
+      }
+      if (row.constantPenalty) {
+        parts.push(`constant ${-row.constantPenalty}`);
+      }
+      if (row.uniqueBonus) {
+        parts.push(`unique(${row.uniqueCount}) +${row.uniqueBonus}`);
+      }
+      if (row.contentBonus) {
+        parts.push(`avgLen(${row.avgValueLength}) +${row.contentBonus}`);
+      }
+      if (row.typeBonus) {
+        parts.push(`type(${row.detectedType}) ${row.typeBonus > 0 ? '+' : ''}${row.typeBonus}`);
+      }
+      if (!parts.length) parts.push('none +0');
+      return parts.join(' + ');
+    }
+
+    const debugTableData = computed(() => {
+      if (!props.priorityDebug?.length || !props.fieldConfig) return [];
+      return props.priorityDebug.map(d => {
+        const current = props.fieldConfig.fields.find(f => f.key === d.key);
+        return { ...d, currentVisible: current ? current.visible : d.visible, priority: -d.score };
+      });
+    });
+
+    const statsDebugEntries = computed(() => {
+      const sc = props.statsConfig;
+      if (!sc) return [];
+      const entries = [];
+      for (const key of (sc.distributionFields || [])) {
+        entries.push({ key, type: 'distribution', reason: sc.selectionReasons?.[key] || '' });
+      }
+      for (const key of (sc.histogramFields || [])) {
+        entries.push({ key, type: 'histogram', reason: sc.selectionReasons?.[key] || '' });
+      }
+      return entries;
+    });
+
+    async function copyDebugAsMarkdown() {
+      const tableHeader = '| Field | Priority | Breakdown | Visible | Reason |';
+      const tableSep = '|---|---|---|---|---|';
+
+      // Group fields by dot-notation prefix
+      const groups = new Map();
+      const TOP_KEY = '__top__';
+      for (const d of debugTableData.value) {
+        const dotIdx = d.key.indexOf('.');
+        const gk = dotIdx > 0 ? d.key.substring(0, dotIdx) : TOP_KEY;
+        if (!groups.has(gk)) groups.set(gk, []);
+        groups.get(gk).push(d);
+      }
+
+      const lines = ['## Field Priority Debug', ''];
+      const theaders = [tableHeader, tableSep];
+
+      // Top-level fields first
+      if (groups.has(TOP_KEY)) {
+        const items = groups.get(TOP_KEY).slice().sort((a, b) => b.priority - a.priority);
+        lines.push('### Top-level Fields', '', ...theaders);
+        for (const d of items) lines.push(formatRow(d));
+        lines.push('');
+      }
+      // Then grouped fields
+      for (const [gk, items] of groups) {
+        if (gk === TOP_KEY) continue;
+        const sorted = items.slice().sort((a, b) => b.priority - a.priority);
+        lines.push(`### ${gk}`, '', ...theaders);
+        for (const d of sorted) lines.push(formatRow(d));
+        lines.push('');
+      }
+
+      if (statsDebugEntries.value.length) {
+        lines.push('## Stats Smart Selection', '',
+          '| Field | Type | Reason |', '|---|---|---|');
+        for (const e of statsDebugEntries.value) {
+          lines.push(`| ${e.key} | ${e.type} | ${e.reason} |`);
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(lines.join('\n'));
+        ElMessage.success(t('common.copiedToClipboard'));
+      } catch {
+        ElMessage.error(t('common.copyFailed'));
+      }
+
+      function formatRow(d) {
+        const prio = d.priority > 0 ? `+${d.priority}` : `${d.priority}`;
+        return `| ${d.key} | ${prio} | ${formatBreakdown(d)} | ${d.currentVisible ? 'Yes' : 'No'} | ${d.visibilityReason} |`;
+      }
+    }
+
     return {
       localDistFields,
       localHistFields,
@@ -454,6 +648,8 @@ export default {
       filteredTree,
       schemaText,
       getDisplayKey,
+      getFieldNestingLevel,
+      getFieldDisplayPath,
       toggleGroupCollapse,
       toggleShowOnlyVisible,
       onStatsChange,
@@ -466,6 +662,11 @@ export default {
       getReasonLabel,
       getReasonTooltip,
       getReasonDesc,
+      debugDialogVisible,
+      debugTableData,
+      statsDebugEntries,
+      formatBreakdown,
+      copyDebugAsMarkdown,
     };
   },
 };
@@ -581,6 +782,7 @@ export default {
 .field-list {
   max-height: calc(100vh - 480px);
   overflow-y: auto;
+  padding-bottom: 8px;
 }
 
 .field-empty {
@@ -625,9 +827,9 @@ export default {
   color: var(--ev-text-primary);
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .group-count {
@@ -654,10 +856,37 @@ export default {
   padding-left: 42px;
 }
 
+.field-row-deep {
+  padding-left: 56px;
+}
+
+.field-nest-badge {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--ev-text-secondary);
+  background: var(--ev-fill-color);
+  padding: 0 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.group-nest-badge {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--ev-text-secondary);
+  background: var(--ev-fill-color);
+  padding: 0 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
 .field-info {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .field-key {
@@ -719,5 +948,18 @@ export default {
   gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
+}
+
+.breakdown-text {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--ev-text-secondary);
+  white-space: nowrap;
+}
+
+.footer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 </style>

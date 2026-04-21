@@ -4,7 +4,7 @@
  */
 
 import { ref, computed, watch } from 'vue';
-import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS } from '@/utils/customParserHelpers';
+import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS, assignFieldVisibility } from '@/utils/customParserHelpers';
 
 /**
  * Field configuration manager for the Custom Viewer.
@@ -21,6 +21,7 @@ export function useFieldConfig(options = {}) {
   const fieldConfig = ref(null);
   const lastFileId = ref(null);
   const _cachedFieldMeta = ref(null);
+  const _cachedPriorityDebug = ref(null);
 
   const activeColumns = computed(() => {
     if (!fieldConfig.value) return [];
@@ -214,6 +215,7 @@ export function useFieldConfig(options = {}) {
   function initFromMeta(fileId, fieldMeta) {
     lastFileId.value = fileId;
     _cachedFieldMeta.value = fieldMeta;
+    _cachedPriorityDebug.value = fieldMeta.priorityDebug || null;
     const storageKey = `${storagePrefix}_${fileId}`;
 
     const saved = localStorage.getItem(storageKey);
@@ -380,8 +382,13 @@ export function useFieldConfig(options = {}) {
     fieldConfig.value.statsConfig = { distributionFields, histogramFields, selectionReasons: existingReasons };
   }
 
-  function resetToDefaults() {
+  function resetToDefaults(rescore = false) {
     if (!_cachedFieldMeta.value) return;
+    if (rescore) {
+      const detectedFields = _cachedFieldMeta.value.detectedFields;
+      const { debugMeta } = assignFieldVisibility(detectedFields);
+      _cachedPriorityDebug.value = debugMeta;
+    }
     fieldConfig.value = autoConfigure(_cachedFieldMeta.value);
     saveConfig();
   }
@@ -502,6 +509,7 @@ export function useFieldConfig(options = {}) {
     fieldConfig.value = null;
     lastFileId.value = null;
     _cachedFieldMeta.value = null;
+    _cachedPriorityDebug.value = null;
     activePresetId.value = null;
   }
 
@@ -549,5 +557,7 @@ export function useFieldConfig(options = {}) {
     applyPreset,
     clearActivePreset,
     deletePreset,
+    // Debug
+    priorityDebug: computed(() => _cachedPriorityDebug.value),
   };
 }

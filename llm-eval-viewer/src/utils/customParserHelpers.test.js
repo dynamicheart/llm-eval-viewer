@@ -497,8 +497,8 @@ describe('detectFieldTypes', () => {
 
   it('handles empty rows', () => {
     const result = detectFieldTypes([], ['a', 'b']);
-    expect(result.a).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0 });
-    expect(result.b).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0 });
+    expect(result.a).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0 });
+    expect(result.b).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0 });
   });
 
   it('samples at most SAMPLE_SIZE_FOR_TYPE rows', () => {
@@ -1052,6 +1052,56 @@ describe('assignFieldVisibility', () => {
     expect(fields[1].key).toBe('error_code');
     expect(fields[0].visible).toBe(true);
     expect(fields[1].visible).toBe(true);
+  });
+
+  it('returns debugMeta with per-field scoring breakdown', () => {
+    const fields = [
+      makeField('Model', { isExpanded: false }),
+      makeField('@timestamp', { isExpanded: false }),
+      { key: 'messages', detectedType: 'conversation', isExpanded: true, emptyRate: 0, constantRate: 0 },
+    ];
+    const { debugMeta } = assignFieldVisibility(fields, 10);
+
+    expect(debugMeta).toHaveLength(3);
+
+    const modelDebug = debugMeta.find(d => d.key === 'Model');
+    expect(modelDebug.score).toBe(-50);  // high priority, no type penalty
+    expect(modelDebug.patternCategory).toBe('high');
+    expect(modelDebug.visible).toBe(true);
+    expect(modelDebug.visibilityReason).toBe('highPriority');
+
+    const tsDebug = debugMeta.find(d => d.key === '@timestamp');
+    expect(tsDebug.score).toBe(40);
+    expect(tsDebug.patternCategory).toBe('low');
+
+    const convDebug = debugMeta.find(d => d.key === 'messages');
+    expect(convDebug.score).toBe(-100);
+    expect(convDebug.patternCategory).toBe('conversation');
+    expect(convDebug.visible).toBe(true);
+  });
+
+  it('debugMeta tracks empty and constant penalties', () => {
+    const fields = [
+      { key: 'empty_field', detectedType: 'string', isExpanded: false, emptyRate: 0.96, constantRate: 0 },
+      { key: 'constant_field', detectedType: 'number', isExpanded: false, emptyRate: 0, constantRate: 1.0 },
+    ];
+    const { debugMeta } = assignFieldVisibility(fields, 10);
+
+    const emptyDebug = debugMeta.find(d => d.key === 'empty_field');
+    expect(emptyDebug.emptyPenalty).toBe(80);
+
+    const constDebug = debugMeta.find(d => d.key === 'constant_field');
+    expect(constDebug.constantPenalty).toBe(55);
+  });
+
+  it('debugMeta tracks depth penalty for deeply nested fields', () => {
+    const fields = [
+      { key: 'a.b.c.d', detectedType: 'string', isExpanded: true, emptyRate: 0, constantRate: 0 },
+    ];
+    const { debugMeta } = assignFieldVisibility(fields, 10);
+
+    expect(debugMeta[0].patternCategory).toBe('depth');
+    expect(debugMeta[0].patternPenalty).toBe(20);
   });
 });
 

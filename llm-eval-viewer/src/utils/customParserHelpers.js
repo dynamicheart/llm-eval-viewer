@@ -306,7 +306,11 @@ export function detectFieldTypes(rows, allKeys) {
       : acc.nonEmptyCount > 1 && acc.uniqueValues.size <= 2 ? 0.5
       : 0;
 
-    result[key] = { detectedType, isLongString, emptyRate, constantRate };
+    result[key] = {
+      detectedType, isLongString, emptyRate, constantRate,
+      uniqueCount: acc.uniqueValues.size,
+      avgValueLength: acc.stringCount > 0 ? Math.round(acc.stringLengthSum / acc.stringCount) : 0,
+    };
   }
 
   return result;
@@ -448,7 +452,7 @@ function matchesPatterns(patterns, key, lastSegment) {
  *   -50   matches HIGH_PRIORITY_PATTERNS (original field)
  *   -40   matches HIGH_PRIORITY_PATTERNS (expanded field)
  *     0   default
- *   +15   constantRate == 1.0 (all values identical, additive)
+ *   +55   constantRate == 1.0 (all values identical, additive)
  *   +20   deeply nested (>3 dot segments)
  *   +20   emptyRate >= 0.80 (additive)
  *   +80   emptyRate >= 0.95 (additive, replaces +20; overrides high-priority)
@@ -458,14 +462,26 @@ function matchesPatterns(patterns, key, lastSegment) {
  *
  * @param {Array} fields - field descriptors with { key, detectedType, isExpanded, emptyRate }
  * @param {number} maxVisible - max visible fields
- * @returns {Array} the same array, mutated with .visible, .searchable, .visibilityReason, etc.
+ * @returns {{ fields: Array, debugMeta: Array }} the same array (mutated) and per-field scoring debug info
  */
 export function assignFieldVisibility(fields, maxVisible = 10) {
   function fieldPriority(field) {
     const key = field.key;
     const lastSegment = key.split('.').pop();
+    const breakdown = {
+      patternCategory: 'none',   // 'high' | 'low' | 'depth' | 'conversation' | 'none'
+      patternPenalty: 0,
+      emptyPenalty: 0,
+      constantPenalty: 0,
+      uniqueBonus: 0,       // positive = more unique values
+      contentBonus: 0,      // positive = longer content
+      typeBonus: 0,         // type-based weight
+    };
 
-    if (field.detectedType === 'conversation' || field.detectedType === 'toolList') return -100;
+    if (field.detectedType === 'conversation' || field.detectedType === 'toolList') {
+      breakdown.patternCategory = 'conversation';
+      return { score: -100, breakdown };
+    }
 
     let priority = 0;
 
@@ -474,34 +490,79 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     const isLow = matchesPatterns(LOW_PRIORITY_PATTERNS, key, lastSegment);
 
     if (isHigh) {
-      priority = field.isExpanded ? -40 : -50;
+      // String-type time/latency fields matching token patterns (e.g. "FirstTokenTime")
+      // are formatted metrics like "123ms", not actual token counts → default priority
+      if (field.detectedType === 'string' && /time|interval/i.test(key)) {
+        priority = 0;
+        breakdown.patternCategory = 'none';
+      } else {
+        priority = field.isExpanded ? -40 : -50;
+        breakdown.patternCategory = 'high';
+      }
     } else if (isLow) {
       priority = 40;
+      breakdown.patternCategory = 'low';
     } else if (key.includes('.') && key.split('.').length > 3) {
       priority = 20;
+      breakdown.patternCategory = 'depth';
     }
+    breakdown.patternPenalty = priority;
 
     // Empty-rate additive penalty
     // Nearly-all-empty fields should be hidden regardless of pattern priority
     const emptyRate = field.emptyRate || 0;
-    if (emptyRate >= 0.95) priority += 80;
-    else if (emptyRate >= 0.80) priority += 20;
+    if (emptyRate >= 0.95) { priority += 80; breakdown.emptyPenalty = 80; }
+    else if (emptyRate >= 0.80) { priority += 20; breakdown.emptyPenalty = 20; }
 
     // Constant-value additive penalty (all rows have same value = low information)
+    // Strong enough to hide even high-priority constant fields (score -50 + 55 = +5)
     const constantRate = field.constantRate || 0;
-    if (constantRate >= 1.0) priority += 15;
+    if (constantRate >= 1.0) { priority += 55; breakdown.constantPenalty = 55; }
 
-    return priority;
+    // Unique count bonus: more unique values = more informative
+    // Clamped to avoid overwhelming other factors (max -5 bonus)
+    const uniqueCount = field.uniqueCount || 0;
+    if (uniqueCount > 1 && uniqueCount <= 5) {
+      priority -= 2;
+      breakdown.uniqueBonus = 2;
+    } else if (uniqueCount > 5) {
+      priority -= 5;
+      breakdown.uniqueBonus = 5;
+    }
+
+    // Content length bonus: longer average values = more informative content
+    const avgLen = field.avgValueLength || 0;
+    if (avgLen > 50) {
+      priority -= 5;
+      breakdown.contentBonus = 5;
+    } else if (avgLen > 10) {
+      priority -= 2;
+      breakdown.contentBonus = 2;
+    }
+
+    // Type weight: enum > number > string > boolean
+    // For high-priority fields that are string type (e.g. "123ms" time strings),
+    // apply a penalty since the value isn't a meaningful numeric metric
+    const type = field.detectedType;
+    if (type === 'enum') {
+      priority -= 3;
+      breakdown.typeBonus = 3;
+    } else if (type === 'number') {
+      priority -= 1;
+      breakdown.typeBonus = 1;
+    } else if (type === 'boolean') {
+      priority += 3;
+      breakdown.typeBonus = -3;
+    }
+
+    return { score: priority, breakdown };
   }
 
   fields.sort((a, b) => {
-    const pa = fieldPriority(a);
-    const pb = fieldPriority(b);
+    const pa = fieldPriority(a).score;
+    const pb = fieldPriority(b).score;
     if (pa !== pb) return pa - pb;
     if (a.isExpanded !== b.isExpanded) return a.isExpanded ? 1 : -1;
-    // Tiebreaker: long-content fields first (helps Chinese/non-English formats
-    // where field names don't match English priority patterns)
-    if (a.isLongString !== b.isLongString) return a.isLongString ? -1 : 1;
     return 0;
   });
 
@@ -510,7 +571,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
 
   for (const field of fields) {
     if (field.isExpanded) {
-      const priority = fieldPriority(field);
+      const priority = fieldPriority(field).score;
       const lastSegment = field.key.split('.').pop().toLowerCase();
       const isDuplicate = visibleKeysLower.has(lastSegment);
       field._isDuplicate = isDuplicate;
@@ -531,7 +592,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     } else {
       const lastSegment = field.key.split('.').pop().toLowerCase();
       const isDuplicate = visibleKeysLower.has(lastSegment);
-      const priority = fieldPriority(field);
+      const priority = fieldPriority(field).score;
       field._isDuplicate = isDuplicate;
       field.visible = !isDuplicate && priority < 30 && visibleCount < maxVisible;
       field.searchable = false;
@@ -552,7 +613,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
         field.visibilityReason = 'conversation';
       } else if (field.detectedType === 'toolList') {
         field.visibilityReason = 'toolList';
-      } else if (fieldPriority(field) < 0) {
+      } else if (fieldPriority(field).score < 0) {
         field.visibilityReason = 'highPriority';
       } else {
         field.visibilityReason = 'default';
@@ -564,9 +625,9 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
         field.visibilityReason = 'expandedNonChat';
       } else if ((field.emptyRate || 0) >= 0.80) {
         field.visibilityReason = 'mostlyEmpty';
-      } else if ((field.constantRate || 0) >= 1.0 && fieldPriority(field) >= 30) {
+      } else if ((field.constantRate || 0) >= 1.0 && fieldPriority(field).score >= 30) {
         field.visibilityReason = 'constant';
-      } else if (fieldPriority(field) >= 30) {
+      } else if (fieldPriority(field).score >= 30) {
         field.visibilityReason = 'lowPriority';
       } else {
         field.visibilityReason = 'maxVisible';
@@ -575,5 +636,27 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     delete field._isDuplicate;
   }
 
-  return fields;
+  const debugMeta = fields.map(field => {
+    const { score, breakdown } = fieldPriority(field);
+    return {
+      key: field.key,
+      score,
+      patternCategory: breakdown.patternCategory,
+      patternPenalty: breakdown.patternPenalty,
+      emptyPenalty: breakdown.emptyPenalty,
+      constantPenalty: breakdown.constantPenalty,
+      uniqueBonus: breakdown.uniqueBonus,
+      contentBonus: breakdown.contentBonus,
+      typeBonus: breakdown.typeBonus,
+      visible: field.visible,
+      visibilityReason: field.visibilityReason,
+      detectedType: field.detectedType,
+      emptyRate: field.emptyRate || 0,
+      constantRate: field.constantRate || 0,
+      uniqueCount: field.uniqueCount || 0,
+      avgValueLength: field.avgValueLength || 0,
+    };
+  });
+
+  return { fields, debugMeta };
 }

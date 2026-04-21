@@ -11,6 +11,7 @@ export default {
     copyFailed: '复制失败',
     nothingToCopy: '没有内容可复制',
     reset: '重置',
+    resetSuccess: '已恢复默认设置',
     detail: '详情',
     unknown: '未知',
     cancel: '取消',
@@ -214,6 +215,9 @@ export default {
     expandToolContent: '展开',
     collapseToolContent: '收起',
     filterConversation: '搜索过滤...',
+    filterTools: '搜索工具名称...',
+    messageCount: '{count} 条消息',
+    toolCount: '{count} 个工具',
     empty: '为空',
     visibilityReason: {
       conversation: '自动: 对话',
@@ -250,6 +254,9 @@ export default {
       cost: '推荐',
       result: '推荐',
     },
+    debug: '调试',
+    debugTitle: '字段优先级调试',
+    debugStatsSelection: '统计智能选择',
   },
 
   // === News Banner ===

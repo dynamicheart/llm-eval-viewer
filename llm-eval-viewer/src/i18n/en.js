@@ -11,6 +11,7 @@ export default {
     copyFailed: 'Copy failed',
     nothingToCopy: 'Nothing to copy',
     reset: 'Reset',
+    resetSuccess: 'Reset to defaults',
     detail: 'Detail',
     unknown: 'Unknown',
     cancel: 'Cancel',
@@ -214,6 +215,9 @@ export default {
     expandToolContent: 'Expand',
     collapseToolContent: 'Collapse',
     filterConversation: 'Filter...',
+    filterTools: 'Filter tools...',
+    messageCount: '{count} messages',
+    toolCount: '{count} tools',
     empty: 'empty',
     visibilityReason: {
       conversation: 'Auto: chat',
@@ -250,6 +254,9 @@ export default {
       cost: 'Suggested',
       result: 'Suggested',
     },
+    debug: 'Debug',
+    debugTitle: 'Field Priority Debug',
+    debugStatsSelection: 'Stats Smart Selection',
   },
 
   // === News Banner ===
