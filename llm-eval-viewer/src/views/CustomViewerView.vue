@@ -9,6 +9,7 @@
       :visible="showSidebar"
       :dir-tree="dirTree"
       :current-node-key="currentNodeKey"
+      :hint="$t('dirBrowser.scanDepthHint')"
       @select-run="onSelectDirFile"
       @resize="w => sidebarWidth = w"
     />

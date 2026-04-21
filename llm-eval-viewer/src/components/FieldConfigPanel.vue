@@ -1144,7 +1144,7 @@ export default {
 
 .reason-help {
   font-size: 12px;
-  cursor: help;
+  cursor: default;
   opacity: 0.5;
 }
 
@@ -1154,7 +1154,7 @@ export default {
 
 .rules-help {
   font-size: 14px;
-  cursor: help;
+  cursor: default;
   margin-left: 4px;
   opacity: 0.5;
   vertical-align: middle;

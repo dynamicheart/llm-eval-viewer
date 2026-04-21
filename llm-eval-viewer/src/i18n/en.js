@@ -105,6 +105,7 @@ export default {
     permissionDenied: 'Directory access permission denied',
     restoreFailed: 'Failed to restore directory',
     noMatchingFiles: 'No supported files found in directory (json/jsonl/csv/ndjson/tsv)',
+    scanDepthHint: 'Only scans one level of subdirectories for supported files',
   },
 
   // === Detail Dialog ===

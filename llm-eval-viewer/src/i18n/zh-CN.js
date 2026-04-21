@@ -105,6 +105,7 @@ export default {
     permissionDenied: '目录访问权限被拒绝',
     restoreFailed: '恢复目录失败',
     noMatchingFiles: '目录中未找到支持的文件（json/jsonl/csv/ndjson/tsv）',
+    scanDepthHint: '仅扫描一级子目录中的支持文件',
   },
 
   // === Detail Dialog ===

@@ -13,7 +13,12 @@
     <template v-if="!collapsed">
       <!-- Expanded: internal header bar -->
       <div class="sidebar-header">
-        <span class="sidebar-title">{{ $t('dirBrowser.title') }}</span>
+        <div style="display: flex; align-items: center;">
+          <span class="sidebar-title">{{ $t('dirBrowser.title') }}</span>
+          <el-tooltip v-if="hint" :content="hint" placement="bottom" :show-after="300">
+            <el-icon class="sidebar-hint-icon"><QuestionFilled /></el-icon>
+          </el-tooltip>
+        </div>
         <div class="toggle-btn-inside" @click="toggleCollapse">
           <el-icon :size="14"><ArrowLeft /></el-icon>
         </div>
@@ -51,7 +56,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-import { Folder, Document, ArrowLeft, ArrowRight } from '@element-plus/icons-vue';
+import { Folder, Document, ArrowLeft, ArrowRight, QuestionFilled } from '@element-plus/icons-vue';
 
 const STORAGE_KEY = 'dir_sidebar_width';
 const COLLAPSED_KEY = 'dir_sidebar_collapsed';
@@ -63,6 +68,7 @@ defineProps({
   visible: { type: Boolean, default: false },
   dirTree: { type: Array, default: () => [] },
   currentNodeKey: { type: String, default: '' },
+  hint: { type: String, default: '' },
 });
 
 const emit = defineEmits(['select-run', 'resize']);
@@ -160,6 +166,14 @@ function handleNodeClick(data) {
   font-size: 12px;
   color: var(--ev-text-secondary);
   user-select: none;
+}
+
+.sidebar-hint-icon {
+  font-size: 13px;
+  color: var(--ev-text-secondary);
+  opacity: 0.5;
+  margin-left: 4px;
+  cursor: default;
 }
 
 .toggle-btn-inside {
