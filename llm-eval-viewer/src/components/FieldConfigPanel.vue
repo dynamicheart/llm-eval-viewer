@@ -92,7 +92,15 @@
       </div>
 
       <!-- Column configuration -->
-      <el-divider content-position="left">{{ $t('custom.columnConfig') }}</el-divider>
+      <el-divider content-position="left">
+        {{ $t('custom.columnConfig') }}
+        <el-tooltip placement="top" :show-after="300">
+          <template #content>
+            <div style="white-space: pre-line; max-width: 360px">{{ $t('custom.visibilityRulesDesc') }}</div>
+          </template>
+          <el-icon class="rules-help"><QuestionFilled /></el-icon>
+        </el-tooltip>
+      </el-divider>
 
       <!-- Search & quick actions -->
       <div class="field-toolbar">
@@ -162,8 +170,11 @@
               </el-tag>
 
               <!-- Auto-visibility reason + empty rate annotation -->
-              <span v-if="field.visibilityReason" class="field-reason" :title="getReasonTooltip(field)">
+              <span v-if="field.visibilityReason" class="field-reason">
                 {{ getReasonLabel(field.visibilityReason) }}
+                <el-tooltip :content="getReasonDesc(field.visibilityReason)" placement="top" :show-after="300">
+                  <el-icon class="reason-help"><QuestionFilled /></el-icon>
+                </el-tooltip>
               </span>
               <span v-if="field.emptyRate > 0.5" class="field-empty-rate">
                 {{ Math.round(field.emptyRate * 100) }}% {{ $t('custom.empty') }}
@@ -224,10 +235,10 @@
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessageBox } from 'element-plus';
-import { ArrowRight, Search } from '@element-plus/icons-vue';
+import { ArrowRight, Search, QuestionFilled } from '@element-plus/icons-vue';
 
 export default {
-  components: { ArrowRight, Search },
+  components: { ArrowRight, Search, QuestionFilled },
 
   props: {
     visible: Boolean,
@@ -427,6 +438,10 @@ export default {
         parts.push(`${Math.round(field.emptyRate * 100)}% ${t('custom.empty')}`);
       }
       return parts.join(' · ');
+    }
+
+    function getReasonDesc(reason) {
+      return t(`custom.visibilityReasonDesc.${reason}`, '');
     }
 
     return {
@@ -664,6 +679,31 @@ export default {
   opacity: 0.7;
   white-space: nowrap;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.reason-help {
+  font-size: 12px;
+  cursor: help;
+  opacity: 0.5;
+}
+
+.reason-help:hover {
+  opacity: 1;
+}
+
+.rules-help {
+  font-size: 14px;
+  cursor: help;
+  margin-left: 4px;
+  opacity: 0.5;
+  vertical-align: middle;
+}
+
+.rules-help:hover {
+  opacity: 1;
 }
 
 .field-empty-rate {
