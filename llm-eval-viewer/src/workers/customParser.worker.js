@@ -10,8 +10,11 @@
 
 import Papa from 'papaparse';
 import {
+  isConversationLikeArray,
   isHomogeneousObjectArray,
+  isToolDefinitionsArray,
   formatConversationArray,
+  formatToolDefinitions,
   flattenValue,
   tryParseJsonString,
   detectFieldTypes,
@@ -27,12 +30,13 @@ const PHASE1_WEIGHT = 0.5; // Step 1 (parsing) occupies 0-50%, Step 2 (expanding
 
 self.onmessage = (e) => {
   const { text, expandNestedJsonStrings = true } = e.data;
+  const t0 = performance.now();
+  const timings = {};
 
   // 1. Parse input format
   let records;
   let isCsv = false;
   let phase1Done = false; // whether Step 1 needed per-line parsing
-  let rawLines = null; // original JSONL lines (used for _rawJsonText)
 
   const trimmed = text.trimStart();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -64,14 +68,12 @@ self.onmessage = (e) => {
       const lines = text.split('\n');
       const lineTotal = lines.length;
       records = new Array(lineTotal);
-      rawLines = new Array(lineTotal);
       let recordIdx = 0;
       for (let i = 0; i < lineTotal; i++) {
         const line = lines[i];
         if (!line) continue;
         try {
           records[recordIdx] = JSON.parse(line);
-          rawLines[recordIdx] = line;
           recordIdx++;
         } catch {
           // Skip malformed lines
@@ -82,11 +84,12 @@ self.onmessage = (e) => {
         }
       }
       records.length = recordIdx;
-      rawLines.length = recordIdx;
       self.postMessage({ type: 'progress', percent: Math.round(100 * PHASE1_WEIGHT) });
       phase1Done = true;
     }
   }
+
+  timings.formatDetect = performance.now() - t0;
 
   if (records.length === 0) {
     self.postMessage({
@@ -102,12 +105,18 @@ self.onmessage = (e) => {
   // 2. Build flat rows with recursive JSON string expansion
   const allExpandedKeys = new Set();
   const rows = new Array(total);
+  const tExpand = performance.now();
+
+  // Pre-compute shared topKeys from first record (CSV/JSON rows share columns)
+  const sharedTopKeys = expandNestedJsonStrings && total > 0
+    ? new Set(Object.keys(records[0]).map(k => k.toLowerCase()))
+    : null;
 
   for (let idx = 0; idx < total; idx++) {
     let record = records[idx];
 
     if (expandNestedJsonStrings) {
-      record = expandRecord(record);
+      record = expandRecord(record, 0, sharedTopKeys);
 
       const origKeys = new Set(Object.keys(records[idx]));
       for (const key of Object.keys(record)) {
@@ -118,8 +127,6 @@ self.onmessage = (e) => {
     }
 
     record.index = idx + 1;
-    // JSONL: reuse original line text (zero-cost). JSON/CSV: must re-serialize.
-    record._rawJsonText = phase1Done ? rawLines[idx] : JSON.stringify(records[idx]);
 
     rows[idx] = record;
 
@@ -134,7 +141,10 @@ self.onmessage = (e) => {
 
   self.postMessage({ type: 'progress', percent: 100 });
 
+  timings.expand = performance.now() - tExpand;
+
   // 3. Collect all keys and detect types
+  const tCollectKeys = performance.now();
   const allKeysSet = new Set();
   for (const row of rows) {
     for (const key of Object.keys(row)) {
@@ -144,9 +154,14 @@ self.onmessage = (e) => {
   }
   const allKeys = Array.from(allKeysSet);
 
+  const tDetectTypes = performance.now();
+  timings.collectKeys = tDetectTypes - tCollectKeys;
+
   const typeInfo = detectFieldTypes(rows, allKeys);
 
   // 4. Build field descriptors with smart priority sorting
+  const tBuildFields = performance.now();
+  timings.detectTypes = tBuildFields - tDetectTypes;
   const detectedFields = allKeys.map((key) => {
     const info = typeInfo[key] || { detectedType: 'string', isLongString: false };
     const isExpanded = allExpandedKeys.has(key);
@@ -164,12 +179,17 @@ self.onmessage = (e) => {
 
   assignFieldVisibility(detectedFields, DEFAULT_VISIBLE_FIELDS);
 
+  timings.buildFields = performance.now() - tBuildFields;
+
   // 5. Build schema snapshot from first record for structure preview
   const schemaSnapshot = buildSchemaSnapshot(records[0]);
+
+  timings.total = performance.now() - t0;
 
   self.postMessage({
     type: 'done',
     rows,
+    timings,
     fieldMeta: {
       detectedFields,
       expandCandidates: Array.from(allExpandedKeys).filter(k => !k.includes('.')),
@@ -221,25 +241,74 @@ function expandRecord(record, depth = 0, topKeys = null) {
 
   if (!topKeys) topKeys = new Set(Object.keys(record).map(k => k.toLowerCase()));
 
+  // Early scan: skip entire expansion if no expandable values exist.
+  const keys = Object.keys(record);
+  let hasExpandable = false;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (key.startsWith('_raw_')) continue;
+    const value = record[key];
+    if (typeof value === 'string' && value.length > 0) {
+      const c = value.charCodeAt(0);
+      if (c === 123 || c === 91) { hasExpandable = true; break; }
+    } else if (Array.isArray(value) && value.length >= 2) {
+      hasExpandable = true; break;
+    }
+  }
+  if (!hasExpandable) return record;
+
   let expanded = false;
   const result = { ...record };
 
-  for (const [key, value] of Object.entries(result)) {
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
     if (key.startsWith('_raw_')) continue;
+    const value = result[key];
+
+    // Handle already-array values (e.g., messages/tools in a single JSON object)
+    if (Array.isArray(value) && value.length >= 2 && depth === 0) {
+      if (isConversationLikeArray(value)) {
+        result[key] = formatConversationArray(value);
+        expanded = true;
+        continue;
+      }
+      if (isToolDefinitionsArray(value)) {
+        result[key] = formatToolDefinitions(value);
+        expanded = true;
+        continue;
+      }
+      if (isHomogeneousObjectArray(value)) {
+        const flat = flattenValue(value, key);
+        const flatKeys = Object.keys(flat);
+        for (let j = 0; j < flatKeys.length; j++) {
+          result[flatKeys[j]] = flat[flatKeys[j]];
+        }
+        delete result[key];
+        expanded = true;
+        continue;
+      }
+    }
+
     if (typeof value !== 'string') continue;
+    if (value.length > 0) {
+      const c = value.charCodeAt(0);
+      if (c !== 123 && c !== 91) continue;
+    }
     const parsed = tryParseJsonString(value);
     if (parsed !== null) {
       const flat = flattenValue(parsed, key);
 
-      for (const fk of Object.keys(flat)) {
+      const flatKeys = Object.keys(flat);
+      for (let j = 0; j < flatKeys.length; j++) {
+        const fk = flatKeys[j];
         const lastSegment = fk.includes('.') ? fk.split('.').slice(-1)[0] : fk;
         if (topKeys.has(lastSegment.toLowerCase())) delete flat[fk];
       }
 
       if (Object.keys(flat).length > 0) {
-        result[`_raw_${key}`] = value;
-        for (const [fk, fv] of Object.entries(flat)) {
-          result[fk] = fv;
+        const remaining = Object.keys(flat);
+        for (let j = 0; j < remaining.length; j++) {
+          result[remaining[j]] = flat[remaining[j]];
         }
         delete result[key];
         expanded = true;
@@ -248,8 +317,9 @@ function expandRecord(record, depth = 0, topKeys = null) {
   }
 
   if (expanded) {
-    for (const k of Object.keys(result)) {
-      if (!k.startsWith('_raw_')) topKeys.add(k.toLowerCase());
+    const resultKeys = Object.keys(result);
+    for (let i = 0; i < resultKeys.length; i++) {
+      topKeys.add(resultKeys[i].toLowerCase());
     }
     return expandRecord(result, depth + 1, topKeys);
   }

@@ -100,9 +100,9 @@
           </template>
 
           <template #default="{ row }">
-            <template v-if="col.detectedType === 'conversation'">
-              <span class="clickable-cell conversation-cell" @click="openConversation(row[col.key], row, col.key)">
-                <span class="conversation-tag">chat</span>
+            <template v-if="col.detectedType === 'conversation' || col.detectedType === 'toolList'">
+              <span class="clickable-cell conversation-cell" @click="openConversation(row[col.key], row, col.key, col)">
+                <span class="conversation-tag">{{ col.detectedType === 'toolList' ? 'tool' : 'chat' }}</span>
                 {{ truncateText(String(row[col.key] ?? ''), 80) }}
               </span>
             </template>
@@ -192,7 +192,8 @@
       :visible="conversationVisible"
       :text="conversationText"
       :messages="conversationMessages"
-      :title="$t('custom.conversationTitle')"
+      :title="conversationTitle"
+      :show-filter="conversationShowFilter"
       @update:visible="(val) => (conversationVisible = val)"
     />
   </div>
@@ -244,6 +245,8 @@ export default {
     const conversationVisible = ref(false);
     const conversationText = ref('');
     const conversationMessages = ref(null);
+    const conversationTitle = ref('');
+    const conversationShowFilter = ref(false);
     const samplePromptVisible = ref(false);
 
     const ONBOARDED_KEY = 'custom_viewer_onboarded';
@@ -410,9 +413,12 @@ export default {
      * the row's _raw_* field so ConversationDialog can render them directly
      * (avoiding the serialize→parse roundtrip).
      */
-    function openConversation(cellValue, row, colKey) {
+    function openConversation(cellValue, row, colKey, col) {
       conversationMessages.value = null;
       conversationText.value = cellValue || '';
+      const isToolList = col?.detectedType === 'toolList';
+      conversationTitle.value = isToolList ? t('custom.toolsTitle') : t('custom.conversationTitle');
+      conversationShowFilter.value = isToolList;
 
       if (row && colKey) {
         const dotIdx = colKey.indexOf('.');
@@ -470,12 +476,36 @@ export default {
     function createWorkerParse() {
       return (text, onProgress) => {
         return new Promise((resolve) => {
+          const tCreate = performance.now();
           const worker = new CustomWorker();
+          const tCreated = performance.now();
+          const tPost = performance.now();
+          worker.postMessage({
+            text,
+            expandNestedJsonStrings: true,
+          });
+          const tPosted = performance.now();
+
           worker.onmessage = (e) => {
             if (e.data.type === 'progress') {
               if (onProgress) onProgress(e.data.percent);
             } else if (e.data.type === 'done') {
+              const tReceive = performance.now();
               worker.terminate();
+
+              if (e.data.timings && import.meta.env.DEV) {
+                const t = e.data.timings;
+                console.log(
+                  '%c[Parser Pipeline]%c ' +
+                    `worker=${t.total?.toFixed(1)}ms | ` +
+                    `create=${(tCreated - tCreate).toFixed(1)}ms | ` +
+                    `postMsg=${(tPosted - tCreated).toFixed(1)}ms | ` +
+                    `transfer=${(tReceive - tPosted - t.total).toFixed(1)}ms`,
+                  'color:#0af;font-weight:bold',
+                  'color:inherit',
+                );
+              }
+
               resolve({
                 rows: e.data.rows,
                 fieldMeta: e.data.fieldMeta,
@@ -487,10 +517,6 @@ export default {
             worker.terminate();
             resolve({ rows: [], fieldMeta: { detectedFields: [], expandCandidates: [] } });
           };
-          worker.postMessage({
-            text,
-            expandNestedJsonStrings: true,
-          });
         });
       };
     }
@@ -617,6 +643,8 @@ export default {
       conversationVisible,
       conversationText,
       conversationMessages,
+      conversationTitle,
+      conversationShowFilter,
       expandInfo,
       // Sample prompt
       samplePromptVisible,

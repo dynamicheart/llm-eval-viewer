@@ -14,48 +14,61 @@
     <template #header>
       <div style="display: flex; justify-content: space-between; align-items: center">
         <span>{{ title }}</span>
-        <el-button size="small" type="primary" plain @click="copyContent">
-          {{ $t('common.copy') }}
-        </el-button>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <el-input
+            v-if="showFilter"
+            v-model="filterText"
+            size="small"
+            clearable
+            :placeholder="$t('custom.filterConversation')"
+            style="width: 200px"
+          />
+          <el-button size="small" type="primary" plain @click="copyContent">
+            {{ $t('common.copy') }}
+          </el-button>
+        </div>
       </div>
     </template>
 
-    <div v-if="parsed.length" class="chat-container">
+    <div v-if="filteredBlocks.length" class="chat-container">
       <div
-        v-for="(msg, idx) in parsed"
+        v-for="(msg, idx) in filteredBlocks"
         :key="idx"
         class="chat-msg"
         :class="'chat-' + msg.roleClass"
       >
         <div class="chat-role">
+          <span
+            v-if="isCollapsible(idx, msg)"
+            class="role-toggle"
+            @click="toggleCollapse(idx)"
+          >
+            <el-icon class="tool-arrow" :class="{ 'is-expanded': !isCollapsed(idx, msg) }">
+              <ArrowRight />
+            </el-icon>
+          </span>
           <span class="role-label">{{ msg.displayRole }}</span>
           <span v-if="msg.fnName" class="fn-name">{{ msg.fnName }}</span>
+          <span v-if="isCollapsible(idx, msg)" class="msg-length">{{ msg.content.length }} chars</span>
         </div>
 
         <!-- Tool call / tool result: render as collapsible JSON -->
         <template v-if="msg.isToolBlock">
-          <div class="tool-block">
-            <div class="tool-toggle" @click="toggleCollapse(idx)">
-              <el-icon class="tool-arrow" :class="{ 'is-expanded': !isCollapsed(idx, msg) }">
-                <ArrowRight />
-              </el-icon>
-              <span class="tool-toggle-label">
-                {{ isCollapsed(idx, msg) ? $t('custom.expandToolContent') : $t('custom.collapseToolContent') }}
-              </span>
-              <span class="tool-length">{{ msg.content.length }} chars</span>
-            </div>
-            <pre v-show="!isCollapsed(idx, msg)" class="tool-code"><code v-html="highlightJson(msg.content)"></code></pre>
+          <div v-show="!isCollapsed(idx, msg)" class="tool-block">
+            <pre class="tool-code"><code v-html="highlightJson(msg.content)"></code></pre>
           </div>
         </template>
 
         <!-- Normal message: render as markdown -->
         <template v-else>
-          <div
-            v-if="renderedHtmlMap[idx]"
-            class="chat-text markdown-body"
-            v-html="renderedHtmlMap[idx]"
-          ></div>
-          <div v-else class="chat-text">{{ msg.content }}</div>
+          <div v-show="!isCollapsed(idx, msg)" class="chat-text-wrapper">
+            <div
+              v-if="renderedHtmlMap[idx]"
+              class="chat-text markdown-body"
+              v-html="renderedHtmlMap[idx]"
+            ></div>
+            <div v-else class="chat-text">{{ msg.content }}</div>
+          </div>
         </template>
       </div>
     </div>
@@ -91,6 +104,7 @@ export default {
     text: { type: String, default: '' },
     messages: { type: Array, default: null },
     title: { type: String, default: '' },
+    showFilter: { type: Boolean, default: false },
   },
   emits: ['update:visible'],
 
@@ -232,12 +246,14 @@ export default {
         const trMatch = line.match(/^\[tool:([^\]]+)\]\s*(.*)/i);
         if (trMatch) {
           if (current) blocks.push(current);
+          const content = trMatch[2] || '';
+          const isDef = content.trimStart().startsWith('{');
           current = {
-            role: 'tool',
-            roleClass: 'tool-result',
-            displayRole: 'TOOL RESULT',
+            role: isDef ? 'tool_def' : 'tool',
+            roleClass: isDef ? 'tool-def' : 'tool-result',
+            displayRole: isDef ? 'TOOL' : 'TOOL RESULT',
             fnName: trMatch[1],
-            content: trMatch[2] || '',
+            content,
             isToolBlock: true,
           };
           continue;
@@ -276,30 +292,47 @@ export default {
       return blocks;
     });
 
+    const filterText = ref('');
+    const filteredBlocks = computed(() => {
+      const q = filterText.value.trim().toLowerCase();
+      if (!q) return parsed.value;
+      return parsed.value.filter(b =>
+        (b.fnName || '').toLowerCase().includes(q),
+      );
+    });
+
     /**
-     * Determine if a tool block at index `idx` should be collapsed.
+     * Whether a message at index `idx` supports collapsing (long content).
+     */
+    function isCollapsible(idx, msg) {
+      return msg.content.length >= 500;
+    }
+
+    /**
+     * Determine if a message at index `idx` should be collapsed.
      * Reads from the reactive `collapseState` ref — called directly in template.
      */
     function isCollapsed(idx, msg) {
       // Explicit user toggle always takes precedence
       if (idx in collapseState.value) return collapseState.value[idx];
       // Short content defaults to expanded
-      if (msg.content.length < 200) return false;
+      if (msg.content.length < 500) return false;
       // Default: collapsed
       return true;
     }
 
     function toggleCollapse(idx) {
-      const msg = parsed.value[idx];
+      const msg = filteredBlocks.value[idx];
       const current = isCollapsed(idx, msg);
       collapseState.value = { ...collapseState.value, [idx]: !current };
     }
 
-    // Reset collapse state when content changes (new dialog opened)
+    // Reset collapse state and filter when content changes (new dialog opened)
     watch(
       () => [props.messages, props.text],
       () => {
         collapseState.value = {};
+        filterText.value = '';
       },
     );
 
@@ -350,7 +383,7 @@ export default {
       }
     };
 
-    return { parsed, renderedHtmlMap, isCollapsed, toggleCollapse, highlightJson, copyContent };
+    return { parsed, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent };
   },
 };
 </script>
@@ -381,11 +414,35 @@ export default {
   margin-bottom: 4px;
 }
 
+.role-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-arrow {
+  font-size: 11px;
+  transition: transform 0.2s;
+  color: var(--ev-text-secondary);
+}
+
+.tool-arrow.is-expanded {
+  transform: rotate(90deg);
+}
+
 .role-label {
   font-size: 11px;
   font-weight: 600;
   opacity: 0.75;
   letter-spacing: 0.5px;
+}
+
+.msg-length {
+  font-size: 10px;
+  color: var(--ev-text-secondary);
+  opacity: 0.6;
+  margin-left: auto;
 }
 
 .fn-name {
@@ -488,40 +545,24 @@ export default {
   color: #1abc9c;
 }
 
+/* Tool Definition */
+.chat-tool-def {
+  background: #f0f5ff;
+  border-left: 3px solid #6366f1;
+}
+
+.chat-tool-def .role-label {
+  color: #6366f1;
+}
+
+.chat-tool-def .fn-name {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+
 /* Tool block (collapsible code) */
 .tool-block {
   margin-top: 4px;
-}
-
-.tool-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  cursor: pointer;
-  user-select: none;
-  padding: 2px 0;
-}
-
-.tool-arrow {
-  font-size: 11px;
-  transition: transform 0.2s;
-  color: var(--ev-text-secondary);
-}
-
-.tool-arrow.is-expanded {
-  transform: rotate(90deg);
-}
-
-.tool-toggle-label {
-  font-size: 11px;
-  color: var(--ev-text-secondary);
-}
-
-.tool-length {
-  font-size: 10px;
-  color: var(--ev-text-secondary);
-  opacity: 0.6;
-  margin-left: auto;
 }
 
 .tool-code {
@@ -575,6 +616,20 @@ html.dark .chat-tool-result .role-label {
 html.dark .chat-tool-result .fn-name {
   background: rgba(76, 212, 160, 0.15);
   color: #4cd4a0;
+}
+
+html.dark .chat-tool-def {
+  background: #1e2340;
+  border-left-color: #818cf8;
+}
+
+html.dark .chat-tool-def .role-label {
+  color: #818cf8;
+}
+
+html.dark .chat-tool-def .fn-name {
+  background: rgba(129, 140, 248, 0.15);
+  color: #818cf8;
 }
 
 html.dark .fn-name {

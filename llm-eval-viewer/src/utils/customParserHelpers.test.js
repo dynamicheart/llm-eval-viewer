@@ -170,6 +170,58 @@ describe('formatConversationArray', () => {
     expect(result).toContain('[tool_call:fn_a:c1]');
     expect(result).toContain('[tool_call:fn_b:c2]');
   });
+
+  it('handles OpenAI multimodal content (array with type:text parts)', () => {
+    const arr = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Hello from multimodal' },
+          { type: 'image_url', image_url: { url: 'https://example.com/img.png' } },
+        ],
+      },
+      { role: 'assistant', content: 'I see the image.' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Second user message' },
+        ],
+      },
+    ];
+    const result = formatConversationArray(arr);
+    // Should extract text from text parts, skip image_url
+    expect(result).toContain('[user] Hello from multimodal');
+    expect(result).not.toContain('example.com');
+    expect(result).toContain('[assistant] I see the image.');
+    expect(result).toContain('[user] Second user message');
+    // parseFromText roundtrip should recover all 3 blocks
+    const lines = result.split('\n');
+    const blocks = [];
+    let current = null;
+    for (const line of lines) {
+      const m = line.match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S+|tool:\S+)\]\s*(.*)/i);
+      if (m) {
+        if (current) blocks.push(current);
+        current = { role: m[1].split(':')[0].toLowerCase(), content: m[2] || '' };
+        continue;
+      }
+      if (current) current.content += (current.content ? '\n' : '') + line;
+    }
+    if (current) blocks.push(current);
+    expect(blocks.length).toBe(3);
+    expect(blocks.filter(b => b.role === 'user').length).toBe(2);
+  });
+
+  it('does not truncate by default (no maxLen)', () => {
+    const arr = [
+      { role: 'user', content: 'a'.repeat(300000) },
+      { role: 'assistant', content: 'short reply' },
+    ];
+    const result = formatConversationArray(arr);
+    // Should NOT be truncated — all content preserved
+    expect(result).toContain('short reply');
+    expect(result.length).toBeGreaterThan(300000);
+  });
 });
 
 // ===== flattenValue =====
@@ -943,7 +995,8 @@ describe('assignFieldVisibility', () => {
     expect(ts.visibilityReason).toBe('lowPriority');
 
     const expanded = fields.find(f => f.key === 'RequestData.model');
-    expect(expanded.visibilityReason).toBe('expandedNonChat');
+    // RequestData.model is deduped against top-level Model → reason is 'duplicate'
+    expect(expanded.visibilityReason).toBe('duplicate');
   });
 
   it('hides fields with >95% empty rate via penalty', () => {

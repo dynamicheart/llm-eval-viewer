@@ -58,11 +58,22 @@ export function isHomogeneousObjectArray(arr) {
  * Format a homogeneous object array into a readable conversation string.
  * Supports tool_calls on assistant messages and tool-role messages.
  */
-export function formatConversationArray(arr, maxLen = 2000) {
+export function formatConversationArray(arr, maxLen = Infinity) {
   const lines = [];
   for (const item of arr) {
     const role = item.role || '';
-    const content = typeof item.content === 'string' ? item.content : JSON.stringify(item.content || '');
+    let content;
+    if (typeof item.content === 'string') {
+      content = item.content;
+    } else if (Array.isArray(item.content)) {
+      // OpenAI multimodal format: [{type: "text", text: "..."}, {type: "image_url", ...}]
+      content = item.content
+        .filter(part => part.type === 'text')
+        .map(part => part.text || '')
+        .join('\n');
+    } else {
+      content = JSON.stringify(item.content || '');
+    }
 
     // Assistant message with tool_calls
     if (role === 'assistant' && Array.isArray(item.tool_calls) && item.tool_calls.length > 0) {
@@ -93,6 +104,30 @@ export function formatConversationArray(arr, maxLen = 2000) {
 }
 
 /**
+ * Format tool definitions as conversation-like text to reuse the chat preview.
+ * Uses [tool:name] prefix with JSON content — ConversationDialog distinguishes
+ * tool definitions (JSON content) from tool results (plain text) by content type.
+ */
+export function formatToolDefinitions(arr) {
+  return arr.map(item => {
+    const fn = item.function || item;
+    const name = fn.name || '?';
+    return `[tool:${name}] ${JSON.stringify(item)}`;
+  }).join('\n\n');
+}
+
+/**
+ * Detect if an array contains tool/function definitions (items with `function.name`).
+ */
+export function isToolDefinitionsArray(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  return arr.every(item =>
+    typeof item === 'object' && item !== null &&
+    typeof item.function?.name === 'string'
+  );
+}
+
+/**
  * Deep flatten an object/array into dot-notation keys.
  * Homogeneous object arrays are kept as single formatted fields.
  */
@@ -112,11 +147,11 @@ export function flattenValue(value, parentKey = '', depth = 0, maxDepth = 3) {
     // Conversation arrays (items have "role" key) are kept as single fields,
     // regardless of array size.
     if (isConversationLikeArray(value)) {
-      result[parentKey] = formatConversationArray(value, 100000);
+      result[parentKey] = formatConversationArray(value);
       return result;
     }
     if (isHomogeneousObjectArray(value)) {
-      result[parentKey] = formatConversationArray(value, 100000);
+      result[parentKey] = formatConversationArray(value);
       return result;
     }
     const limit = Math.min(value.length, MAX_ARRAY_EXPAND);
@@ -221,10 +256,16 @@ export function detectFieldTypes(rows, allKeys) {
         if (acc.uniqueValues.size <= ENUM_THRESHOLD) acc.uniqueValues.add(v);
         acc.stringLengthSum += v.length;
         acc.stringCount++;
-        // Track per-row conversation votes
+        // Track per-row conversation / tool-definition votes
         const lines = v.split('\n');
         if (lines.length >= 2 && lines.some(l => /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i.test(l.trim()))) {
           acc.conversationVotes = (acc.conversationVotes || 0) + 1;
+          // Tool definitions: ALL non-empty role lines are [tool:name] with JSON content
+          const roleLines = lines.filter(l => /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i.test(l.trim()));
+          const toolDefLines = roleLines.filter(l => /^\[tool:[^\]]+\]\s*\{/.test(l.trim()));
+          if (roleLines.length >= 2 && toolDefLines.length === roleLines.length) {
+            acc.toolDefVotes = (acc.toolDefVotes || 0) + 1;
+          }
         }
       }
     }
@@ -249,9 +290,9 @@ export function detectFieldTypes(rows, allKeys) {
     } else if (acc.typeCounts.boolean === total && total > 0) {
       detectedType = 'boolean';
     } else if (acc.typeCounts.string > 0) {
-      // Check conversation pattern first (before enum check)
+      // Check conversation / toolList pattern first (before enum check)
       if ((acc.conversationVotes || 0) > sampleSize * 0.3) {
-        detectedType = 'conversation';
+        detectedType = (acc.toolDefVotes || 0) > sampleSize * 0.3 ? 'toolList' : 'conversation';
       } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize && !isLongString) {
         detectedType = 'enum';
       } else {
@@ -271,45 +312,127 @@ export function detectFieldTypes(rows, allKeys) {
   return result;
 }
 
+// ===== Field Priority Configuration =====
+//
+// All field priority rules are defined here in one place.
+// Patterns are pluggable: import and extend to customize behavior.
+//
+// Usage:
+//   import { HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS } from '@/utils/customParserHelpers';
+//   // Add custom patterns:
+//   HIGH_PRIORITY_PATTERNS.push(/^my_important_field$/i);
+//
+// Matching logic:
+//   Each pattern is tested against both the full key AND its last dot-segment.
+//   E.g. key="RequestData.finish_reason" → also tests "finish_reason".
+//
+// Expanded field auto-visibility rules:
+//   conversation   → always visible
+//   enum + HIGH    → visible (good for filtering / distribution charts)
+//   number + HIGH  → visible only if non-constant (e.g. tokens vary, temperature=0.7 doesn't)
+//   string + HIGH  → NOT auto-visible (user can manually enable)
+//   any + not HIGH → NOT auto-visible
+
 /**
- * Pattern-based low-priority field rules.
- * Match infrastructure/metadata fields common across log formats.
+ * High-priority field patterns.
+ * Fields matching these are shown prominently in the table.
  */
-export const LOW_PRIORITY_PATTERNS = [
-  /^@/,              // @timestamp, @host, @offset ...
-  /^_raw/,           // internal expansion artifacts
-  /^index$/i,        // row index
-  /_?id$/i,          // request_id, 样本ID, TraceId ...
-  /_addr$/i,         // local_addr, remote_addr ...
-  /^trace/i,         // trace* series
-  /^span/i,          // span* series
-  /^service$/i,
-  /^func$/i,
-  /url$/i,           // ModelUrl, ModelPrefillUrl, ...
-  /header$/i,        // RequestHeader, ResponseHeader ...
-  /^strategy/i,      // StrategyType, ...
-  /^(request|schedule)(start|end)time$/i,  // timestamp details
-  /用时$/,            // 评测用时 (evaluation duration)
-  /时间$/,            // 更新时间, RequestStartTime ...
-  /序号$/,            // Prompt序列号 (serial number)
-  /^(样本|任务)\s*ID$/i,  // 样本ID, 任务 ID (sample/task identifiers)
+export const HIGH_PRIORITY_PATTERNS = [
+  // --- Model ---
+  /^model(_name)?$/i,            // Model, model_name (NOT ModelServiceName, ModelUrl)
+
+  // --- Token usage ---
+  /token/i,                      // OutputTokens, total_tokens, completion_tokens, prompt_tokens
+
+  // --- Cost / Latency ---
+  /^cost$/i,                     // Cost (NOT ScheduleCost, PreModelCost)
+  /^(latency|duration)/i,        // latency, latency_ms, duration
+
+  // --- Finish / Stop reason ---
+  /finish\w*[\s_]*reason$/i,      // finish_reason, FinishedReason, finished reason
+  /^stop_?reason$/i,             // StopReason, stop_reason
+
+  // --- Error ---
+  /^error[_]?(message|code|msg)?$/i,  // ErrorMessage, error_code, ErrorCode
+
+  // --- Content ---
+  /^(answer|reasoning)_?content$/i,    // AnswerContent, ReasoningContent
+
+  // --- Evaluation result (English) ---
+  /result/i,                         // result, model_output
+  /^model_?output$/i,                 // model_output (evalscope)
+
+  // --- Evaluation result (Chinese) ---
+  /结果/i,                           // 标注结果, 评分结果, 推理结果
+  /^(回答|答案|模型回答)/i,           // 模型回答, 回答内容
 ];
 
 /**
- * Pattern-based high-priority field rules.
- * Match fields commonly important in LLM evaluation/inference logs.
+ * Low-priority field patterns.
+ * Fields matching these are hidden by default (user can manually enable).
  */
-export const HIGH_PRIORITY_PATTERNS = [
-  /^model(_name)?$/i,            // Model, model_name (NOT ModelServiceName, ModelUrl)
-  /token/i,                      // OutputTokens, total_tokens, ...
-  /^cost$/i,                     // Cost (NOT ScheduleCost, PreModelCost)
-  /^finish_?reason$/i,           // FinishReason, finish_reason
-  /^stop_?reason$/i,             // StopReason, stop_reason
-  /^error[_]?(message|code|msg)?$/i,  // ErrorMessage, error_code, ErrorCode (NOT generic_error_rate)
-  /^(answer|reasoning)_?content$/i,      // AnswerContent, ReasoningContent
-  /result/i,                     // 标注结果-XXX, result, model_output (evalscope)
-  /^(latency|duration)/i,      // latency, latency_ms, duration (NOT sub-metrics like StreamIntervalAvg)
-  /^model_?output$/i,           // model_output (evalscope)
+export const LOW_PRIORITY_PATTERNS = [
+  // --- Infrastructure / observability ---
+  /^@/,                            // @timestamp, @host, @offset ...
+  /^_raw/,                         // internal expansion artifacts
+  /^index$/i,                      // row index
+  /^trace/i,                       // trace_id, traceId ...
+  /^span/i,                        // span_id, spanId ...
+  /^service$/i,                    // service
+  /^func$/i,                       // func
+  /_addr$/i,                       // local_addr, remote_addr ...
+  /url$/i,                         // ModelUrl, RequestUrl ...
+  /header$/i,                      // RequestHeader, ResponseHeader ...
+  /^strategy/i,                    // StrategyType ...
+
+  // --- Timestamps / duration ---
+  /^(request|schedule)(start|end)time$/i,  // RequestStartTime, ScheduleEndTime
+  /用时$/,                          // 评测用时
+  /时间$/,                          // 更新时间, 创建时间
+
+  // --- Identifiers ---
+  /_?id$/i,                        // request_id, 样本ID, TraceId, query_id
+  /^(样本|任务)\s*ID$/i,           // 样本ID, 任务 ID
+
+  // --- Serial numbers ---
+  /序号$/,                          // Prompt序列号
+
+  // --- Evaluation metadata (Chinese) ---
+  /^(评测|标注|评审|打分)(人|员|者)?$/i,  // 评测人, 标注员, 评审者
+  /状态$/,                          // 样本状态, 审核状态
+  /^(一|二|三|四|五)级?分类/,        // 一级分类, 二级分类, 三级分类
+  /^是否/,                          // 是否overlap, 是否正确
+];
+
+// ===== Stats Smart Selection =====
+//
+// Patterns for auto-selecting fields in distribution (pie) and histogram charts.
+// Ordered by priority: P1 = most important, picked first (up to max per category).
+// Each entry: { re: RegExp, reason: string }.
+// The `reason` key is stored in statsConfig.selectionReasons for smart tag display.
+
+/**
+ * Distribution (pie chart) smart selection patterns.
+ * Matches against enum fields. Max 2 selected.
+ */
+export const DISTRIBUTION_SELECT_PATTERNS = [
+  { re: /finish\w*[\s_]*reason/i,  reason: 'stopReason' },   // P1: finish_reason, FinishedReason
+  { re: /^stop_?reason/i,          reason: 'stopReason' },   // P1: stop_reason (alternative)
+  { re: /^model(_name)?$/i,       reason: 'model' },        // P2: Model, model_name
+  { re: /^error[_]?code$/i,       reason: 'errorCode' },    // P3: ErrorCode, error_code
+  { re: /result|结果/i,           reason: 'result' },       // P4: 标注结果, result
+];
+
+/**
+ * Histogram (bar chart) smart selection patterns.
+ * Matches against numeric fields. Max 2 selected.
+ */
+export const HISTOGRAM_SELECT_PATTERNS = [
+  { re: /input.?token|prompt.?token/i, reason: 'tokenUsage' },  // P1: input/prompt tokens
+  { re: /output.?token|completion.?token/i, reason: 'tokenUsage' }, // P2: output/completion tokens
+  { re: /^(latency|duration)/i,  reason: 'latency' },  // P3: latency, duration
+  { re: /total.?token/i,         reason: 'tokenUsage' }, // P4: total tokens
+  { re: /^cost$/i,               reason: 'cost' },       // P5: cost
 ];
 
 function matchesPatterns(patterns, key, lastSegment) {
@@ -342,7 +465,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     const key = field.key;
     const lastSegment = key.split('.').pop();
 
-    if (field.detectedType === 'conversation') return -100;
+    if (field.detectedType === 'conversation' || field.detectedType === 'toolList') return -100;
 
     let priority = 0;
 
@@ -387,14 +510,22 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
 
   for (const field of fields) {
     if (field.isExpanded) {
-      field.visible = field.detectedType === 'conversation';
+      const priority = fieldPriority(field);
+      const lastSegment = field.key.split('.').pop().toLowerCase();
+      const isDuplicate = visibleKeysLower.has(lastSegment);
+      field._isDuplicate = isDuplicate;
+      // Conversation always visible.
+      // High-priority enum expanded fields visible (for filtering/distribution).
+      // High-priority number expanded fields visible only if non-constant (e.g. tokens vary, temperature doesn't).
+      const isHighEnum = priority < 0 && field.detectedType === 'enum';
+      const isHighNumber = priority < 0 && field.detectedType === 'number' && (field.constantRate || 0) < 1.0;
+      field.visible = !isDuplicate && (field.detectedType === 'conversation' || field.detectedType === 'toolList' || isHighEnum || isHighNumber);
       field.searchable = field.detectedType === 'enum' || field.detectedType === 'string';
       field.filterable = field.detectedType === 'enum';
-      field.previewable = field.detectedType === 'conversation';
+      field.previewable = field.detectedType === 'conversation' || field.detectedType === 'toolList';
       field.sortable = field.detectedType === 'number';
-      field._isDuplicate = false;
       if (field.visible) {
-        visibleKeysLower.add(field.key.toLowerCase());
+        visibleKeysLower.add(lastSegment);
         visibleCount++;
       }
     } else {
@@ -419,6 +550,8 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     if (field.visible) {
       if (field.detectedType === 'conversation') {
         field.visibilityReason = 'conversation';
+      } else if (field.detectedType === 'toolList') {
+        field.visibilityReason = 'toolList';
       } else if (fieldPriority(field) < 0) {
         field.visibilityReason = 'highPriority';
       } else {

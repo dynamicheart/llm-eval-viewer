@@ -133,15 +133,31 @@ export function useFileHandler(options) {
 
       // 2. Parse via Worker with progress feedback
       await new Promise((r) => setTimeout(r, 50)); // let loading overlay render
+      const t0 = performance.now();
       const result = await parseData(text, (percent) => {
         loading.setText(`${t('common.loading')} ${percent}%`);
       });
+      const tParsed = performance.now();
 
       // Normalize result: parser may return { rows, ...extra } or just an array
       const isPlainArray = Array.isArray(result);
       const rows = isPlainArray ? result : result.rows;
       tableData.value = rows.map((r) => Object.freeze(r));
+      const tFreeze = performance.now();
+
       if (onParseResult) onParseResult(isPlainArray ? { rows } : result);
+      const tPostProcess = performance.now();
+
+      if (import.meta.env.DEV) {
+        console.log(
+        '%c[Main Thread Timings]%c ' +
+          `worker=${(tParsed - t0).toFixed(1)}ms | ` +
+          `freeze=${(tFreeze - tParsed).toFixed(1)}ms | ` +
+          `postProcess=${(tPostProcess - tFreeze).toFixed(1)}ms`,
+        'color:#a0f;font-weight:bold',
+        'color:inherit',
+      );
+      }
 
       // 3. Cache parsed result (async, don't block UI)
       // Skip caching empty results (parse errors / unsupported formats)
@@ -536,7 +552,8 @@ export function useFileHandler(options) {
     // Support multiple formats for backward compatibility:
     // 1. row.rawJson — pre-stringified JSON string (legacy)
     // 2. row._rawJsonObj — parsed object, stringify on demand (previous optimization)
-    // 3. row._rawJsonText — raw JSON text from worker, pretty-print on demand (current)
+    // 3. row._rawJsonText — raw JSON text from worker, pretty-print on demand (previous)
+    // 4. Fallback — stringify the row object directly (current default for custom viewer)
     let code = row.rawJson;
     if (!code && row._rawJsonObj) {
       code = JSON.stringify(row._rawJsonObj, null, 2);
@@ -547,6 +564,14 @@ export function useFileHandler(options) {
       } catch {
         code = row._rawJsonText;
       }
+    }
+    if (!code) {
+      // Custom viewer: stringify row, excluding internal fields
+      const clean = { ...row };
+      for (const key of Object.keys(clean)) {
+        if (key.startsWith('_raw_') || key === '_rawJsonText' || key === 'index') delete clean[key];
+      }
+      code = JSON.stringify(clean, null, 2);
     }
     code = code || '{}';
     dialogRawText.value = code;

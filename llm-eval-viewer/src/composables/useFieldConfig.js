@@ -4,6 +4,7 @@
  */
 
 import { ref, computed, watch } from 'vue';
+import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS } from '@/utils/customParserHelpers';
 
 /**
  * Field configuration manager for the Custom Viewer.
@@ -86,17 +87,7 @@ export function useFieldConfig(options = {}) {
     return result;
   });
 
-  // --- Smart selection patterns ---
-  const FINISH_REASON_RE = /finish_?reason/i;
-  const STOP_REASON_RE = /stop_?reason/i;
-  const MODEL_RE = /^model(_name)?$/i;
-  const ERROR_CODE_RE = /^error[_]?code$/i;
-  const INPUT_TOKEN_RE = /input.?token|prompt.?token/i;
-  const OUTPUT_TOKEN_RE = /output.?token|completion.?token/i;
-  const LATENCY_RE = /^(latency|duration)/i;
-  const TOTAL_TOKEN_RE = /total.?token/i;
-  const COST_RE = /^cost$/i;
-  const RESULT_RE = /result|结果/i; // 标注结果-XXX, result (evalscope)
+  // --- Smart selection (patterns defined in customParserHelpers.js) ---
 
   function _lastSegment(key) {
     return key.split('.').pop();
@@ -109,58 +100,35 @@ export function useFieldConfig(options = {}) {
   }
 
   /**
-   * Smart-select distribution fields from enum fields (max 2).
-   * Only selects fields matching known high-value patterns; returns empty if none match.
+   * Smart-select fields from a candidate list using pattern config.
+   * @param {Array} candidates - field descriptors
+   * @param {Array} patterns - [{ re, reason }] from customParserHelpers
+   * @param {number} max - max fields to select
    */
-  function _smartSelectDistFields(enumFields, max = 2) {
+  function _smartSelect(candidates, patterns, max = 2) {
     const selected = [];
     const reasons = {};
     const add = (f, r) => _tryAdd(selected, reasons, f, r, max);
 
-    // P1: FinishReason / StopReason — pick one
-    add(
-      enumFields.find((f) => FINISH_REASON_RE.test(_lastSegment(f.key)))
-        || enumFields.find((f) => STOP_REASON_RE.test(_lastSegment(f.key))),
-      'stopReason',
-    );
-
-    // P2: model / model_name
-    add(enumFields.find((f) => MODEL_RE.test(_lastSegment(f.key))), 'model');
-
-    // P3: error_code
-    add(enumFields.find((f) => ERROR_CODE_RE.test(_lastSegment(f.key))), 'errorCode');
-
-    // P4: result / 标注结果 (evaluation outcome)
-    add(enumFields.find((f) => RESULT_RE.test(_lastSegment(f.key))), 'result');
-
+    for (const { re, reason } of patterns) {
+      const match = candidates.find((f) => re.test(f.key) || re.test(_lastSegment(f.key)));
+      if (match) add(match, reason);
+      if (selected.length >= max) break;
+    }
     return { selected, reasons };
   }
 
   /**
+   * Smart-select distribution fields from enum fields (max 2).
    * Smart-select histogram fields from numeric fields (max 2).
-   * Only selects fields matching known high-value patterns; returns empty if none match.
+   * Patterns are defined in customParserHelpers.js alongside priority rules.
    */
+  function _smartSelectDistFields(enumFields, max = 2) {
+    return _smartSelect(enumFields, DISTRIBUTION_SELECT_PATTERNS, max);
+  }
+
   function _smartSelectHistFields(numericFields, max = 2) {
-    const selected = [];
-    const reasons = {};
-    const add = (f, r) => _tryAdd(selected, reasons, f, r, max);
-
-    // P1: input tokens
-    add(numericFields.find((f) => INPUT_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
-
-    // P2: output tokens
-    add(numericFields.find((f) => OUTPUT_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
-
-    // P3: latency / duration
-    add(numericFields.find((f) => LATENCY_RE.test(_lastSegment(f.key))), 'latency');
-
-    // P4: total tokens
-    add(numericFields.find((f) => TOTAL_TOKEN_RE.test(_lastSegment(f.key))), 'tokenUsage');
-
-    // P5: cost
-    add(numericFields.find((f) => COST_RE.test(_lastSegment(f.key))), 'cost');
-
-    return { selected, reasons };
+    return _smartSelect(numericFields, HISTOGRAM_SELECT_PATTERNS, max);
   }
 
   const CONFIG_VERSION = 5;
@@ -219,14 +187,15 @@ export function useFieldConfig(options = {}) {
       sortable: f.sortable ?? true,
     }));
 
-    // Auto-configure stats: smart-select only pattern-matched fields
-    // Distribution: keep constant fields (e.g. all "stop" FinishReason is still informative)
-    const visibleEnums = fields.filter((f) => f.detectedType === 'enum' && f.visible);
-    const { selected: distributionFields, reasons: distReasons } = _smartSelectDistFields(visibleEnums);
+    // Auto-configure stats: smart-select from ALL matching fields (not just visible).
+    // Low-priority enum fields (e.g. 一级分类, 样本状态) are hidden as columns
+    // but still valuable as distribution charts.
+    const allEnums = fields.filter((f) => f.detectedType === 'enum' && (f.emptyRate || 0) < 0.95);
+    const { selected: distributionFields, reasons: distReasons } = _smartSelectDistFields(allEnums);
 
     // Histogram: skip constant fields (single-bar histogram is useless)
-    const visibleNumbers = fields.filter((f) => f.detectedType === 'number' && f.visible && f.constantRate < 1.0);
-    const { selected: histogramFields, reasons: histReasons } = _smartSelectHistFields(visibleNumbers);
+    const allNumbers = fields.filter((f) => f.detectedType === 'number' && (f.emptyRate || 0) < 0.95 && (f.constantRate || 0) < 1.0);
+    const { selected: histogramFields, reasons: histReasons } = _smartSelectHistFields(allNumbers);
 
     return {
       version: CONFIG_VERSION,

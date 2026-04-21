@@ -377,8 +377,8 @@ describe('Regression: inference log field priority (ndjson)', () => {
       // Expanded fields (non-chat → hidden)
       { key: 'RequestData.model', detectedType: 'string', isExpanded: true, isLongString: false },
       { key: 'RequestData.stream', detectedType: 'boolean', isExpanded: true, isLongString: false },
-      { key: 'RequestData.max_tokens', detectedType: 'number', isExpanded: true, isLongString: false },
-      { key: 'RequestData.temperature', detectedType: 'number', isExpanded: true, isLongString: false },
+      { key: 'RequestData.max_tokens', detectedType: 'number', isExpanded: true, isLongString: false, constantRate: 1.0 },
+      { key: 'RequestData.temperature', detectedType: 'number', isExpanded: true, isLongString: false, constantRate: 1.0 },
       // Empty fields (mostlyEmpty → hidden)
       { key: 'SessionID', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
       { key: 'AppID', detectedType: 'string', isLongString: false, emptyRate: 1.0 },
@@ -450,17 +450,25 @@ describe('Regression: inference log field priority (ndjson)', () => {
     expect(reqId.visibilityReason).toBe('lowPriority');
   });
 
-  it('expanded non-chat fields are hidden', () => {
+  it('expanded non-chat fields: high-priority visible, others hidden', () => {
     const fields = makeInferenceLogFields();
     assignFieldVisibility(fields, 10);
     const visibleKeys = fields.filter(f => f.visible).map(f => f.key);
 
+    // RequestData.model deduped against top-level Model → hidden as duplicate
     expect(visibleKeys).not.toContain('RequestData.model');
-    expect(visibleKeys).not.toContain('RequestData.stream');
-    expect(visibleKeys).not.toContain('RequestData.max_tokens');
+    const rdModel = fields.find(f => f.key === 'RequestData.model');
+    expect(rdModel.visibilityReason).toBe('duplicate');
 
-    const expanded = fields.find(f => f.key === 'RequestData.model');
-    expect(expanded.visibilityReason).toBe('expandedNonChat');
+    // RequestData.stream is not high-priority → hidden as expandedNonChat
+    expect(visibleKeys).not.toContain('RequestData.stream');
+    const rdStream = fields.find(f => f.key === 'RequestData.stream');
+    expect(rdStream.visibilityReason).toBe('expandedNonChat');
+
+    // RequestData.max_tokens matches /token/i HIGH_PRIORITY but is number type → not auto-visible
+    expect(visibleKeys).not.toContain('RequestData.max_tokens');
+    const rdTokens = fields.find(f => f.key === 'RequestData.max_tokens');
+    expect(rdTokens.visibilityReason).toBe('expandedNonChat');
   });
 
   it('mostly-empty fields are hidden even if they match high-priority patterns', () => {
@@ -593,10 +601,9 @@ describe('Regression: Chinese CSV field priority (meval format)', () => {
     expect(visibleKeys).toContain('参考答案');
     expect(visibleKeys).toContain('模型回答-TestModel');
 
-    // And sorted before short metadata fields like 一级分类
+    // And sorted before short metadata fields
     const questionIdx = visibleKeys.indexOf('问题');
-    const categoryIdIdx = visibleKeys.indexOf('一级分类');
-    expect(questionIdx).toBeLessThan(categoryIdIdx);
+    expect(questionIdx).toBeLessThan(visibleKeys.indexOf('参考答案'));
   });
 
   it('field types are correctly detected for Chinese-named columns', () => {
@@ -617,5 +624,130 @@ describe('Regression: Chinese CSV field priority (meval format)', () => {
     for (const f of fields) {
       expect(f.visibilityReason).toBeTruthy();
     }
+  });
+});
+
+// ===== Direct pattern matching tests =====
+
+describe('HIGH_PRIORITY_PATTERNS match Chinese fields', () => {
+  function matchesHigh(key) {
+    const lastSegment = key.split('.').pop();
+    return HIGH_PRIORITY_PATTERNS.some(p => p.test(key) || p.test(lastSegment));
+  }
+
+  it('标注结果 matches (eval outcome)', () => {
+    expect(matchesHigh('标注结果')).toBe(true);
+    expect(matchesHigh('标注结果-TestModel')).toBe(true);
+  });
+
+  it('模型回答 matches (model answer)', () => {
+    expect(matchesHigh('模型回答')).toBe(true);
+    expect(matchesHigh('模型回答-TestModel')).toBe(true);
+  });
+
+  it('finished reason matches (with space)', () => {
+    expect(matchesHigh('finished reason')).toBe(true);
+  });
+
+  it('finish_reason matches', () => {
+    expect(matchesHigh('finish_reason')).toBe(true);
+  });
+});
+
+describe('LOW_PRIORITY_PATTERNS match Chinese metadata', () => {
+  function matchesLow(key) {
+    const lastSegment = key.split('.').pop();
+    return LOW_PRIORITY_PATTERNS.some(p => p.test(key) || p.test(lastSegment));
+  }
+
+  it('评测人 matches (evaluator)', () => {
+    expect(matchesLow('评测人')).toBe(true);
+  });
+
+  it('样本状态 matches (sample status)', () => {
+    expect(matchesLow('样本状态')).toBe(true);
+  });
+
+  it('一级分类/二级分类/三级分类 matches (classification levels)', () => {
+    expect(matchesLow('一级分类')).toBe(true);
+    expect(matchesLow('二级分类')).toBe(true);
+    expect(matchesLow('三级分类')).toBe(true);
+  });
+
+  it('是否overlap matches (boolean-like prefix)', () => {
+    expect(matchesLow('是否overlap')).toBe(true);
+  });
+});
+
+describe('Expanded high-priority fields are visible', () => {
+  it('expanded finish_reason sub-field is visible with highPriority reason', () => {
+    const fields = [
+      { key: 'conversation', detectedType: 'conversation', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'RequestData.finished_reason', detectedType: 'enum', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'RequestData.some_metadata', detectedType: 'string', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'RequestData.temperature', detectedType: 'number', isExpanded: true, emptyRate: 0, constantRate: 0.5, isLongString: false },
+    ];
+    assignFieldVisibility(fields, 10);
+
+    // conversation always visible
+    expect(fields[0].visible).toBe(true);
+    expect(fields[0].visibilityReason).toBe('conversation');
+
+    // expanded high-priority field (finish_reason) should be visible
+    expect(fields[1].visible).toBe(true);
+    expect(fields[1].visibilityReason).toBe('highPriority');
+
+    // expanded non-chat, non-high-priority → hidden
+    expect(fields[2].visible).toBe(false);
+    expect(fields[2].visibilityReason).toBe('expandedNonChat');
+
+    // expanded number field without high-priority → hidden
+    expect(fields[3].visible).toBe(false);
+    expect(fields[3].visibilityReason).toBe('expandedNonChat');
+  });
+
+  it('expanded high-priority number fields: non-constant visible, constant hidden', () => {
+    const fields = [
+      { key: 'RequestData.completion_tokens', detectedType: 'number', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'RequestData.cost', detectedType: 'number', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'RequestData.temperature', detectedType: 'number', isExpanded: true, emptyRate: 0, constantRate: 1.0, isLongString: false },
+      { key: 'RequestData.model', detectedType: 'enum', isExpanded: true, emptyRate: 0, constantRate: 1.0, isLongString: false },
+    ];
+    assignFieldVisibility(fields, 10);
+
+    // Non-constant number → visible
+    const tokens = fields.find(f => f.key === 'RequestData.completion_tokens');
+    expect(tokens.visible).toBe(true);
+    expect(tokens.visibilityReason).toBe('highPriority');
+
+    const costField = fields.find(f => f.key === 'RequestData.cost');
+    expect(costField.visible).toBe(true);
+    expect(costField.visibilityReason).toBe('highPriority');
+
+    // Constant number → hidden
+    const temp = fields.find(f => f.key === 'RequestData.temperature');
+    expect(temp.visible).toBe(false);
+    expect(temp.visibilityReason).toBe('expandedNonChat');
+
+    // Enum is visible regardless of constant
+    const model = fields.find(f => f.key === 'RequestData.model');
+    expect(model.visible).toBe(true);
+    expect(model.visibilityReason).toBe('highPriority');
+  });
+
+  it('expanded 标注结果 sub-field is visible with highPriority reason', () => {
+    const fields = [
+      { key: 'eval.标注结果', detectedType: 'enum', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+      { key: 'eval.评测人', detectedType: 'string', isExpanded: true, emptyRate: 0, constantRate: 0, isLongString: false },
+    ];
+    assignFieldVisibility(fields, 10);
+
+    // 标注结果 matches HIGH /结果/
+    expect(fields[0].visible).toBe(true);
+    expect(fields[0].visibilityReason).toBe('highPriority');
+
+    // 评测人 matches LOW → not high priority → hidden
+    expect(fields[1].visible).toBe(false);
+    expect(fields[1].visibilityReason).toBe('expandedNonChat');
   });
 });

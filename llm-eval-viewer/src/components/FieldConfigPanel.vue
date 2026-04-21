@@ -158,7 +158,7 @@
                 size="small"
                 class="field-type-tag"
               >
-                {{ field.detectedType === 'conversation' ? 'chat' : field.detectedType }}
+                {{ field.detectedType === 'conversation' ? 'chat' : field.detectedType === 'toolList' ? 'tool' : field.detectedType }}
               </el-tag>
 
               <!-- Auto-visibility reason + empty rate annotation -->
@@ -406,6 +406,7 @@ export default {
         case 'boolean': return 'warning';
         case 'enum': return 'success';
         case 'conversation': return 'danger';
+        case 'toolList': return 'primary';
         default: return 'info';
       }
     }
