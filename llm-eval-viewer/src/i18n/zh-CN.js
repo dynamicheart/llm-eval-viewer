@@ -104,6 +104,7 @@ export default {
     noCachedDir: '未找到缓存的目录',
     permissionDenied: '目录访问权限被拒绝',
     restoreFailed: '恢复目录失败',
+    noMatchingFiles: '目录中未找到支持的文件（json/jsonl/csv/ndjson/tsv）',
   },
 
   // === Detail Dialog ===

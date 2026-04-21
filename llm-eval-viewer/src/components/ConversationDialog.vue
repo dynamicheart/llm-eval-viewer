@@ -29,7 +29,7 @@
       </div>
     </template>
 
-    <div v-if="filteredBlocks.length" class="chat-container">
+    <div v-if="filteredBlocks.length" ref="chatContainerRef" class="chat-container">
       <div
         v-for="(msg, idx) in filteredBlocks"
         :key="idx"
@@ -77,7 +77,7 @@
 </template>
 
 <script>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 import { ArrowRight } from '@element-plus/icons-vue';
@@ -363,12 +363,18 @@ export default {
       collapseState.value = { ...collapseState.value, [idx]: !current };
     }
 
+    const chatContainerRef = ref(null);
+
     // Reset collapse state and filter when content changes (new dialog opened)
     watch(
       () => [props.messages, props.text],
       () => {
         collapseState.value = {};
         filterText.value = '';
+        // Reset scroll to top when switching between conversations/tools
+        nextTick(() => {
+          if (chatContainerRef.value) chatContainerRef.value.scrollTop = 0;
+        });
       },
     );
 
@@ -428,7 +434,7 @@ export default {
       }
     };
 
-    return { parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText };
   },
 };
 </script>

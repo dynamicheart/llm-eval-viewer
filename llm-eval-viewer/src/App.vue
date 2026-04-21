@@ -85,7 +85,7 @@
 
     <div class="nav-spacer"></div>
 
-    <header class="page-header" :style="shouldOffsetForSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}">
+    <header class="page-header" :style="sidebarMarginStyle">
       <img
         v-if="$route.path === '/evalscope/reviews' || $route.path === '/evalscope/predictions'"
         src="/evalscope_icon.png"
@@ -107,7 +107,7 @@
       </h1>
     </header>
 
-    <NewsBanner :style="shouldOffsetForSidebar ? { marginLeft: sidebarWidth + 'px', transition: 'margin-left 0.3s' } : {}" />
+    <NewsBanner :style="sidebarMarginStyle" />
 
     <router-view />
     <footer class="page-footer">
@@ -130,6 +130,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
+import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
 import { useDebugMode } from '@/composables/useDebugMode';
 import { setLocale, getLocale } from '@/i18n';
 import { useI18n } from 'vue-i18n';
@@ -141,6 +142,7 @@ export default {
   components: { NewsBanner, ArrowDown },
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
+    const customDir = useCustomDirBrowser();
     const { debugMode } = useDebugMode();
     const { t } = useI18n();
 
@@ -201,7 +203,7 @@ export default {
       }
     }
 
-    return { showSidebar, sidebarWidth, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick };
+    return { showSidebar, sidebarWidth, customDir, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick };
   },
   watch: {
     '$i18n.locale': {
@@ -221,9 +223,14 @@ export default {
     },
   },
   computed: {
-    shouldOffsetForSidebar() {
+    sidebarMarginStyle() {
       const path = this.$route.path;
-      return this.showSidebar && (path === '/evalscope/reviews' || path === '/evalscope/predictions');
+      const isEvalscope = path === '/evalscope/reviews' || path === '/evalscope/predictions';
+      const isCustom = path === '/custom';
+      const active = (isEvalscope && this.showSidebar) || (isCustom && this.customDir.showSidebar.value);
+      if (!active) return {};
+      const width = isCustom ? this.customDir.sidebarWidth.value : this.sidebarWidth;
+      return { marginLeft: width + 'px', transition: 'margin-left 0.3s' };
     },
     buildTime() {
       return typeof __BUILD_TIME__ !== 'undefined'

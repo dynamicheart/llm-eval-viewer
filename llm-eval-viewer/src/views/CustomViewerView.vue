@@ -4,14 +4,27 @@
 -->
 
 <template>
-  <div class="container">
+  <div class="container" :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0', transition: 'margin-left 0.3s' }">
+    <DirBrowserDrawer
+      :visible="showSidebar"
+      :dir-tree="dirTree"
+      :current-node-key="currentNodeKey"
+      @select-run="onSelectDirFile"
+      @resize="w => sidebarWidth = w"
+    />
+
     <FileToolbar
       :hint-text="hintText"
       :recent-files="recentFiles"
       :current-file-name="currentFileName"
       :format-size="formatSize"
       :format-time="formatTime"
-      :enable-dir-picker="false"
+      :enable-dir-picker="supportsDirectoryPicker"
+      :supports-dir-picker="supportsDirectoryPicker"
+      :browse-mode="browseMode"
+      :dir-name="dirName"
+      :dir-file-count="dirFileCount"
+      :recent-dirs="recentDirs"
       accept=".json,.jsonl,.ndjson,.log,.txt,.csv,.tsv"
       :button-text="$t('fileToolbar.selectFile')"
       @handle-file-select="onHandleFileSelect"
@@ -19,6 +32,9 @@
       @clear-recent-files="clearRecentFiles"
       @reset-file="resetFile"
       @remove-recent-file="removeRecentFile"
+      @open-directory="onOpenCustomDirectory"
+      @restore-directory="onRestoreCustomDirectory"
+      @remove-recent-dir="removeCachedDirHandle"
     />
 
     <div v-if="samplePromptVisible" class="sample-prompt">
@@ -218,6 +234,7 @@ import DistributionCard from '@/components/DistributionCard.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import FieldConfigPanel from '@/components/FieldConfigPanel.vue';
 import ConversationDialog from '@/components/ConversationDialog.vue';
+import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 
 import {
   saveFile,
@@ -230,6 +247,7 @@ import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
 import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
 import { useFieldConfig } from '@/composables/useFieldConfig';
+import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
 import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
@@ -244,6 +262,7 @@ export default {
     TableHeaderSearch,
     FieldConfigPanel,
     ConversationDialog,
+    DirBrowserDrawer,
   },
 
   setup() {
@@ -542,7 +561,15 @@ export default {
       };
     }
 
-    // ===== File handler =====
+    // ===== Directory browser (independent from evalscope) =====
+    const customDir = useCustomDirBrowser();
+    const {
+      dirTree, showSidebar, sidebarWidth,
+      browseMode, dirName, recentDirs, supportsDirectoryPicker,
+      selectedFileKey, currentNodeKey, dirFileCount,
+      removeCachedHandle: removeCachedDirHandle,
+      setSelectedFile, clearSelectedFile, findSelectedNode,
+    } = customDir;
     let currentFileId = null;
 
     const fileHandler = useFileHandler({
@@ -552,6 +579,8 @@ export default {
       parseData: parseCustom,
       tableModel,
       parserVersion: '3',
+      dirModeAware: true,
+      browseModeKey: 'custom_browse_mode',
       onParseResult: (result) => {
         if (result.fieldMeta) {
           // Use currentFileId if set (user action), otherwise fallback to localStorage
@@ -600,6 +629,40 @@ export default {
       columnFilterMap.clear();
       currentParseFn = createWorkerParse();
       await fileHandler.openRecentFile(item);
+      customDir.setBrowseMode('file');
+    }
+
+    // ===== Directory browsing handlers =====
+    async function onOpenCustomDirectory() {
+      const ok = await customDir.openDirectory();
+      if (ok) {
+        clearSelectedFile();
+        tableData.value = [];
+        reset();
+        expandInfo.value = [];
+        schemaSnapshot.value = null;
+      }
+    }
+
+    async function onRestoreCustomDirectory(name) {
+      const ok = await customDir.restoreCachedDirectory(name);
+      if (ok) {
+        clearSelectedFile();
+        tableData.value = [];
+        reset();
+        expandInfo.value = [];
+        schemaSnapshot.value = null;
+      }
+    }
+
+    async function onSelectDirFile(node) {
+      columnFilterMap.clear();
+      currentParseFn = createWorkerParse();
+      const text = await customDir.readFileNode(node);
+      const fileId = `dir_${node.relativePath}`;
+      currentFileId = fileId;
+      setSelectedFile(node.id);
+      await fileHandler.loadSampleText(node.relativePath, text);
     }
 
     function onFieldConfigSave() {
@@ -653,12 +716,18 @@ export default {
       samplePromptVisible.value = false;
     }
 
-    onMounted(() => {
+    onMounted(async () => {
       // Show sample prompt only for first-time users:
       // no onboarded flag AND no previously opened file in cache
       const hasCache = !!localStorage.getItem('custom_viewer_cache');
       if (!hasCache && !localStorage.getItem(ONBOARDED_KEY)) {
         samplePromptVisible.value = true;
+      }
+      // Try to restore cached directory and re-select last file
+      const restored = await customDir.tryRestoreCachedHandle();
+      if (restored) {
+        const node = findSelectedNode();
+        if (node) await onSelectDirFile(node);
       }
     });
 
@@ -724,6 +793,13 @@ export default {
       currentFileName,
       dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
       showDialog, showRawJsonDialog,
+      // Directory browser
+      showSidebar, sidebarWidth, dirTree, currentNodeKey,
+      supportsDirectoryPicker, browseMode, dirName, dirFileCount, recentDirs,
+      onOpenCustomDirectory,
+      onRestoreCustomDirectory,
+      onSelectDirFile,
+      removeCachedDirHandle,
       // Actions
       onHandleFileSelect,
       onOpenRecentFile,

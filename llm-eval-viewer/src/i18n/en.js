@@ -104,6 +104,7 @@ export default {
     noCachedDir: 'No cached directory found',
     permissionDenied: 'Directory access permission denied',
     restoreFailed: 'Failed to restore directory',
+    noMatchingFiles: 'No supported files found in directory (json/jsonl/csv/ndjson/tsv)',
   },
 
   // === Detail Dialog ===

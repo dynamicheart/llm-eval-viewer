@@ -49,6 +49,7 @@ const t = (key, named) => i18n.global.t(key, named || {});
  * @param {Function} [options.onParseResult] - Called with parse result after parse OR cache restore
  * @param {string} [options.hintText] - Placeholder hint text
  * @param {boolean} [options.dirModeAware] - Whether to skip auto-restore in directory mode
+ * @param {string} [options.browseModeKey] - localStorage key for browse mode (default: 'evalscope_browse_mode')
  * @param {Function|null} [options.validateContent] - Optional content validation function
  */
 export function useFileHandler(options) {
@@ -66,6 +67,7 @@ export function useFileHandler(options) {
     onParseResult = null,
     hintText = '',
     dirModeAware = false,
+    browseModeKey = 'evalscope_browse_mode',
     validateContent = null,
   } = options;
 
@@ -216,7 +218,7 @@ export function useFileHandler(options) {
 
     // In directory mode, only load recent file list, do not auto-restore single file data
     if (dirModeAware) {
-      const browseMode = localStorage.getItem('evalscope_browse_mode');
+      const browseMode = localStorage.getItem(browseModeKey);
       if (browseMode === 'directory') return;
     }
 
