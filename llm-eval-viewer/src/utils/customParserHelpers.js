@@ -357,7 +357,10 @@ export const HIGH_PRIORITY_PATTERNS = [
   // --- Token usage ---
   /token/i,                      // OutputTokens, total_tokens, completion_tokens, prompt_tokens
 
-  // --- Cost / Latency ---
+  // --- Cost ---
+  /^cost$/i,                       // Cost (NOT ScheduleCost, PreModelCost, FirstCharCost)
+
+  // --- Latency ---
   /^(latency|duration)/i,        // latency, latency_ms, duration
 
   // --- Finish / Stop reason ---

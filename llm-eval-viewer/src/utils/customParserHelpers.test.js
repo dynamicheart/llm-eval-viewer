@@ -497,8 +497,8 @@ describe('detectFieldTypes', () => {
 
   it('handles empty rows', () => {
     const result = detectFieldTypes([], ['a', 'b']);
-    expect(result.a).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0 });
-    expect(result.b).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0 });
+    expect(result.a).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false });
+    expect(result.b).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false });
   });
 
   it('samples at most SAMPLE_SIZE_FOR_TYPE rows', () => {

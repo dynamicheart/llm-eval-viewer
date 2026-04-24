@@ -484,14 +484,22 @@ describe('Regression: inference log field priority (ndjson)', () => {
     expect(errorMsg.visibilityReason).toBe('mostlyEmpty');
   });
 
-  it('maxVisible limit hides default-priority fields with lower scores', () => {
+  it('maxVisible limit hides fields with lower scores when slots are full', () => {
     const fields = makeInferenceLogFields();
     assignFieldVisibility(fields, 10);
     const hiddenKeys = fields.filter(f => !f.visible).map(f => f.key);
 
-    // These are default-priority (0) but outside maxVisible limit
-    expect(hiddenKeys).toContain('AnswerTokens');
-    expect(hiddenKeys).toContain('ReasoningTokens');
+    // AnswerTokens and ReasoningTokens now match /token/i → high priority.
+    // But with maxVisible=10 and Cost also promoted to high priority, both are pushed out.
+    const at = fields.find(f => f.key === 'AnswerTokens');
+    const rt = fields.find(f => f.key === 'ReasoningTokens');
+    expect(at.visibilityReason).toBe('maxVisible');
+    expect(rt.visibilityReason).toBe('maxVisible');
+
+    // Truly default-priority fields are hidden by maxVisible
+    expect(hiddenKeys).toContain('PreModelCost');
+    expect(hiddenKeys).toContain('FirstCharCost');
+    expect(hiddenKeys).toContain('ScheduleCost');
     // ErrorCode is high-priority (/error/i), so it's visible — verify it's NOT hidden
     expect(hiddenKeys).not.toContain('ErrorCode');
   });
