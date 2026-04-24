@@ -58,6 +58,23 @@
         </div>
       </div>
 
+      <!-- Data Plugins -->
+      <el-divider content-position="left">{{ $t('custom.dataPlugins') }}</el-divider>
+
+      <div v-if="registeredPlugins.length" class="config-section">
+        <div v-for="plugin in registeredPlugins" :key="plugin.id" class="plugin-row">
+          <el-switch
+            :model-value="isPluginEnabled(plugin.id)"
+            size="small"
+            @change="onPluginToggle(plugin.id)"
+          />
+          <div class="plugin-info">
+            <span class="plugin-name">{{ plugin.nameKey ? $t(plugin.nameKey) : plugin.name }}</span>
+            <span class="plugin-desc">{{ plugin.descriptionKey ? $t(plugin.descriptionKey) : plugin.description }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Stats configuration -->
       <el-divider content-position="left">{{ $t('custom.statsConfig') }}</el-divider>
 
@@ -173,7 +190,7 @@
                 size="small"
                 class="field-type-tag"
               >
-                {{ field.detectedType === 'conversation' ? 'chat' : field.detectedType === 'toolList' ? 'tool' : field.detectedType }}
+                {{ field.detectedType === 'conversation' ? 'chat' : field.detectedType === 'toolList' ? 'tool' : field.detectedType === 'nestedObject' ? 'JSON' : field.detectedType === 'decodedJson' ? 'decoded' : field.detectedType }}
               </el-tag>
 
               <!-- Auto-visibility reason + empty rate annotation -->
@@ -426,12 +443,14 @@ export default {
     priorityDebug: { type: Array, default: () => [] },
     debugMode: { type: Boolean, default: false },
     patternMatchCounts: { type: Object, default: () => null },
+    pluginConfig: { type: Object, default: () => ({ enabledPlugins: [] }) },
+    registeredPlugins: { type: Array, default: () => [] },
   },
 
   emits: [
     'close', 'save', 'stats-change', 'reset', 'recalculate',
     'save-preset', 'apply-preset', 'delete-preset', 'clear-preset',
-    'toggle-group',
+    'toggle-group', 'plugin-toggle',
   ],
 
   setup(props, { emit }) {
@@ -579,6 +598,14 @@ export default {
       });
     }
 
+    function isPluginEnabled(pluginId) {
+      return (props.pluginConfig?.enabledPlugins || []).includes(pluginId);
+    }
+
+    function onPluginToggle(pluginId) {
+      emit('plugin-toggle', pluginId);
+    }
+
     function onFieldChange() {
       // Field mutations are directly on the reactive object
     }
@@ -617,6 +644,8 @@ export default {
         case 'enum': return 'success';
         case 'conversation': return 'danger';
         case 'toolList': return 'primary';
+        case 'nestedObject': return 'success';
+        case 'decodedJson': return 'success';
         default: return 'info';
       }
     }
@@ -875,6 +904,8 @@ export default {
       toggleGroupCollapse,
       toggleShowOnlyVisible,
       onStatsChange,
+      isPluginEnabled,
+      onPluginToggle,
       onFieldChange,
       onReset,
       onSavePreset,
@@ -979,6 +1010,38 @@ export default {
   font-size: 13px;
   color: var(--ev-text-secondary);
   margin-bottom: 6px;
+}
+
+/* Plugin rows */
+.plugin-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.plugin-row + .plugin-row {
+  border-top: 1px solid var(--ev-border-color-lighter);
+}
+
+.plugin-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plugin-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ev-text-primary);
+}
+
+.plugin-desc {
+  font-size: 11px;
+  color: var(--ev-text-secondary);
+  line-height: 1.4;
 }
 
 .smart-tag {

@@ -24,6 +24,20 @@ export function useFieldConfig(options = {}) {
   const _cachedPriorityDebug = ref(null);
   const _cachedPatternMatchCounts = ref(null);
 
+  // ===== Plugin config =====
+  const pluginConfig = ref({
+    enabledPlugins: ['decodeNestedJson', 'reconstructDotNotation'],
+  });
+
+  function togglePlugin(pluginId) {
+    const idx = pluginConfig.value.enabledPlugins.indexOf(pluginId);
+    if (idx >= 0) {
+      pluginConfig.value.enabledPlugins.splice(idx, 1);
+    } else {
+      pluginConfig.value.enabledPlugins.push(pluginId);
+    }
+  }
+
   const activeColumns = computed(() => {
     if (!fieldConfig.value) return [];
     return fieldConfig.value.fields.filter((f) => f.visible);
@@ -133,7 +147,7 @@ export function useFieldConfig(options = {}) {
     return _smartSelect(numericFields, HISTOGRAM_SELECT_PATTERNS, max);
   }
 
-  const CONFIG_VERSION = 5;
+  const CONFIG_VERSION = 6;
 
   // ===== Debounced auto-save =====
   // Catches all mutations (including direct v-model changes from the panel)
@@ -237,6 +251,90 @@ export function useFieldConfig(options = {}) {
     _cachedFieldMeta.value = fieldMeta;
     _cachedPriorityDebug.value = fieldMeta.priorityDebug || null;
     _cachedPatternMatchCounts.value = fieldMeta.patternMatchCounts || computePatternMatchCounts(fieldMeta.detectedFields);
+    _doInitFromMeta(fileId, fieldMeta);
+  }
+
+  /**
+   * Update field config from plugin-modified metadata WITHOUT overwriting _cachedFieldMeta.
+   * Directly patches the current fieldConfig: adds new plugin fields, hides reconstructed ones,
+   * updates types. This avoids localStorage merge issues with stale saved configs.
+   */
+  function updateFromPluginMeta(fileId, fieldMeta) {
+    if (!fieldConfig.value || !fieldMeta?.detectedFields) return;
+
+    const currentKeys = new Set(fieldConfig.value.fields.map((f) => f.key));
+    const pluginMap = new Map();
+    for (const f of fieldMeta.detectedFields) {
+      pluginMap.set(f.key, f);
+    }
+
+    let updatedCount = 0;
+    let removedCount = 0;
+
+    // Remove array-indexed leaf fields entirely (e.g. X.tools.[0].function.name)
+    fieldConfig.value.fields = fieldConfig.value.fields.filter((field) => {
+      const pluginField = pluginMap.get(field.key);
+      if (!pluginField) return true;
+      if (pluginField.visibilityReason === 'reconstructed') {
+        removedCount++;
+        return false;
+      }
+      return true;
+    });
+
+    // Update remaining fields
+    for (const field of fieldConfig.value.fields) {
+      const pluginField = pluginMap.get(field.key);
+      if (!pluginField) continue;
+
+      // Hide reconstructed sub-fields (e.g. X.messages, X.top_p) but keep in config
+      if (pluginField.visibilityReason === 'reconstructed_sub') {
+        field.visible = false;
+        field.visibilityReason = 'reconstructed_sub';
+        continue;
+      }
+
+      // Update type if plugin changed it (e.g. string → toolList, string → nestedObject)
+      if (pluginField.detectedType && pluginField.detectedType !== field.detectedType) {
+        field.detectedType = pluginField.detectedType;
+        updatedCount++;
+      }
+
+      // Show plugin-identified toolList/conversation/reconstructed_root fields
+      if (pluginField.visibilityReason === 'toolList' || pluginField.visibilityReason === 'conversation' || pluginField.visibilityReason === 'reconstructed_root') {
+        field.visible = true;
+        field.visibilityReason = pluginField.visibilityReason;
+        updatedCount++;
+      }
+
+      // Sync plugin-added previewable flag (e.g. decodedJson, nestedObject)
+      if (pluginField.isPluginField && pluginField.previewable) {
+        field.previewable = true;
+      }
+    }
+
+    // Append new fields added by plugins (not in current config)
+    for (const pf of fieldMeta.detectedFields) {
+      if (currentKeys.has(pf.key)) continue;
+      if (!pf.isPluginField && pf.visibilityReason !== 'reconstructed' && pf.visibilityReason !== 'reconstructed_sub') continue;
+      fieldConfig.value.fields.push({
+        key: pf.key,
+        label: pf.label || pf.key,
+        detectedType: pf.detectedType || 'string',
+        emptyRate: pf.emptyRate || 0,
+        constantRate: pf.constantRate || 0,
+        visibilityReason: pf.visibilityReason || 'plugin',
+        visible: pf.visible ?? false,
+        searchable: pf.searchable ?? false,
+        filterable: pf.filterable ?? false,
+        previewable: pf.previewable ?? false,
+        sortable: pf.sortable ?? true,
+        isExpanded: pf.isExpanded || false,
+      });
+    }
+  }
+
+  function _doInitFromMeta(fileId, fieldMeta) {
     const storageKey = `${storagePrefix}_${fileId}`;
 
     const saved = localStorage.getItem(storageKey);
@@ -291,7 +389,8 @@ export function useFieldConfig(options = {}) {
         emptyRate: current.emptyRate || 0,
         constantRate: current.constantRate || 0,
         visibilityReason: current.visibilityReason || '',
-        visible: sf.visible ?? current.visible ?? true,
+        // Plugin-reconstructed fields override saved visibility
+        visible: (current.visibilityReason === 'reconstructed' || current.visibilityReason === 'reconstructed_sub') ? false : (sf.visible ?? current.visible ?? true),
         searchable: sf.searchable ?? current.searchable ?? false,
         filterable: sf.filterable ?? current.filterable ?? false,
         previewable: sf.previewable ?? current.previewable ?? false,
@@ -570,6 +669,7 @@ export function useFieldConfig(options = {}) {
     numericFields,
     fieldTree,
     initFromMeta,
+    updateFromPluginMeta,
     saveConfig,
     toggleFieldVisibility,
     updateFieldLabel,
@@ -593,5 +693,8 @@ export function useFieldConfig(options = {}) {
     priorityDebug: computed(() => _cachedPriorityDebug.value),
     patternMatchCounts: computed(() => _cachedPatternMatchCounts.value),
     recalculateScores,
+    // Plugins
+    pluginConfig,
+    togglePlugin,
   };
 }

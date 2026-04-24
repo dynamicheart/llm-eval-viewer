@@ -29,50 +29,78 @@
       </div>
     </template>
 
-    <div v-if="filteredBlocks.length" ref="chatContainerRef" class="chat-container">
-      <div
-        v-for="(msg, idx) in filteredBlocks"
-        :key="idx"
-        class="chat-msg"
-        :class="'chat-' + msg.roleClass"
-      >
-        <div class="chat-role">
-          <span
-            v-if="isCollapsible(idx, msg)"
-            class="role-toggle"
-            @click="toggleCollapse(idx)"
-          >
-            <el-icon class="tool-arrow" :class="{ 'is-expanded': !isCollapsed(idx, msg) }">
-              <ArrowRight />
-            </el-icon>
-          </span>
-          <span class="role-label">{{ msg.displayRole }}</span>
-          <span v-if="msg.fnName" class="fn-name">{{ msg.fnName }}</span>
-          <span v-if="msg.callId" class="call-id" @click.stop="copyText(msg.callId)">{{ msg.callId }}</span>
-          <span v-if="msg.content" class="msg-length">{{ msg.content.length }} chars</span>
+    <div v-if="toolBlocks.length || filteredBlocks.length" class="chat-scroll-wrapper">
+      <div v-if="toolBlocks.length" class="tools-section">
+        <div class="tools-section-title">TOOLS ({{ toolBlocks.length }})</div>
+        <div
+          v-for="(tool, idx) in toolBlocks"
+          :key="'tool-' + idx"
+          class="chat-msg chat-tool-def"
+        >
+          <div class="chat-role">
+            <span
+              v-if="isCollapsibleTool(idx, tool)"
+              class="role-toggle"
+              @click="toggleToolCollapse(idx)"
+            >
+              <el-icon class="tool-arrow" :class="{ 'is-expanded': !isToolCollapsed(idx) }">
+                <ArrowRight />
+              </el-icon>
+            </span>
+            <span class="role-label">TOOL</span>
+            <span v-if="tool.fnName" class="fn-name">{{ tool.fnName }}</span>
+          </div>
+          <div v-show="!isToolCollapsed(idx)" class="tool-block">
+            <pre class="tool-code"><code v-html="highlightJson(tool.content)"></code></pre>
+          </div>
         </div>
+      </div>
 
-        <!-- Tool call / tool result: render as collapsible JSON -->
-        <template v-if="msg.isToolBlock">
-          <div v-show="!isCollapsed(idx, msg)" class="tool-block">
-            <pre class="tool-code"><code v-html="highlightJson(msg.content)"></code></pre>
+      <div v-if="filteredBlocks.length" class="chat-container">
+        <div
+          v-for="(msg, idx) in filteredBlocks"
+          :key="idx"
+          class="chat-msg"
+          :class="'chat-' + msg.roleClass"
+        >
+          <div class="chat-role">
+            <span
+              v-if="isCollapsible(idx, msg)"
+              class="role-toggle"
+              @click="toggleCollapse(idx)"
+            >
+              <el-icon class="tool-arrow" :class="{ 'is-expanded': !isCollapsed(idx, msg) }">
+                <ArrowRight />
+              </el-icon>
+            </span>
+            <span class="role-label">{{ msg.displayRole }}</span>
+            <span v-if="msg.fnName" class="fn-name">{{ msg.fnName }}</span>
+            <span v-if="msg.callId" class="call-id" @click.stop="copyText(msg.callId)">{{ msg.callId }}</span>
+            <span v-if="msg.content" class="msg-length">{{ msg.content.length }} chars</span>
           </div>
-        </template>
 
-        <!-- Normal message: render as markdown -->
-        <template v-else>
-          <div v-show="!isCollapsed(idx, msg)" class="chat-text-wrapper">
-            <div
-              v-if="renderedHtmlMap[idx]"
-              class="chat-text markdown-body"
-              v-html="renderedHtmlMap[idx]"
-            ></div>
-            <div v-else class="chat-text">{{ msg.content }}</div>
-          </div>
-        </template>
+          <!-- Tool call / tool result: render as collapsible JSON -->
+          <template v-if="msg.isToolBlock">
+            <div v-show="!isCollapsed(idx, msg)" class="tool-block">
+              <pre class="tool-code"><code v-html="highlightJson(msg.content)"></code></pre>
+            </div>
+          </template>
+
+          <!-- Normal message: render as markdown -->
+          <template v-else>
+            <div v-show="!isCollapsed(idx, msg)" class="chat-text-wrapper">
+              <div
+                v-if="renderedHtmlMap[idx]"
+                class="chat-text markdown-body"
+                v-html="renderedHtmlMap[idx]"
+              ></div>
+              <div v-else class="chat-text">{{ msg.content }}</div>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
-    <div v-else class="chat-empty">{{ $t('detailDialog.noSolution') }}</div>
+    <div v-if="!filteredBlocks.length && !toolBlocks.length" class="chat-empty">{{ $t('detailDialog.noSolution') }}</div>
   </el-dialog>
 </template>
 
@@ -103,6 +131,7 @@ export default {
     visible: Boolean,
     text: { type: String, default: '' },
     messages: { type: Array, default: null },
+    tools: { type: Array, default: null },
     title: { type: String, default: '' },
     showFilter: { type: Boolean, default: true },
     filterFn: { type: Function, default: null },
@@ -118,6 +147,38 @@ export default {
     const collapseState = ref({});
     // Rendered HTML is also a separate reactive ref keyed by block index.
     const renderedHtmlMap = ref({});
+
+    // Tool blocks from tools prop (reconstructed tools array)
+    const toolCollapseState = ref({});
+
+    const toolBlocks = computed(() => {
+      if (!Array.isArray(props.tools) || props.tools.length === 0) return [];
+      return props.tools.map((tool) => {
+        const fn = tool.function || tool;
+        const name = fn.name || 'unknown';
+        const content = typeof tool === 'string' ? tool : JSON.stringify(tool, null, 2);
+        return { fnName: name, content };
+      });
+    });
+
+    function isCollapsibleTool(idx, tool) {
+      return tool.content.length > 0;
+    }
+
+    function isToolCollapsed(idx) {
+      if (idx in toolCollapseState.value) return toolCollapseState.value[idx];
+      if (toolBlocks.value[idx]?.content.length < 500) return false;
+      return true;
+    }
+
+    function toggleToolCollapse(idx) {
+      toolCollapseState.value = { ...toolCollapseState.value, [idx]: !isToolCollapsed(idx) };
+    }
+
+    // Reset tool collapse when tools change
+    watch(() => props.tools, () => {
+      toolCollapseState.value = {};
+    });
 
     /**
      * Build display blocks from structured messages array (OpenAI format).
@@ -434,7 +495,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse };
   },
 };
 </script>
@@ -446,10 +507,29 @@ export default {
   font-weight: 400;
 }
 
-.chat-container {
+/* Unified scroll wrapper for tools + chat */
+.chat-scroll-wrapper {
   max-height: 72vh;
   overflow-y: auto;
   padding: 4px 0;
+}
+
+.chat-container {
+  /* no separate max-height, nested inside scroll wrapper */
+}
+
+.tools-section {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.tools-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6366f1;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  padding-left: 4px;
 }
 
 .chat-empty {

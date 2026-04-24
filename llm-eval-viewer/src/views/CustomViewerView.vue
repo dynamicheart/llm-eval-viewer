@@ -124,6 +124,12 @@
                 {{ truncateText(String(row[col.key] ?? ''), 80) }}
               </span>
             </template>
+            <template v-else-if="col.detectedType === 'nestedObject'">
+              <span class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
+                <span class="conversation-tag" style="background: var(--ev-color-success-light-9, rgba(103,194,58,0.1)); color: var(--ev-color-success, #67c23a);">JSON</span>
+                {{ truncateText(String(row[col.key] ?? ''), 80) }}
+              </span>
+            </template>
             <template v-else-if="col.previewable">
               <el-tooltip
                 v-if="isLongValue(row[col.key])"
@@ -198,6 +204,8 @@
       :priority-debug="priorityDebug"
       :debug-mode="debugMode"
       :pattern-match-counts="patternMatchCounts"
+      :plugin-config="pluginConfig"
+      :registered-plugins="registeredPlugins"
       @close="showFieldConfig = false"
       @save="onFieldConfigSave"
       @stats-change="onStatsChange"
@@ -208,12 +216,14 @@
       @clear-preset="clearActivePreset"
       @toggle-group="onToggleGroup"
       @recalculate="onRecalculateScores"
+      @plugin-toggle="onPluginToggle"
     />
 
     <ConversationDialog
       :visible="conversationVisible"
       :text="conversationText"
       :messages="conversationMessages"
+      :tools="conversationTools"
       :title="conversationTitle"
       :show-filter="true"
       :filter-placeholder="conversationFilterPlaceholder"
@@ -224,7 +234,7 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 
@@ -252,6 +262,10 @@ import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
 import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
+import { runPlugins, getRegisteredPlugins } from '@/plugins/pluginRegistry';
+import '@/plugins/reconstructDotNotation';
+import '@/plugins/extractMessageStats';
+import '@/plugins/decodeNestedJson';
 import CustomWorker from '@/workers/customParser.worker.js?worker';
 
 export default {
@@ -274,6 +288,7 @@ export default {
     const conversationVisible = ref(false);
     const conversationText = ref('');
     const conversationMessages = ref(null);
+    const conversationTools = ref(null);
     const conversationTitle = ref('');
     const conversationFilterPlaceholder = ref('');
     const conversationIsToolList = ref(false);
@@ -302,6 +317,7 @@ export default {
       numericFields,
       fieldTree,
       initFromMeta,
+      updateFromPluginMeta,
       saveConfig: saveFieldConfig,
       toggleGroupVisibility,
       setStatsConfig,
@@ -323,6 +339,34 @@ export default {
 
     // ===== Expanded field info =====
     const expandInfo = ref([]);
+
+    // ===== Raw data cache for plugin re-processing =====
+    const _rawRows = ref([]);
+    const _rawFieldMeta = ref(null);
+
+    // ===== Plugin processing =====
+    const {
+      pluginConfig,
+      togglePlugin,
+    } = fieldConfigState;
+
+    const registeredPlugins = getRegisteredPlugins();
+
+    function applyPlugins() {
+      if (!_rawRows.value.length || !_rawFieldMeta.value) return;
+      const { rows, fieldMeta } = runPlugins(
+        _rawRows.value,
+        _rawFieldMeta.value,
+        pluginConfig.value.enabledPlugins,
+      );
+      tableData.value = rows;
+      updateFromPluginMeta(lastFileId.value, fieldMeta);
+    }
+
+    function onPluginToggle(pluginId) {
+      togglePlugin(pluginId);
+      applyPlugins();
+    }
 
     // ===== Dynamic keyword refs =====
     const keywordRefs = reactive({});
@@ -385,6 +429,165 @@ export default {
       if (typeof value !== 'number') return value;
       if (Number.isInteger(value)) return value.toLocaleString();
       return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+    }
+
+    /**
+     * Clean a row object for JSON display (remove internal fields).
+     */
+    function cleanRowForJson(row) {
+      const clean = { ...row };
+      for (const key of Object.keys(clean)) {
+        if (key.startsWith('_raw_') || key.startsWith('_reconstructed_') || key.startsWith('_plugin_') || key.startsWith('_decoded_') || key === '_rawJsonText' || key === 'index') {
+          delete clean[key];
+        }
+      }
+      return clean;
+    }
+
+    /**
+     * Highlight JSON string for display.
+     */
+    function highlightJsonCode(code) {
+      try {
+        const obj = JSON.parse(code);
+        return renderCollapsibleJson(obj);
+      } catch {
+        return `<pre style="margin:0"><code>${escapeHtml(code)}</code></pre>`;
+      }
+    }
+
+    let _jsonNodeId = 0;
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    /**
+     * Render a JSON value as collapsible HTML with syntax highlighting.
+     * Objects and arrays get a toggle button (▼/▶) to collapse/expand.
+     */
+    function renderCollapsibleJson(value, depth) {
+      if (depth === undefined) depth = 0;
+
+      if (value === null) return '<span class="jc-null">null</span>';
+      if (typeof value === 'boolean') return '<span class="jc-bool">' + value + '</span>';
+      if (typeof value === 'number') return '<span class="jc-num">' + value + '</span>';
+      if (typeof value === 'string') {
+        const maxLen = 500;
+        const display = value.length > maxLen ? escapeHtml(value.substring(0, maxLen)) + '<span class="jc-ellipsis">…</span>' : escapeHtml(value);
+        return '<span class="jc-str">"' + display + '"</span>';
+      }
+
+      if (Array.isArray(value)) {
+        if (value.length === 0) return '<span class="jc-null">[]</span>';
+        var id = 'jcn_' + (_jsonNodeId++);
+        var indent = '  '.repeat(depth);
+        var childIndent = '  '.repeat(depth + 1);
+        var items = value.map(function(item) { return childIndent + renderCollapsibleJson(item, depth + 1); }).join(',\n');
+        return '<span class="jc-toggle" data-jcid="' + id + '"></span><span class="jc-bracket">[</span><span class="jc-preview" id="' + id + '_p"> ' + value.length + ' items ]</span><span class="jc-body" id="' + id + '">\n' + items + '\n' + indent + '</span><span class="jc-bracket">]</span>';
+      }
+
+      if (typeof value === 'object') {
+        var keys = Object.keys(value);
+        if (keys.length === 0) return '<span class="jc-null">{}</span>';
+        var id = 'jcn_' + (_jsonNodeId++);
+        var indent = '  '.repeat(depth);
+        var childIndent = '  '.repeat(depth + 1);
+        var entries = keys.map(function(key) {
+          return childIndent + '<span class="jc-key">"' + escapeHtml(key) + '"</span>: ' + renderCollapsibleJson(value[key], depth + 1);
+        }).join(',\n');
+        return '<span class="jc-toggle" data-jcid="' + id + '"></span><span class="jc-bracket">{</span><span class="jc-preview" id="' + id + '_p"> ' + keys.length + ' keys }</span><span class="jc-body" id="' + id + '">\n' + entries + '\n' + indent + '</span><span class="jc-bracket">}</span>';
+      }
+
+      return escapeHtml(String(value));
+    }
+
+    /**
+     * Render a JSON string as collapsible HTML.
+     */
+    function highlightJsonCollapsible(code) {
+      try {
+        _jsonNodeId = 0;
+        var obj = JSON.parse(code);
+        var html = renderCollapsibleJson(obj, 0);
+        return '<pre class="jc-root" style="margin:0;line-height:1.6;font-family:Menlo,Monaco,Consolas,monospace;font-size:13px">' + html + '</pre>';
+      } catch {
+        return '<pre style="margin:0"><code>' + escapeHtml(code) + '</code></pre>';
+      }
+    }
+
+    function onJsonToggleClick(e) {
+      var toggle = e.target.closest('.jc-toggle');
+      if (!toggle) return;
+      var id = toggle.dataset.jcid;
+      var body = document.getElementById(id);
+      if (body) {
+        body.classList.toggle('collapsed');
+        toggle.classList.toggle('collapsed');
+      }
+    }
+
+    /**
+     * Show JSON dialog for a single reconstructed field (e.g. RequestData).
+     */
+    function showFieldJson(row, colKey) {
+      // Try _reconstructed_ first (from reconstruct plugin), then _decoded_ (from decode plugin)
+      const dotIdx = colKey.indexOf('.');
+      const rootKey = dotIdx > 0 ? colKey.substring(0, dotIdx) : colKey;
+      const subPath = dotIdx > 0 ? colKey.substring(dotIdx + 1) : null;
+
+      let jsonObj = row[`_reconstructed_${rootKey}`] || row[`_decoded_${colKey}`];
+      if (subPath && jsonObj) {
+        jsonObj = getNestedValue(jsonObj, subPath);
+      }
+
+      if (jsonObj && typeof jsonObj === 'object') {
+        const code = JSON.stringify(jsonObj, null, 2);
+        dialogHasTabs.value = false;
+        dialogContent.value = highlightJsonCollapsible(code);
+        dialogRawText.value = code;
+        dialogVisible.value = true;
+      } else {
+        showDialog(String(row[colKey] ?? ''));
+      }
+    }
+
+    /**
+     * Show JSON dialog with two tabs: original data and plugin-optimized data.
+     */
+    function showRawJsonDialog(row) {
+      const hasPluginsEnabled = pluginConfig.value.enabledPlugins.length > 0;
+
+      if (hasPluginsEnabled && _rawRows.value.length > 0) {
+        // Find original row by index
+        const idx = row.index ?? row.__index;
+        const originalRow = idx != null ? _rawRows.value[idx] : _rawRows.value[0];
+
+        // Build enhanced row: replace decoded string values with actual objects
+        const enhancedRow = cleanRowForJson(row);
+        for (const key of Object.keys(enhancedRow)) {
+          const decodedObj = row[`_decoded_${key}`];
+          if (decodedObj !== undefined) {
+            enhancedRow[key] = decodedObj;
+          }
+        }
+
+        // Two tabs: Enhanced + Original
+        const rawCode = JSON.stringify(cleanRowForJson(originalRow || row), null, 2);
+        const optCode = JSON.stringify(enhancedRow, null, 2);
+
+        dialogHasTabs.value = true;
+        dialogTabsData.value = [
+          { name: 'enhanced', label: t('custom.enhancedData'), content: highlightJsonCollapsible(optCode) },
+          { name: 'raw', label: t('custom.rawData'), content: highlightJsonCollapsible(rawCode) },
+        ];
+        dialogContent.value = '';
+        dialogRawText.value = '';
+        dialogVisible.value = true;
+      } else {
+        // No plugins: use original single-tab dialog
+        _showRawJsonDialog(row);
+      }
     }
 
     /**
@@ -451,6 +654,7 @@ export default {
     function openConversation(cellValue, row, colKey, col) {
       conversationMessages.value = null;
       conversationText.value = cellValue || '';
+      conversationTools.value = null;
       const isToolList = col?.detectedType === 'toolList';
       conversationTitle.value = isToolList ? t('custom.toolsTitle') : t('custom.conversationTitle');
       conversationFilterPlaceholder.value = isToolList ? t('custom.filterTools') : t('custom.filterConversation');
@@ -463,7 +667,10 @@ export default {
           const rootKey = colKey.substring(0, dotIdx);
           const subPath = colKey.substring(dotIdx + 1);
           const rawKey = `_raw_${rootKey}`;
-          const rawJson = row[rawKey];
+          const reconKey = `_reconstructed_${rootKey}`;
+
+          // Try _reconstructed_ first (from plugins), then _raw_
+          const rawJson = row[reconKey] ? JSON.stringify(row[reconKey]) : row[rawKey];
           if (rawJson && typeof rawJson === 'string') {
             try {
               const parsed = JSON.parse(rawJson);
@@ -472,6 +679,17 @@ export default {
                 conversationMessages.value = messages;
               }
             } catch { /* fallback to text */ }
+          }
+
+          // For toolList fields, also look for tools in _reconstructed_
+          if (isToolList) {
+            const reconObj = row[reconKey];
+            if (reconObj) {
+              const tools = getNestedValue(reconObj, subPath);
+              if (Array.isArray(tools) && tools.length > 0) {
+                conversationTools.value = tools;
+              }
+            }
           }
         } else {
           // Top-level field — check if the cell value is a JSON messages array
@@ -584,13 +802,28 @@ export default {
       browseModeKey: 'custom_browse_mode',
       onParseResult: (result) => {
         if (result.fieldMeta) {
+          // Cache raw data for plugin re-processing
+          _rawRows.value = result.rows.map((r) => ({ ...r }));
+          _rawFieldMeta.value = result.fieldMeta;
+
           // Use currentFileId if set (user action), otherwise fallback to localStorage
           const fileId = currentFileId || localStorage.getItem('custom_viewer_cache');
           if (fileId) {
             currentFileId = fileId;
             expandInfo.value = result.fieldMeta.expandCandidates || [];
             schemaSnapshot.value = result.fieldMeta.schemaSnapshot || null;
+
+            // Init field config with ORIGINAL metadata (preserves _cachedFieldMeta for reset)
             initFromMeta(fileId, result.fieldMeta);
+
+            // Run plugins on the parsed data and update field config with plugin output
+            const { rows, fieldMeta } = runPlugins(
+              _rawRows.value,
+              result.fieldMeta,
+              pluginConfig.value.enabledPlugins,
+            );
+            tableData.value = rows;
+            updateFromPluginMeta(fileId, fieldMeta);
           }
         }
       },
@@ -602,7 +835,7 @@ export default {
       clearRecentFiles: _clearRecentFiles, resetFile, removeRecentFile,
       currentFileName,
       dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
-      showDialog, showRawJsonDialog,
+      showDialog, showRawJsonDialog: _showRawJsonDialog,
       truncateText,
     } = fileHandler;
 
@@ -622,6 +855,7 @@ export default {
       currentFileId = `${file.name}-${file.size}-${file.lastModified}`;
       columnFilterMap.clear();
       currentParseFn = createWorkerParse();
+      customDir.setBrowseMode('file');
       await fileHandler.handleFileSelect(file);
     }
 
@@ -718,6 +952,9 @@ export default {
     }
 
     onMounted(async () => {
+      // Register global click handler for JSON collapse toggles
+      document.addEventListener('click', onJsonToggleClick);
+
       // Show sample prompt only for first-time users:
       // no onboarded flag AND no previously opened file in cache
       const hasCache = !!localStorage.getItem('custom_viewer_cache');
@@ -732,6 +969,10 @@ export default {
       }
     });
 
+    onBeforeUnmount(() => {
+      document.removeEventListener('click', onJsonToggleClick);
+    });
+
     return {
       // Stats toggles
       showDistribution,
@@ -740,6 +981,7 @@ export default {
       conversationVisible,
       conversationText,
       conversationMessages,
+      conversationTools,
       conversationTitle,
       conversationFilterPlaceholder,
       conversationIsToolList,
@@ -793,7 +1035,7 @@ export default {
       clearRecentFiles, recentFiles, resetFile, removeRecentFile,
       currentFileName,
       dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
-      showDialog, showRawJsonDialog,
+      showDialog, showRawJsonDialog, showFieldJson,
       // Directory browser
       showSidebar, sidebarWidth, dirTree, currentNodeKey,
       supportsDirectoryPicker, browseMode, dirName, dirFileCount, recentDirs,
@@ -812,6 +1054,10 @@ export default {
       onSavePreset,
       onApplyPreset,
       onDeletePreset,
+      // Plugins
+      pluginConfig,
+      registeredPlugins,
+      onPluginToggle,
     };
   },
 };
@@ -860,5 +1106,62 @@ export default {
   opacity: 0.6;
   margin-right: 4px;
   vertical-align: middle;
+}
+
+/* Collapsible JSON renderer */
+.jc-toggle {
+  display: inline-block;
+  cursor: pointer;
+  width: 14px;
+  user-select: none;
+  font-size: 10px;
+  color: var(--ev-text-secondary);
+  text-align: center;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.jc-toggle::before {
+  content: '▼';
+  font-size: 9px;
+}
+.jc-toggle.collapsed::before {
+  content: '▶';
+}
+.jc-body.collapsed {
+  display: none;
+}
+.jc-preview {
+  display: none;
+  color: var(--ev-text-secondary);
+  font-style: italic;
+}
+.jc-body.collapsed ~ .jc-preview {
+  display: inline;
+}
+.jc-key {
+  color: #077;
+}
+.jc-str {
+  color: #690;
+}
+.jc-num {
+  color: #099;
+}
+.jc-bool {
+  color: #0086b3;
+}
+.jc-null {
+  color: #999;
+}
+.jc-bracket {
+  color: var(--ev-text-secondary);
+}
+.jc-ellipsis {
+  color: var(--ev-text-secondary);
+  font-style: italic;
+}
+.jc-root {
+  white-space: pre;
+  word-break: break-all;
 }
 </style>
