@@ -176,6 +176,7 @@ self.onmessage = (e) => {
       constantRate: info.constantRate || 0,
       uniqueCount: info.uniqueCount || 0,
       avgValueLength: info.avgValueLength || 0,
+      isTimestamp: info.isTimestamp || false,
     };
   });
 

@@ -118,11 +118,29 @@
 
           <template #default="{ row }">
             <template v-if="col.detectedType === 'conversation' || col.detectedType === 'toolList'">
-              <span class="clickable-cell conversation-cell" @click="openConversation(row[col.key], row, col.key, col)">
-                <span class="conversation-tag">{{ col.detectedType === 'toolList' ? 'tool' : 'chat' }}</span>
-                <span class="conversation-count">{{ countConversationItems(String(row[col.key] ?? '')) }}</span>
-                {{ truncateText(String(row[col.key] ?? ''), 80) }}
-              </span>
+              <el-tooltip
+                placement="top"
+                :show-after="300"
+                popper-class="preview-tooltip"
+              >
+                <template #content>
+                  <div v-if="col.detectedType === 'toolList'">
+                    <div v-for="(tool, i) in (getRowValue(row, col.key) || [])" :key="i" style="margin-bottom:4px">
+                      <b>{{ tool.function?.name || tool.name || `#${i}` }}</b><span v-if="tool.function?.description" style="color:#999;margin-left:4px">{{ tool.function.description }}</span>
+                    </div>
+                  </div>
+                  <div v-else>
+                    <div v-for="(msg, i) in (getRowValue(row, col.key) || [])" :key="i" style="margin-bottom:2px">
+                      <b :style="{color: msg.role === 'user' ? '#409eff' : msg.role === 'assistant' ? '#67c23a' : '#999'}">[{{ msg.role }}]</b> {{ truncateText(String(msg.content ?? ''), 120) }}
+                    </div>
+                  </div>
+                </template>
+                <span class="clickable-cell conversation-cell" @click="openConversation(getRowValue(row, col.key), row, col.key, col)">
+                  <span class="conversation-tag">{{ col.detectedType === 'toolList' ? 'tool' : 'chat' }}</span>
+                  <span class="conversation-count">{{ countItems(getRowValue(row, col.key), col.detectedType) }}</span>
+                  {{ previewCellValue(getRowValue(row, col.key)) }}
+                </span>
+              </el-tooltip>
             </template>
             <template v-else-if="col.detectedType === 'nestedObject'">
               <span class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
@@ -185,7 +203,7 @@
       :dialogVisible.sync="dialogVisible"
       :hasTabs="dialogHasTabs"
       :tabs="dialogTabsData"
-      :content="dialogContent"
+      :jsonData="dialogJsonData"
       :rawText="dialogRawText"
       :title="$t('common.detail')"
       @update:dialogVisible="(val) => (dialogVisible = val)"
@@ -257,12 +275,14 @@ import {
 import { previewHtml, usePersistedToggle } from '@/utils/viewHelpers';
 import { useFileHandler } from '@/composables/useFileHandler';
 import { useTableModel } from '@/composables/useTableModel';
-import { useFieldConfig } from '@/composables/useFieldConfig';
+import { useFieldConfig, runWithoutAutoSave } from '@/composables/useFieldConfig';
 import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
 import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
 import { runPlugins, getRegisteredPlugins } from '@/plugins/pluginRegistry';
+import { assignFieldVisibility } from '@/utils/customParserHelpers';
+import { createLogger } from '@/utils/pipelineLogger';
 import '@/plugins/reconstructDotNotation';
 import '@/plugins/extractMessageStats';
 import '@/plugins/decodeNestedJson';
@@ -351,9 +371,12 @@ export default {
     } = fieldConfigState;
 
     const registeredPlugins = getRegisteredPlugins();
+    const viewLogger = createLogger('CustomViewer');
 
     function applyPlugins() {
       if (!_rawRows.value.length || !_rawFieldMeta.value) return;
+      viewLogger.header('Re-apply Plugins (toggle)');
+      const t = viewLogger.time('applyPlugins');
       const { rows, fieldMeta } = runPlugins(
         _rawRows.value,
         _rawFieldMeta.value,
@@ -361,6 +384,8 @@ export default {
       );
       tableData.value = rows;
       updateFromPluginMeta(lastFileId.value, fieldMeta);
+      viewLogger.detail(`result: ${rows.length} rows, ${(fieldMeta.detectedFields || []).length} fields`);
+      t();
     }
 
     function onPluginToggle(pluginId) {
@@ -445,89 +470,6 @@ export default {
     }
 
     /**
-     * Highlight JSON string for display.
-     */
-    function highlightJsonCode(code) {
-      try {
-        const obj = JSON.parse(code);
-        return renderCollapsibleJson(obj);
-      } catch {
-        return `<pre style="margin:0"><code>${escapeHtml(code)}</code></pre>`;
-      }
-    }
-
-    let _jsonNodeId = 0;
-
-    function escapeHtml(str) {
-      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    /**
-     * Render a JSON value as collapsible HTML with syntax highlighting.
-     * Objects and arrays get a toggle button (▼/▶) to collapse/expand.
-     */
-    function renderCollapsibleJson(value, depth) {
-      if (depth === undefined) depth = 0;
-
-      if (value === null) return '<span class="jc-null">null</span>';
-      if (typeof value === 'boolean') return '<span class="jc-bool">' + value + '</span>';
-      if (typeof value === 'number') return '<span class="jc-num">' + value + '</span>';
-      if (typeof value === 'string') {
-        const maxLen = 500;
-        const display = value.length > maxLen ? escapeHtml(value.substring(0, maxLen)) + '<span class="jc-ellipsis">…</span>' : escapeHtml(value);
-        return '<span class="jc-str">"' + display + '"</span>';
-      }
-
-      if (Array.isArray(value)) {
-        if (value.length === 0) return '<span class="jc-null">[]</span>';
-        var id = 'jcn_' + (_jsonNodeId++);
-        var indent = '  '.repeat(depth);
-        var childIndent = '  '.repeat(depth + 1);
-        var items = value.map(function(item) { return childIndent + renderCollapsibleJson(item, depth + 1); }).join(',\n');
-        return '<span class="jc-toggle" data-jcid="' + id + '"></span><span class="jc-bracket">[</span><span class="jc-preview" id="' + id + '_p"> ' + value.length + ' items ]</span><span class="jc-body" id="' + id + '">\n' + items + '\n' + indent + '</span><span class="jc-bracket">]</span>';
-      }
-
-      if (typeof value === 'object') {
-        var keys = Object.keys(value);
-        if (keys.length === 0) return '<span class="jc-null">{}</span>';
-        var id = 'jcn_' + (_jsonNodeId++);
-        var indent = '  '.repeat(depth);
-        var childIndent = '  '.repeat(depth + 1);
-        var entries = keys.map(function(key) {
-          return childIndent + '<span class="jc-key">"' + escapeHtml(key) + '"</span>: ' + renderCollapsibleJson(value[key], depth + 1);
-        }).join(',\n');
-        return '<span class="jc-toggle" data-jcid="' + id + '"></span><span class="jc-bracket">{</span><span class="jc-preview" id="' + id + '_p"> ' + keys.length + ' keys }</span><span class="jc-body" id="' + id + '">\n' + entries + '\n' + indent + '</span><span class="jc-bracket">}</span>';
-      }
-
-      return escapeHtml(String(value));
-    }
-
-    /**
-     * Render a JSON string as collapsible HTML.
-     */
-    function highlightJsonCollapsible(code) {
-      try {
-        _jsonNodeId = 0;
-        var obj = JSON.parse(code);
-        var html = renderCollapsibleJson(obj, 0);
-        return '<pre class="jc-root" style="margin:0;line-height:1.6;font-family:Menlo,Monaco,Consolas,monospace;font-size:13px">' + html + '</pre>';
-      } catch {
-        return '<pre style="margin:0"><code>' + escapeHtml(code) + '</code></pre>';
-      }
-    }
-
-    function onJsonToggleClick(e) {
-      var toggle = e.target.closest('.jc-toggle');
-      if (!toggle) return;
-      var id = toggle.dataset.jcid;
-      var body = document.getElementById(id);
-      if (body) {
-        body.classList.toggle('collapsed');
-        toggle.classList.toggle('collapsed');
-      }
-    }
-
-    /**
      * Show JSON dialog for a single reconstructed field (e.g. RequestData).
      */
     function showFieldJson(row, colKey) {
@@ -537,6 +479,10 @@ export default {
       const subPath = dotIdx > 0 ? colKey.substring(dotIdx + 1) : null;
 
       let jsonObj = row[`_reconstructed_${rootKey}`] || row[`_decoded_${colKey}`];
+      if (jsonObj) {
+        const source = row[`_reconstructed_${rootKey}`] ? `_reconstructed_${rootKey}` : `_decoded_${colKey}`;
+        viewLogger.trace(`showFieldJson '${colKey}' → ${source}`);
+      }
       if (subPath && jsonObj) {
         jsonObj = getNestedValue(jsonObj, subPath);
       }
@@ -544,7 +490,7 @@ export default {
       if (jsonObj && typeof jsonObj === 'object') {
         const code = JSON.stringify(jsonObj, null, 2);
         dialogHasTabs.value = false;
-        dialogContent.value = highlightJsonCollapsible(code);
+        dialogJsonData.value = jsonObj;
         dialogRawText.value = code;
         dialogVisible.value = true;
       } else {
@@ -563,13 +509,39 @@ export default {
         const idx = row.index ?? row.__index;
         const originalRow = idx != null ? _rawRows.value[idx] : _rawRows.value[0];
 
-        // Build enhanced row: replace decoded string values with actual objects
+        // Build enhanced row: replace reconstructed roots, remove flat sub-fields
         const enhancedRow = cleanRowForJson(row);
+
+        // Find reconstructed roots from original row (before cleanRowForJson removed them)
+        const reconstructedRoots = [];
+        for (const key of Object.keys(row)) {
+          if (key.startsWith('_reconstructed_')) {
+            const rootKey = key.substring('_reconstructed_'.length);
+            reconstructedRoots.push(rootKey);
+            enhancedRow[rootKey] = row[key]; // Replace string with reconstructed object
+          }
+        }
+
+        // Remove flat dot-notation sub-fields that were merged into reconstructed objects
+        for (const rootKey of reconstructedRoots) {
+          for (const key of Object.keys(enhancedRow)) {
+            if (key !== rootKey && key.startsWith(rootKey + '.')) {
+              delete enhancedRow[key];
+            }
+          }
+        }
+
+        // Replace decoded string values with actual objects (non-reconstructed fields only)
+        const decodedKeys = [];
         for (const key of Object.keys(enhancedRow)) {
           const decodedObj = row[`_decoded_${key}`];
           if (decodedObj !== undefined) {
             enhancedRow[key] = decodedObj;
+            decodedKeys.push(key);
           }
+        }
+        if (decodedKeys.length > 0) {
+          viewLogger.trace(`showRawJsonDialog: applied _decoded_ for [${decodedKeys.join(', ')}]`);
         }
 
         // Two tabs: Enhanced + Original
@@ -578,10 +550,10 @@ export default {
 
         dialogHasTabs.value = true;
         dialogTabsData.value = [
-          { name: 'enhanced', label: t('custom.enhancedData'), content: highlightJsonCollapsible(optCode) },
-          { name: 'raw', label: t('custom.rawData'), content: highlightJsonCollapsible(rawCode) },
+          { name: 'enhanced', label: t('custom.enhancedData'), jsonData: enhancedRow, rawText: optCode },
+          { name: 'raw', label: t('custom.rawData'), jsonData: JSON.parse(rawCode), rawText: rawCode },
         ];
-        dialogContent.value = '';
+        dialogJsonData.value = null;
         dialogRawText.value = '';
         dialogVisible.value = true;
       } else {
@@ -636,6 +608,30 @@ export default {
     /**
      * Navigate an object by dot-separated path.
      */
+    /**
+     * Get effective value for a field key, supporting reconstructed/decoded data.
+     * For dot-notation sub-fields (e.g. RequestData.tools), reads from _reconstructed_ parent.
+     */
+    function getRowValue(row, colKey) {
+      const dotIdx = colKey.indexOf('.');
+      if (dotIdx <= 0) return row[colKey];
+
+      const rootKey = colKey.substring(0, dotIdx);
+      const subPath = colKey.substring(dotIdx + 1);
+
+      // Try reconstructed parent first, then decoded, then raw flat field
+      const reconObj = row[`_reconstructed_${rootKey}`];
+      if (reconObj) {
+        const val = getNestedValue(reconObj, subPath);
+        if (val !== undefined) return val;
+      }
+
+      const decoded = row[`_decoded_${colKey}`];
+      if (decoded !== undefined) return decoded;
+
+      return row[colKey];
+    }
+
     function getNestedValue(obj, path) {
       const keys = path.split('.');
       let current = obj;
@@ -653,7 +649,9 @@ export default {
      */
     function openConversation(cellValue, row, colKey, col) {
       conversationMessages.value = null;
-      conversationText.value = cellValue || '';
+      // cellValue may be a string (text/JSON) or an array (reconstructed data)
+      const textValue = typeof cellValue === 'string' ? cellValue : (Array.isArray(cellValue) ? JSON.stringify(cellValue) : '');
+      conversationText.value = textValue;
       conversationTools.value = null;
       const isToolList = col?.detectedType === 'toolList';
       conversationTitle.value = isToolList ? t('custom.toolsTitle') : t('custom.conversationTitle');
@@ -708,8 +706,33 @@ export default {
       conversationVisible.value = true;
     }
 
-    function countConversationItems(text) {
-      const matches = text.match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/gim);
+    function previewCellValue(value) {
+      if (value == null) return '';
+      if (Array.isArray(value)) {
+        // Show first item summary instead of [object Object]
+        if (value.length === 0) return '[]';
+        const first = value[0];
+        if (typeof first === 'object' && first !== null) {
+          const name = first.name || first.function?.name || first.role || '';
+          return name ? `${name}${value.length > 1 ? ' ...' : ''}` : `(${value.length} items)`;
+        }
+        return truncateText(String(first ?? ''), 60) + (value.length > 1 ? ' ...' : '');
+      }
+      if (typeof value === 'object') return truncateText(JSON.stringify(value), 80);
+      return truncateText(String(value), 80);
+    }
+
+    function countItems(value, detectedType) {
+      if (detectedType === 'toolList') {
+        // Try JSON array (reconstructed data or JSON string)
+        if (Array.isArray(value)) return value.length;
+        if (typeof value === 'string') {
+          try { const arr = JSON.parse(value); if (Array.isArray(arr)) return arr.length; } catch {}
+        }
+        return 0;
+      }
+      // conversation: match [role] text format
+      const matches = String(value ?? '').match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/gim);
       return matches ? matches.length : 0;
     }
 
@@ -802,6 +825,8 @@ export default {
       browseModeKey: 'custom_browse_mode',
       onParseResult: (result) => {
         if (result.fieldMeta) {
+          viewLogger.header('Parse Result Pipeline');
+
           // Cache raw data for plugin re-processing
           _rawRows.value = result.rows.map((r) => ({ ...r }));
           _rawFieldMeta.value = result.fieldMeta;
@@ -813,17 +838,41 @@ export default {
             expandInfo.value = result.fieldMeta.expandCandidates || [];
             schemaSnapshot.value = result.fieldMeta.schemaSnapshot || null;
 
-            // Init field config with ORIGINAL metadata (preserves _cachedFieldMeta for reset)
-            initFromMeta(fileId, result.fieldMeta);
+            viewLogger.detail(`parsed: ${result.rows.length} rows, ${(result.fieldMeta.detectedFields || []).length} fields`);
 
-            // Run plugins on the parsed data and update field config with plugin output
-            const { rows, fieldMeta } = runPlugins(
-              _rawRows.value,
-              result.fieldMeta,
-              pluginConfig.value.enabledPlugins,
-            );
-            tableData.value = rows;
-            updateFromPluginMeta(fileId, fieldMeta);
+            // Run the full plugin pipeline first, then re-score using enhanced
+            // fieldMeta so conversation/toolList types detected by plugins get
+            // correct -100 priority.
+            runWithoutAutoSave(() => {
+              viewLogger.stage('runPlugins');
+              const { rows, fieldMeta: enhancedMeta } = runPlugins(
+                _rawRows.value,
+                result.fieldMeta,
+                pluginConfig.value.enabledPlugins,
+              );
+              tableData.value = rows;
+              viewLogger.stageEnd();
+
+              // Re-score with plugin-enhanced fieldMeta
+              viewLogger.stage('assignFieldVisibility (enhanced)');
+              const { debugMeta, patternMatchCounts } = assignFieldVisibility(enhancedMeta.detectedFields);
+              enhancedMeta.priorityDebug = debugMeta;
+              enhancedMeta.patternMatchCounts = patternMatchCounts;
+              viewLogger.detail(`${enhancedMeta.detectedFields.length} fields scored`);
+              viewLogger.stageEnd();
+
+              // Init from enhanced meta (stores priorityDebug + patternMatchCounts internally)
+              viewLogger.stage('initFromMeta');
+              initFromMeta(fileId, enhancedMeta);
+              viewLogger.stageEnd();
+
+              // Patch field config with plugin modifications
+              viewLogger.stage('updateFromPluginMeta');
+              updateFromPluginMeta(fileId, enhancedMeta);
+              viewLogger.stageEnd();
+
+              viewLogger.detail(`pipeline complete: ${rows.length} rows, ${(enhancedMeta.detectedFields || []).length} fields`);
+            });
           }
         }
       },
@@ -838,6 +887,8 @@ export default {
       showDialog, showRawJsonDialog: _showRawJsonDialog,
       truncateText,
     } = fileHandler;
+
+    const dialogJsonData = ref(null);
 
     async function clearRecentFiles() {
       await _clearRecentFiles();
@@ -910,7 +961,21 @@ export default {
     }
 
     function onFieldReset() {
-      resetToDefaults(debugMode.value);
+      // Run plugin pipeline first to get enhanced data
+      let enhancedFieldMeta = _rawFieldMeta.value;
+      runWithoutAutoSave(() => {
+        const { rows, fieldMeta } = runPlugins(
+          _rawRows.value,
+          _rawFieldMeta.value,
+          pluginConfig.value.enabledPlugins,
+        );
+        tableData.value = rows;
+        enhancedFieldMeta = fieldMeta;
+      });
+      // Reset with enhanced meta for correct scoring (conversation/toolList get -100)
+      resetToDefaults(true, enhancedFieldMeta);
+      // Apply plugin modifications AFTER reset (remove array leaves, hide sub-fields)
+      updateFromPluginMeta(lastFileId.value, enhancedFieldMeta);
       ElMessage.success(t('common.resetSuccess'));
     }
 
@@ -952,9 +1017,6 @@ export default {
     }
 
     onMounted(async () => {
-      // Register global click handler for JSON collapse toggles
-      document.addEventListener('click', onJsonToggleClick);
-
       // Show sample prompt only for first-time users:
       // no onboarded flag AND no previously opened file in cache
       const hasCache = !!localStorage.getItem('custom_viewer_cache');
@@ -970,7 +1032,6 @@ export default {
     });
 
     onBeforeUnmount(() => {
-      document.removeEventListener('click', onJsonToggleClick);
     });
 
     return {
@@ -1028,13 +1089,16 @@ export default {
       isLongValue,
       formatNumber,
       openConversation,
-      countConversationItems,
+      previewCellValue,
+      countItems,
+      getRowValue,
       getColumnMinWidth,
       // File handler
       hintText, formatSize, formatTime,
       clearRecentFiles, recentFiles, resetFile, removeRecentFile,
       currentFileName,
       dialogVisible, dialogHasTabs, dialogTabsData, dialogContent, dialogRawText,
+      dialogJsonData,
       showDialog, showRawJsonDialog, showFieldJson,
       // Directory browser
       showSidebar, sidebarWidth, dirTree, currentNodeKey,
@@ -1108,60 +1172,5 @@ export default {
   vertical-align: middle;
 }
 
-/* Collapsible JSON renderer */
-.jc-toggle {
-  display: inline-block;
-  cursor: pointer;
-  width: 14px;
-  user-select: none;
-  font-size: 10px;
-  color: var(--ev-text-secondary);
-  text-align: center;
-  vertical-align: middle;
-  margin-right: 2px;
-}
-.jc-toggle::before {
-  content: '▼';
-  font-size: 9px;
-}
-.jc-toggle.collapsed::before {
-  content: '▶';
-}
-.jc-body.collapsed {
-  display: none;
-}
-.jc-preview {
-  display: none;
-  color: var(--ev-text-secondary);
-  font-style: italic;
-}
-.jc-body.collapsed ~ .jc-preview {
-  display: inline;
-}
-.jc-key {
-  color: #077;
-}
-.jc-str {
-  color: #690;
-}
-.jc-num {
-  color: #099;
-}
-.jc-bool {
-  color: #0086b3;
-}
-.jc-null {
-  color: #999;
-}
-.jc-bracket {
-  color: var(--ev-text-secondary);
-}
-.jc-ellipsis {
-  color: var(--ev-text-secondary);
-  font-style: italic;
-}
-.jc-root {
-  white-space: pre;
-  word-break: break-all;
-}
+/* Collapsible JSON renderer — replaced by vue-json-pretty */
 </style>

@@ -12,6 +12,7 @@ export const MAX_ARRAY_EXPAND = 10;
 export const ENUM_THRESHOLD = 20;
 export const SAMPLE_SIZE_FOR_TYPE = 50;
 export const PREVIEW_LENGTH_THRESHOLD = 50;
+const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
 
 /**
  * Detect if an array looks like a conversation (chat messages) — all items are
@@ -226,6 +227,7 @@ export function detectFieldTypes(rows, allKeys) {
       emptyCount: 0,
       uniqueValues: new Set(),
       nonEmptyCount: 0,
+      isoTimestampVotes: 0,
     };
   }
 
@@ -256,6 +258,7 @@ export function detectFieldTypes(rows, allKeys) {
         if (acc.uniqueValues.size <= ENUM_THRESHOLD) acc.uniqueValues.add(v);
         acc.stringLengthSum += v.length;
         acc.stringCount++;
+        if (ISO_TIMESTAMP_RE.test(v)) acc.isoTimestampVotes++;
         // Track per-row conversation / tool-definition votes
         const lines = v.split('\n');
         if (lines.length >= 2 && lines.some(l => /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i.test(l.trim()))) {
@@ -310,6 +313,7 @@ export function detectFieldTypes(rows, allKeys) {
       detectedType, isLongString, emptyRate, constantRate,
       uniqueCount: acc.uniqueValues.size,
       avgValueLength: acc.stringCount > 0 ? Math.round(acc.stringLengthSum / acc.stringCount) : 0,
+      isTimestamp: acc.nonEmptyCount > 0 && (acc.isoTimestampVotes / acc.nonEmptyCount) >= 0.8,
     };
   }
 
@@ -345,11 +349,15 @@ export const HIGH_PRIORITY_PATTERNS = [
   // --- Model ---
   /^model(_name)?$/i,            // Model, model_name (NOT ModelServiceName, ModelUrl)
 
+  // --- Sampling parameters ---
+  /^temperature$/i,              // temperature
+  /^top_?[pk]$/i,                // top_p, topp, top_k, topk
+  /repetition_?penalty$/i,       // repetition_penalty
+  /reasoning_?effort$/i,         // reasoning_effort
   // --- Token usage ---
   /token/i,                      // OutputTokens, total_tokens, completion_tokens, prompt_tokens
 
   // --- Cost / Latency ---
-  /^cost$/i,                     // Cost (NOT ScheduleCost, PreModelCost)
   /^(latency|duration)/i,        // latency, latency_ms, duration
 
   // --- Finish / Stop reason ---
@@ -390,9 +398,10 @@ export const LOW_PRIORITY_PATTERNS = [
   /^strategy/i,                    // StrategyType ...
 
   // --- Timestamps / duration ---
-  /^(request|schedule)(start|end)time$/i,  // RequestStartTime, ScheduleEndTime
-  /用时$/,                          // 评测用时
-  /时间$/,                          // 更新时间, 创建时间
+  /^(request|schedule)(start|end)?time$/i,  // RequestStartTime, ScheduleEndTime, RequestTime
+  /^firsttokentime$/i,                      // FirstTokenTime (timestamp, not TTFT)
+  /用时$/,                                  // 评测用时
+  /时间$/,                                  // 更新时间, 创建时间
 
   // --- Identifiers ---
   /_?id$/i,                        // request_id, 样本ID, TraceId, query_id
@@ -529,7 +538,18 @@ function findMatchingPatternSources(patterns, key, lastSegment) {
  * @returns {{ fields: Array, debugMeta: Array }} the same array (mutated) and per-field scoring debug info
  */
 export function assignFieldVisibility(fields, maxVisible = 10) {
+  // Memoize fieldPriority per-field to avoid redundant regex tests
+  // (sort calls it ~2*N*logN times, visibility/annotation/debug add ~3N more).
+  const _scoreCache = new Map();
   function fieldPriority(field) {
+    const cached = _scoreCache.get(field.key);
+    if (cached) return cached;
+    const result = _computeFieldPriority(field);
+    _scoreCache.set(field.key, result);
+    return result;
+  }
+
+  function _computeFieldPriority(field) {
     const key = field.key;
     const lastSegment = key.split('.').pop();
     const breakdown = {
@@ -554,16 +574,15 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     const isLow = matchesPatterns(LOW_PRIORITY_PATTERNS, key, lastSegment);
 
     if (isHigh) {
-      // String-type time/latency fields matching token patterns (e.g. "FirstTokenTime")
-      // are formatted metrics like "123ms", not actual token counts → default priority
-      if (field.detectedType === 'string' && /time|interval/i.test(key)) {
-        priority = 0;
-        breakdown.patternCategory = 'none';
+      // Timestamp fields (80%+ values match ISO format) → low priority
+      if (field.isTimestamp) {
+        priority = 40;
+        breakdown.patternCategory = 'low';
       } else {
         priority = field.isExpanded ? -40 : -50;
         breakdown.patternCategory = 'high';
       }
-    } else if (isLow) {
+    } else if (isLow || field.isTimestamp) {
       priority = 40;
       breakdown.patternCategory = 'low';
     } else if (key.includes('.') && key.split('.').length > 3) {
@@ -634,6 +653,14 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
   const visibleKeysLower = new Set();
 
   for (const field of fields) {
+    // Skip only fully-managed plugin fields:
+    // - reconstructed_root: plugin already set visible = true
+    // - reconstructed (array leaves): absorbed into parent, not meaningful
+    // All other plugin fields (reconstructed_sub, decoded, etc.) go through scoring
+    if (field.isPluginField && (field.visibilityReason === 'reconstructed_root' || field.visibilityReason === 'reconstructed')) {
+      continue;
+    }
+
     if (field.isExpanded) {
       const priority = fieldPriority(field).score;
       const lastSegment = field.key.split('.').pop().toLowerCase();
@@ -672,6 +699,11 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
 
   // Annotate visibility reasons
   for (const field of fields) {
+    // Skip only fully-managed plugin fields (same logic as visibility loop above)
+    if (field.isPluginField && (field.visibilityReason === 'reconstructed_root' || field.visibilityReason === 'reconstructed')) {
+      continue;
+    }
+
     if (field.visible) {
       if (field.detectedType === 'conversation') {
         field.visibilityReason = 'conversation';
@@ -700,7 +732,9 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     delete field._isDuplicate;
   }
 
-  const debugMeta = fields.map(field => {
+  const debugMeta = fields
+    .filter(field => field.visibilityReason !== 'reconstructed')
+    .map(field => {
     const { score, breakdown } = fieldPriority(field);
     return {
       key: field.key,

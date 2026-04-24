@@ -3,8 +3,13 @@
  * Licensed under the MIT License.
  */
 
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { DISTRIBUTION_SELECT_PATTERNS, HISTOGRAM_SELECT_PATTERNS, HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, assignFieldVisibility } from '@/utils/customParserHelpers';
+import { createLogger } from '@/utils/pipelineLogger';
+
+const logger = createLogger('FieldConfig');
+
+let _suppressAutoSave = false;
 
 /**
  * Field configuration manager for the Custom Viewer.
@@ -147,7 +152,7 @@ export function useFieldConfig(options = {}) {
     return _smartSelect(numericFields, HISTOGRAM_SELECT_PATTERNS, max);
   }
 
-  const CONFIG_VERSION = 6;
+  const CONFIG_VERSION = 7; // Bumped: assignFieldVisibility now skips plugin fields, changing visibleCount allocation
 
   // ===== Debounced auto-save =====
   // Catches all mutations (including direct v-model changes from the panel)
@@ -158,7 +163,7 @@ export function useFieldConfig(options = {}) {
   watch(
     fieldConfig,
     () => {
-      if (!fieldConfig.value || !lastFileId.value) return;
+      if (!fieldConfig.value || !lastFileId.value || _suppressAutoSave) return;
       if (_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
       _saveDebounceTimer = setTimeout(() => _persistConfig(), 800);
     },
@@ -213,6 +218,8 @@ export function useFieldConfig(options = {}) {
     const allNumbers = fields.filter((f) => f.detectedType === 'number' && (f.emptyRate || 0) < 0.95 && (f.constantRate || 0) < 1.0);
     const { selected: histogramFields, reasons: histReasons } = _smartSelectHistFields(allNumbers);
 
+    logger.detail(`auto-configured ${fields.length} fields, dist=${distributionFields.length}, hist=${histogramFields.length}`);
+
     return {
       version: CONFIG_VERSION,
       fields,
@@ -251,7 +258,26 @@ export function useFieldConfig(options = {}) {
     _cachedFieldMeta.value = fieldMeta;
     _cachedPriorityDebug.value = fieldMeta.priorityDebug || null;
     _cachedPatternMatchCounts.value = fieldMeta.patternMatchCounts || computePatternMatchCounts(fieldMeta.detectedFields);
+
+    logger.stage('init from meta');
     _doInitFromMeta(fileId, fieldMeta);
+    const totalFields = fieldConfig.value?.fields?.length || 0;
+    const saved = localStorage.getItem(`${storagePrefix}_${fileId}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.version === CONFIG_VERSION) {
+          logger.detail(`version ${CONFIG_VERSION}, restored from localStorage, ${totalFields} fields`);
+        } else {
+          logger.detail(`version mismatch, new config with ${totalFields} fields`);
+        }
+      } catch {
+        logger.detail(`corrupt saved config, new config with ${totalFields} fields`);
+      }
+    } else {
+      logger.detail(`no saved config, new config with ${totalFields} fields`);
+    }
+    logger.stageEnd();
   }
 
   /**
@@ -262,6 +288,8 @@ export function useFieldConfig(options = {}) {
   function updateFromPluginMeta(fileId, fieldMeta) {
     if (!fieldConfig.value || !fieldMeta?.detectedFields) return;
 
+    logger.stage('update from plugin meta');
+
     const currentKeys = new Set(fieldConfig.value.fields.map((f) => f.key));
     const pluginMap = new Map();
     for (const f of fieldMeta.detectedFields) {
@@ -270,6 +298,8 @@ export function useFieldConfig(options = {}) {
 
     let updatedCount = 0;
     let removedCount = 0;
+    let hiddenCount = 0;
+    let addedCount = 0;
 
     // Remove array-indexed leaf fields entirely (e.g. X.tools.[0].function.name)
     fieldConfig.value.fields = fieldConfig.value.fields.filter((field) => {
@@ -287,24 +317,34 @@ export function useFieldConfig(options = {}) {
       const pluginField = pluginMap.get(field.key);
       if (!pluginField) continue;
 
-      // Hide reconstructed sub-fields (e.g. X.messages, X.top_p) but keep in config
-      if (pluginField.visibilityReason === 'reconstructed_sub') {
-        field.visible = false;
-        field.visibilityReason = 'reconstructed_sub';
-        continue;
-      }
-
       // Update type if plugin changed it (e.g. string → toolList, string → nestedObject)
       if (pluginField.detectedType && pluginField.detectedType !== field.detectedType) {
         field.detectedType = pluginField.detectedType;
         updatedCount++;
+        logger.trace(`  type '${field.key}': ${field.detectedType} → ${pluginField.detectedType}`);
       }
 
-      // Show plugin-identified toolList/conversation/reconstructed_root fields
-      if (pluginField.visibilityReason === 'toolList' || pluginField.visibilityReason === 'conversation' || pluginField.visibilityReason === 'reconstructed_root') {
+      // Sync plugin-set visibility (reconstructed_root, conversation, toolList → visible)
+      // Only override if plugin explicitly set visibility, not just inherited reconstructed_sub
+      if (pluginField.visibilityReason === 'reconstructed_root') {
+        field.visible = true;
+        field.visibilityReason = 'reconstructed_root';
+        updatedCount++;
+      } else if (pluginField.visibilityReason === 'toolList' || pluginField.visibilityReason === 'conversation') {
         field.visible = true;
         field.visibilityReason = pluginField.visibilityReason;
         updatedCount++;
+      } else if (pluginField.visibilityReason === 'reconstructed_sub') {
+        // Hide by default, but scoring may have overridden to visible (e.g. conversation detected by pattern)
+        if (!pluginField.visible) {
+          field.visible = false;
+          field.visibilityReason = 'reconstructed_sub';
+          hiddenCount++;
+        } else {
+          field.visible = true;
+          field.visibilityReason = pluginField.visibilityReason;
+          updatedCount++;
+        }
       }
 
       // Sync plugin-added previewable flag (e.g. decodedJson, nestedObject)
@@ -331,7 +371,11 @@ export function useFieldConfig(options = {}) {
         sortable: pf.sortable ?? true,
         isExpanded: pf.isExpanded || false,
       });
+      addedCount++;
     }
+
+    logger.detail(`removed ${removedCount}, hidden ${hiddenCount} sub-fields, updated ${updatedCount}, added ${addedCount}`);
+    logger.stageEnd();
   }
 
   function _doInitFromMeta(fileId, fieldMeta) {
@@ -389,8 +433,9 @@ export function useFieldConfig(options = {}) {
         emptyRate: current.emptyRate || 0,
         constantRate: current.constantRate || 0,
         visibilityReason: current.visibilityReason || '',
-        // Plugin-reconstructed fields override saved visibility
-        visible: (current.visibilityReason === 'reconstructed' || current.visibilityReason === 'reconstructed_sub') ? false : (sf.visible ?? current.visible ?? true),
+        // Plugin-managed fields always use their plugin-set visibility,
+        // not the stale saved config. Non-plugin fields preserve user preferences.
+        visible: current.isPluginField ? (current.visible ?? true) : (sf.visible ?? current.visible ?? true),
         searchable: sf.searchable ?? current.searchable ?? false,
         filterable: sf.filterable ?? current.filterable ?? false,
         previewable: sf.previewable ?? current.previewable ?? false,
@@ -502,15 +547,18 @@ export function useFieldConfig(options = {}) {
     fieldConfig.value.statsConfig = { distributionFields, histogramFields, selectionReasons: existingReasons };
   }
 
-  function resetToDefaults(rescore = false) {
+  function resetToDefaults(rescore = false, enhancedFieldMeta = null) {
     if (!_cachedFieldMeta.value) return;
+    // Use enhanced fieldMeta (post-plugin) for scoring if provided, so that
+    // conversation/toolList types detected by plugins get correct priorities.
+    const scoringMeta = enhancedFieldMeta || _cachedFieldMeta.value;
     if (rescore) {
-      const detectedFields = _cachedFieldMeta.value.detectedFields;
+      const detectedFields = scoringMeta.detectedFields;
       const { debugMeta, patternMatchCounts } = assignFieldVisibility(detectedFields);
       _cachedPriorityDebug.value = debugMeta;
       _cachedPatternMatchCounts.value = patternMatchCounts;
     }
-    fieldConfig.value = autoConfigure(_cachedFieldMeta.value);
+    fieldConfig.value = autoConfigure(scoringMeta);
     saveConfig();
   }
 
@@ -697,4 +745,16 @@ export function useFieldConfig(options = {}) {
     pluginConfig,
     togglePlugin,
   };
+}
+
+/**
+ * Run a function (typically the plugin pipeline) while suppressing auto-save.
+ * This prevents plugin modifications to fieldConfig from being persisted to
+ * localStorage, so that explicit saves (resetToDefaults, user toggles) take
+ * precedence over automatic plugin patching.
+ */
+export function runWithoutAutoSave(fn) {
+  _suppressAutoSave = true;
+  fn();
+  nextTick(() => { _suppressAutoSave = false; });
 }

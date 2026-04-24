@@ -279,7 +279,7 @@ export default {
      * Parse display blocks from [role] content text format (legacy fallback).
      */
     function parseFromText(text) {
-      if (!text) return [];
+      if (!text || typeof text !== 'string') return [];
       const lines = text.split('\n');
       const blocks = [];
       let current = null;

@@ -56,7 +56,22 @@ export function useDynamicViewStats(tableData, config = {}) {
 
       // Distributions
       for (const field of distributionFields) {
-        const val = row[field];
+        let val = row[field];
+        // For reconstructed sub-fields (e.g. RequestData.model), read from _reconstructed_ parent
+        const dotIdx = field.indexOf('.');
+        if (dotIdx > 0) {
+          const rootKey = field.substring(0, dotIdx);
+          const reconObj = row[`_reconstructed_${rootKey}`];
+          if (reconObj) {
+            const subPath = field.substring(dotIdx + 1);
+            let current = reconObj;
+            for (const part of subPath.split('.')) {
+              if (current == null || typeof current !== 'object') { current = undefined; break; }
+              current = current[part];
+            }
+            if (current !== undefined) val = current;
+          }
+        }
         const key = val === null || val === undefined || val === '' ? '__empty__' : val;
         const map = distMaps[field];
         if (map) {
@@ -66,7 +81,23 @@ export function useDynamicViewStats(tableData, config = {}) {
 
       // Histograms
       for (const field of histogramFields) {
-        const v = Number(row[field.key]);
+        let val = row[field.key];
+        // For reconstructed sub-fields, read from _reconstructed_ parent
+        const dotIdx = field.key.indexOf('.');
+        if (dotIdx > 0) {
+          const rootKey = field.key.substring(0, dotIdx);
+          const reconObj = row[`_reconstructed_${rootKey}`];
+          if (reconObj) {
+            const subPath = field.key.substring(dotIdx + 1);
+            let current = reconObj;
+            for (const part of subPath.split('.')) {
+              if (current == null || typeof current !== 'object') { current = undefined; break; }
+              current = current[part];
+            }
+            if (current !== undefined) val = current;
+          }
+        }
+        const v = Number(val);
         if (!isNaN(v) && v >= 0) {
           const acc = histAccum[field.key];
           if (acc) {

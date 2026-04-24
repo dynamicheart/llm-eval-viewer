@@ -20,6 +20,9 @@
  */
 
 import { registerPlugin } from './pluginRegistry';
+import { createLogger } from '@/utils/pipelineLogger';
+
+const logger = createLogger('decodeNestedJson');
 
 const MAX_DEPTH = 5;
 
@@ -82,6 +85,8 @@ const decodeNestedJson = {
 
     if (stringFields.length === 0) return { rows, fieldMeta };
 
+    logger.stage(`processing ${stringFields.length} string fields`);
+
     // Sample first few rows to find double-encoded candidates
     const sampleRows = processedRows.slice(0, Math.min(10, processedRows.length));
     const candidates = [];
@@ -99,9 +104,13 @@ const decodeNestedJson = {
       }
     }
 
-    if (candidates.length === 0) return { rows, fieldMeta };
+    if (candidates.length === 0) {
+      logger.detail('no double-encoded candidates found');
+      logger.stageEnd();
+      return { rows, fieldMeta };
+    }
 
-    console.log(`[decodeNestedJson] found ${candidates.length} double-encoded fields:`, candidates.map((f) => f.key));
+    logger.detail(`found ${candidates.length} candidates: [${candidates.map((f) => f.key).join(', ')}]`);
 
     // Process each candidate field across all rows
     for (const field of candidates) {
@@ -124,7 +133,8 @@ const decodeNestedJson = {
       }
 
       if (decodeCount > 0) {
-        console.log(`[decodeNestedJson] decoded ${field.key} in ${decodeCount}/${processedRows.length} rows`);
+        logger.detail(`decoded '${field.key}' in ${decodeCount}/${processedRows.length} rows`);
+        logger.trace(`type → decodedJson, previewable=true`);
 
         // Update field meta
         const metaField = newDetectedFields.find((f) => f.key === field.key);
@@ -136,6 +146,8 @@ const decodeNestedJson = {
         }
       }
     }
+
+    logger.stageEnd();
 
     return {
       rows: processedRows,

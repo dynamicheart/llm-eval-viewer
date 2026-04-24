@@ -19,6 +19,9 @@
  */
 
 import { registerPlugin } from './pluginRegistry';
+import { createLogger } from '@/utils/pipelineLogger';
+
+const logger = createLogger('reconstructDotNotation');
 
 const ARRAY_INDEX_RE = /^\[(\d+)\]$/;
 
@@ -141,6 +144,9 @@ const reconstructDotNotation = {
 
     if (rootGroups.size === 0) return { rows, fieldMeta };
 
+    logger.stage(`${rootGroups.size} root groups detected`);
+    logger.detail(`roots: [${[...rootGroups.keys()].join(', ')}]`);
+
     const processedRoots = new Set();
 
     // Step 2: For each root group, reconstruct the unified object
@@ -148,13 +154,24 @@ const reconstructDotNotation = {
       // Skip groups with only one sub-field (not worth merging)
       if (subFields.length < 1) continue;
 
+      logger.stage(`root '${rootKey}': ${subFields.length} sub-fields`);
+
+      const arrayLeaves = subFields.filter((f) => hasArrayIndex(f.key));
+      const directSubs = subFields.filter((f) => !hasArrayIndex(f.key));
+      logger.detail(`  ${directSubs.length} direct, ${arrayLeaves.length} array leaves`);
+
       // Reconstruct objects for each row
       for (const row of processedRows) {
         const obj = {};
         for (const field of subFields) {
           const subPath = field.key.substring(rootKey.length + 1);
-          const value = row[field.key];
+          let value = row[field.key];
           if (value == null || value === '') continue;
+          // Use decoded object if available (from decodeNestedJson plugin)
+          const decoded = row[`_decoded_${field.key}`];
+          if (decoded !== undefined && typeof decoded === 'object') {
+            value = decoded;
+          }
           setNestedValue(obj, subPath, value);
         }
 
@@ -203,11 +220,13 @@ const reconstructDotNotation = {
           field.visibilityReason = 'reconstructed';
           field.visible = false;
           field.isPluginField = true;
+          logger.trace(`  mark for removal: ${field.key}`);
         } else {
           // Direct sub-field (e.g. X.messages, X.top_p) → hide but keep in config
           field.visibilityReason = 'reconstructed_sub';
           field.visible = false;
           field.isPluginField = true;
+          logger.trace(`  hide sub-field: ${field.key}`);
         }
       }
 
@@ -215,6 +234,9 @@ const reconstructDotNotation = {
 
       // Step 4: Detect conversation/toolList sub-fields within reconstructed objects
       detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFields);
+
+      logger.detail(`root '${rootKey}': special type detection done`);
+      logger.stageEnd();
     }
 
     // Step 5: Check for [role] content text in any string field (global scan)
@@ -253,7 +275,8 @@ const reconstructDotNotation = {
       }
     }
 
-    console.log(`[reconstructDotNotation] merged ${processedRoots.size} root groups:`, [...processedRoots]);
+    logger.detail(`merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`);
+    logger.stageEnd();
 
     return {
       rows: processedRows,
@@ -281,14 +304,22 @@ function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFi
     });
     if (!sampleRow) continue;
 
-    const sampleVal = getNestedValue(sampleRow[reconKey], subPath);
+    let sampleVal = getNestedValue(sampleRow[reconKey], subPath);
+
+    // Try to parse string values as JSON (for fields not pre-decoded by decodeNestedJson)
+    if (typeof sampleVal === 'string') {
+      try { sampleVal = JSON.parse(sampleVal); } catch { /* not JSON, keep as string */ }
+    }
 
     // Check for conversation (array of objects with role property)
     if (Array.isArray(sampleVal) && sampleVal.length > 0 && sampleVal[0]?.role) {
       if (field.detectedType !== 'conversation') {
         field.detectedType = 'conversation';
         field.visibilityReason = 'conversation';
-        // Don't force visible - keep hidden as reconstructed_sub, user can enable
+        field.visible = true;
+        field.previewable = true;
+        field.filterable = true;
+        logger.detail(`  '${field.key}' → conversation (visible)`);
       }
       continue;
     }
@@ -300,6 +331,9 @@ function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFi
         if (field.detectedType !== 'toolList') {
           field.detectedType = 'toolList';
           field.visibilityReason = 'toolList';
+          field.visible = true;
+          field.previewable = true;
+          logger.detail(`  '${field.key}' → toolList (visible)`);
         }
         continue;
       }

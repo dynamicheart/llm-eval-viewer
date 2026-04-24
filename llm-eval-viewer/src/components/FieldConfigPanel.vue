@@ -79,33 +79,49 @@
       <el-divider content-position="left">{{ $t('custom.statsConfig') }}</el-divider>
 
       <div v-if="enumFields.length" class="config-section">
-        <div class="config-section-title">{{ $t('custom.distributionFields') }}</div>
-        <el-checkbox-group v-model="localDistFields" @change="onStatsChange">
-          <el-checkbox
-            v-for="f in enumFields"
-            :key="f.key"
-            :label="f.key"
-            size="small"
-          >
-            {{ f.label }}
-            <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
-          </el-checkbox>
-        </el-checkbox-group>
+        <div class="schema-header" @click="distExpanded = !distExpanded">
+          <el-icon class="schema-arrow" :class="{ 'is-expanded': distExpanded }">
+            <ArrowRight />
+          </el-icon>
+          <span class="schema-title">{{ $t('custom.distributionFields') }}</span>
+          <span class="section-hint">{{ localDistFields.length }}/{{ enumFields.length }}</span>
+        </div>
+        <div v-show="distExpanded" class="stats-collapse-body">
+          <el-checkbox-group v-model="localDistFields" @change="onStatsChange">
+            <el-checkbox
+              v-for="f in enumFields"
+              :key="f.key"
+              :label="f.key"
+              size="small"
+            >
+              {{ f.label }}
+              <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
+            </el-checkbox>
+          </el-checkbox-group>
+        </div>
       </div>
 
       <div v-if="numericFields.length" class="config-section">
-        <div class="config-section-title">{{ $t('custom.histogramFields') }}</div>
-        <el-checkbox-group v-model="localHistFields" @change="onStatsChange">
-          <el-checkbox
-            v-for="f in numericFields"
-            :key="f.key"
-            :label="f.key"
-            size="small"
-          >
-            {{ f.label }}
-            <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
-          </el-checkbox>
-        </el-checkbox-group>
+        <div class="schema-header" @click="histExpanded = !histExpanded">
+          <el-icon class="schema-arrow" :class="{ 'is-expanded': histExpanded }">
+            <ArrowRight />
+          </el-icon>
+          <span class="schema-title">{{ $t('custom.histogramFields') }}</span>
+          <span class="section-hint">{{ localHistFields.length }}/{{ numericFields.length }}</span>
+        </div>
+        <div v-show="histExpanded" class="stats-collapse-body">
+          <el-checkbox-group v-model="localHistFields" @change="onStatsChange">
+            <el-checkbox
+              v-for="f in numericFields"
+              :key="f.key"
+              :label="f.key"
+              size="small"
+            >
+              {{ f.label }}
+              <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
+            </el-checkbox>
+          </el-checkbox-group>
+        </div>
       </div>
 
       <!-- Column configuration -->
@@ -461,6 +477,8 @@ export default {
     const showOnlyVisible = ref(false);
     const collapsedGroups = ref({});
     const schemaExpanded = ref(false);
+    const distExpanded = ref(false);
+    const histExpanded = ref(false);
 
     watch(
       () => props.statsConfig,
@@ -896,6 +914,8 @@ export default {
       showOnlyVisible,
       collapsedGroups,
       schemaExpanded,
+      distExpanded,
+      histExpanded,
       filteredTree,
       schemaText,
       getDisplayKey,
@@ -988,6 +1008,16 @@ export default {
   padding: 0;
   max-height: 200px;
   overflow-y: auto;
+}
+
+.stats-collapse-body {
+  padding: 4px 12px 8px;
+}
+
+.section-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ev-text-placeholder);
 }
 
 .schema-pre {

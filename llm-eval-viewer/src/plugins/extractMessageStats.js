@@ -12,6 +12,9 @@
  */
 
 import { registerPlugin } from './pluginRegistry';
+import { createLogger } from '@/utils/pipelineLogger';
+
+const logger = createLogger('extractMessageStats');
 
 /**
  * Try to get structured messages from a row for a given field.
@@ -94,10 +97,15 @@ const extractMessageStats = {
       .filter((f) => f.detectedType === 'conversation')
       .map((f) => f.key);
 
-    if (conversationFields.length === 0) return { rows, fieldMeta };
+    if (conversationFields.length === 0) {
+      logger.detail('no conversation fields found, skipping');
+      return { rows, fieldMeta };
+    }
 
     // Use the first conversation field for stats extraction
     const primaryField = conversationFields[0];
+    logger.stage(`${conversationFields.length} conversation field(s) found`);
+    logger.detail(`primary field: '${primaryField}'${conversationFields.length > 1 ? ` (+ ${conversationFields.length - 1} more)` : ''}`);
 
     for (const row of rows) {
       const messages = getMessagesForField(row, primaryField);
@@ -172,6 +180,9 @@ const extractMessageStats = {
         isPluginField: true,
       });
     }
+
+    logger.detail(`added ${PLUGIN_FIELDS.length} plugin fields: [${PLUGIN_FIELDS.map((f) => f.key).join(', ')}]`);
+    logger.stageEnd();
 
     return {
       rows,

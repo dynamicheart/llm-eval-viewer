@@ -45,7 +45,7 @@
       </el-tooltip>
 
       <!-- Recent records (files + directories combined) -->
-      <el-dropdown popper-class="recent-dropdown">
+      <el-dropdown popper-class="recent-dropdown" trigger="click">
         <el-button size="small" plain>
           {{ $t('fileToolbar.recentRecords') }} <el-icon><ArrowDown /></el-icon>
         </el-button>
@@ -201,6 +201,7 @@ function handleFileSelect(file) {
 
 function openRecentFile(file) {
   emits('open-recent-file', file);
+  return false;
 }
 
 const totalCacheSize = computed(() => {
