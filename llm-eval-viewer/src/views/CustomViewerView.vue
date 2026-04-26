@@ -56,6 +56,9 @@
         <el-button size="small" @click="showFieldConfig = true">
           {{ $t('custom.fieldConfig') }}
         </el-button>
+        <el-button v-if="debugMode" size="small" type="warning" @click="pipelineDebugVisible = true">
+          {{ $t('custom.debug') }}
+        </el-button>
       </div>
 
       <!-- Expand info banner -->
@@ -143,9 +146,22 @@
               </el-tooltip>
             </template>
             <template v-else-if="col.detectedType === 'nestedObject'">
-              <span class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
+              <el-tooltip v-if="col.conversationPath" placement="top" :show-after="300">
+                <template #content>
+                  <div style="max-width:400px;max-height:200px;overflow:auto">
+                    <div v-for="(msg, i) in getNestedMessages(row, col.key, col.conversationPath)" :key="i" style="margin-bottom:2px">
+                      <b :style="{color: msg.role === 'user' ? '#409eff' : msg.role === 'assistant' ? '#67c23a' : '#999'}">[{{ msg.role }}]</b> {{ truncateText(String(msg.content ?? ''), 120) }}
+                    </div>
+                  </div>
+                </template>
+                <span class="clickable-cell conversation-cell" @click="openNestedConversation(row, col.key, col.conversationPath)">
+                  <span class="conversation-tag">chat</span>
+                  <span class="conversation-count">{{ countNestedMessages(row[col.key], col.conversationPath) }}</span>
+                </span>
+              </el-tooltip>
+              <span v-else class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
                 <span class="conversation-tag" style="background: var(--ev-color-success-light-9, rgba(103,194,58,0.1)); color: var(--ev-color-success, #67c23a);">JSON</span>
-                {{ truncateText(String(row[col.key] ?? ''), 80) }}
+                {{ previewObjectValue(row[col.key]) }}
               </span>
             </template>
             <template v-else-if="col.previewable">
@@ -224,6 +240,7 @@
       :pattern-match-counts="patternMatchCounts"
       :plugin-config="pluginConfig"
       :registered-plugins="registeredPlugins"
+      :pipeline-debug="pipelineDebug"
       @close="showFieldConfig = false"
       @save="onFieldConfigSave"
       @stats-change="onStatsChange"
@@ -233,7 +250,6 @@
       @delete-preset="onDeletePreset"
       @clear-preset="clearActivePreset"
       @toggle-group="onToggleGroup"
-      @recalculate="onRecalculateScores"
       @plugin-toggle="onPluginToggle"
     />
 
@@ -248,11 +264,21 @@
       :is-tool-list="conversationIsToolList"
       @update:visible="(val) => (conversationVisible = val)"
     />
+
+    <DebugDialog
+      v-if="debugMode"
+      :visible="pipelineDebugVisible"
+      :pipeline-debug="pipelineDebug"
+      :pattern-match-counts="patternMatchCounts"
+      @update:visible="(val) => (pipelineDebugVisible = val)"
+      @reset="onFieldReset"
+      @plugin-toggle="onPluginToggle"
+    />
   </div>
 </template>
 
 <script>
-import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 
@@ -262,6 +288,7 @@ import HistogramCard from '@/components/HistogramCard.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import FieldConfigPanel from '@/components/FieldConfigPanel.vue';
+import DebugDialog from '@/components/DebugDialog.vue';
 import ConversationDialog from '@/components/ConversationDialog.vue';
 import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 
@@ -280,12 +307,17 @@ import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
 import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
-import { runPlugins, getRegisteredPlugins } from '@/plugins/pluginRegistry';
+import { runPlugins, getRegisteredPlugins, getOptionalPlugins } from '@/plugins/pluginRegistry';
 import { assignFieldVisibility } from '@/utils/customParserHelpers';
 import { createLogger } from '@/utils/pipelineLogger';
+import { runPipeline } from '@/utils/pipelineRunner';
+import { pipelineDebug, populatePipelineDebug, resetPipelineDebug } from '@/utils/pipelineDebugStore';
 import '@/plugins/reconstructDotNotation';
-import '@/plugins/extractMessageStats';
 import '@/plugins/decodeNestedJson';
+import '@/plugins/dedupNestedFields';
+import '@/plugins/formatParse';
+import '@/plugins/detectTypes';
+import '@/plugins/scoring';
 import CustomWorker from '@/workers/customParser.worker.js?worker';
 
 export default {
@@ -298,6 +330,7 @@ export default {
     FieldConfigPanel,
     ConversationDialog,
     DirBrowserDrawer,
+    DebugDialog,
   },
 
   setup() {
@@ -313,11 +346,35 @@ export default {
     const conversationFilterPlaceholder = ref('');
     const conversationIsToolList = ref(false);
     const samplePromptVisible = ref(false);
+    const pipelineDebugVisible = ref(false);
 
     const ONBOARDED_KEY = 'custom_viewer_onboarded';
 
     // ===== Table model =====
-    const tableModel = useTableModel();
+    function getNestedValue(obj, path) {
+      const parts = path.split('.');
+      let current = obj;
+      for (const part of parts) {
+        if (current == null || typeof current !== 'object') return undefined;
+        current = current[part];
+      }
+      return current;
+    }
+
+    function resolveRowValue(row, colKey) {
+      if (!colKey.includes('.')) return row[colKey];
+      const rootKey = colKey.split('.')[0];
+      const reconObj = row[`_reconstructed_${rootKey}`];
+      if (reconObj) {
+        const val = getNestedValue(reconObj, colKey.substring(rootKey.length + 1));
+        if (val !== undefined) return val;
+      }
+      const val = getNestedValue(row, colKey);
+      if (val !== undefined) return val;
+      return row[`_decoded_${colKey}`];
+    }
+
+    const tableModel = useTableModel({ getValue: resolveRowValue });
     const {
       tableData, filteredData, paginatedData,
       currentPage, pageSize, totalItems, totalVisibleItems,
@@ -329,6 +386,7 @@ export default {
     // ===== Field configuration =====
     const fieldConfigState = useFieldConfig();
     const { debugMode } = useDebugMode();
+
     const {
       fieldConfig,
       lastFileId,
@@ -350,7 +408,6 @@ export default {
       deletePreset,
       clearAllConfigs,
       priorityDebug,
-      recalculateScores,
       patternMatchCounts,
     } = fieldConfigState;
 
@@ -377,19 +434,25 @@ export default {
       if (!_rawRows.value.length || !_rawFieldMeta.value) return;
       viewLogger.header('Re-apply Plugins (toggle)');
       const t = viewLogger.time('applyPlugins');
-      const { rows, fieldMeta } = runPlugins(
-        _rawRows.value,
-        _rawFieldMeta.value,
-        pluginConfig.value.enabledPlugins,
-      );
+      const { rows, fieldMeta, debug: pipelineDebugData } = runPipeline(null, {
+        cachedRecords: _rawRows.value,
+        detectedFormat: _rawFieldMeta.value._detectedFormat,
+        expandNestedJsonStrings: true,
+        enabledPluginIds: pluginConfig.value.enabledPlugins,
+      });
       tableData.value = rows;
       updateFromPluginMeta(lastFileId.value, fieldMeta);
       viewLogger.detail(`result: ${rows.length} rows, ${(fieldMeta.detectedFields || []).length} fields`);
       t();
     }
 
-    function onPluginToggle(pluginId) {
-      togglePlugin(pluginId);
+    function onPluginToggle({ id, enabled }) {
+      const idx = pluginConfig.value.enabledPlugins.indexOf(id);
+      if (enabled && idx < 0) {
+        pluginConfig.value.enabledPlugins.push(id);
+      } else if (!enabled && idx >= 0) {
+        pluginConfig.value.enabledPlugins.splice(idx, 1);
+      }
       applyPlugins();
     }
 
@@ -438,6 +501,7 @@ export default {
     const { distributions, histogramData, globalStats } = useDynamicViewStats(tableData, {
       getDistributionFields: () => activeDistFields.value,
       getHistogramFields: () => activeHistFields.value,
+      getValue: resolveRowValue,
     });
 
     // ===== Helper functions =====
@@ -473,7 +537,17 @@ export default {
      * Show JSON dialog for a single reconstructed field (e.g. RequestData).
      */
     function showFieldJson(row, colKey) {
-      // Try _reconstructed_ first (from reconstruct plugin), then _decoded_ (from decode plugin)
+      // Direct object value (from decodeNestedJson preserving JSON structure)
+      const directValue = row[colKey];
+      if (directValue && typeof directValue === 'object') {
+        dialogHasTabs.value = false;
+        dialogJsonData.value = directValue;
+        dialogRawText.value = JSON.stringify(directValue, null, 2);
+        dialogVisible.value = true;
+        return;
+      }
+
+      // Fallback: try _reconstructed_ / _decoded_ keys
       const dotIdx = colKey.indexOf('.');
       const rootKey = dotIdx > 0 ? colKey.substring(0, dotIdx) : colKey;
       const subPath = dotIdx > 0 ? colKey.substring(dotIdx + 1) : null;
@@ -608,39 +682,7 @@ export default {
     /**
      * Navigate an object by dot-separated path.
      */
-    /**
-     * Get effective value for a field key, supporting reconstructed/decoded data.
-     * For dot-notation sub-fields (e.g. RequestData.tools), reads from _reconstructed_ parent.
-     */
-    function getRowValue(row, colKey) {
-      const dotIdx = colKey.indexOf('.');
-      if (dotIdx <= 0) return row[colKey];
-
-      const rootKey = colKey.substring(0, dotIdx);
-      const subPath = colKey.substring(dotIdx + 1);
-
-      // Try reconstructed parent first, then decoded, then raw flat field
-      const reconObj = row[`_reconstructed_${rootKey}`];
-      if (reconObj) {
-        const val = getNestedValue(reconObj, subPath);
-        if (val !== undefined) return val;
-      }
-
-      const decoded = row[`_decoded_${colKey}`];
-      if (decoded !== undefined) return decoded;
-
-      return row[colKey];
-    }
-
-    function getNestedValue(obj, path) {
-      const keys = path.split('.');
-      let current = obj;
-      for (const key of keys) {
-        if (current == null || typeof current !== 'object') return undefined;
-        current = current[key];
-      }
-      return current;
-    }
+    const getRowValue = resolveRowValue;
 
     /**
      * Open conversation dialog. Tries to extract structured messages from
@@ -704,6 +746,78 @@ export default {
       }
 
       conversationVisible.value = true;
+    }
+
+    /**
+     * Open conversation dialog for a nested object field (e.g. RequestData → messages).
+     * Uses _raw_* to get the original JSON and extract the conversation array.
+     */
+    function openNestedConversation(row, colKey, conversationPath) {
+      conversationMessages.value = null;
+      conversationText.value = '';
+      conversationTools.value = null;
+      conversationTitle.value = t('custom.conversationTitle');
+      conversationFilterPlaceholder.value = t('custom.filterConversation');
+      conversationIsToolList.value = false;
+
+      // Try _raw_ field to get original JSON, then extract the conversation array
+      const rawValue = row[`_raw_${colKey}`];
+      if (rawValue && typeof rawValue === 'string') {
+        try {
+          const parsed = JSON.parse(rawValue);
+          const messages = getNestedValue(parsed, conversationPath);
+          if (Array.isArray(messages) && messages.length > 0 && messages[0]?.role) {
+            conversationMessages.value = messages;
+          }
+        } catch { /* fallback */ }
+      }
+
+      // Fallback: try the decoded object directly
+      if (!conversationMessages.value) {
+        const obj = row[colKey];
+        if (obj && typeof obj === 'object') {
+          // The formatted text is at obj[conversationPath], but we need the original array
+          // Check if _raw_ already handled above
+        }
+      }
+
+      conversationVisible.value = true;
+    }
+
+    function getNestedMessages(row, colKey, conversationPath) {
+      const rawValue = row[`_raw_${colKey}`];
+      if (rawValue && typeof rawValue === 'string') {
+        try {
+          const parsed = JSON.parse(rawValue);
+          const messages = getNestedValue(parsed, conversationPath);
+          if (Array.isArray(messages)) return messages;
+        } catch { /* fallback */ }
+      }
+      return [];
+    }
+
+    function countNestedMessages(value, conversationPath) {
+      if (!value || typeof value !== 'object') return 0;
+      // The conversation is formatted as text inside the object
+      const text = value[conversationPath];
+      if (typeof text === 'string') {
+        const matches = text.match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/gim);
+        return matches ? matches.length : 0;
+      }
+      return 0;
+    }
+
+    function previewObjectValue(value) {
+      if (!value || typeof value !== 'object') return '';
+      const keys = Object.keys(value);
+      if (keys.length === 0) return '{}';
+      // Show first few keys with type hints
+      const preview = keys.slice(0, 3).map(k => {
+        const v = value[k];
+        const type = Array.isArray(v) ? `[](${v.length})` : typeof v === 'object' && v !== null ? '{}' : typeof v;
+        return `${k}:${type}`;
+      }).join(', ');
+      return keys.length <= 3 ? `{${preview}}` : `{${preview}, ...}`;
     }
 
     function previewCellValue(value) {
@@ -791,6 +905,9 @@ export default {
               resolve({
                 rows: e.data.rows,
                 fieldMeta: e.data.fieldMeta,
+                detectedFormat: e.data.detectedFormat,
+                expansionDebug: e.data.formatDebug,
+                workerTimings: e.data.timings,
               });
             }
           };
@@ -827,9 +944,21 @@ export default {
         if (result.fieldMeta) {
           viewLogger.header('Parse Result Pipeline');
 
-          // Cache raw data for plugin re-processing
+          // Cache rows for plugin re-processing (post-transform, pre-analyze)
           _rawRows.value = result.rows.map((r) => ({ ...r }));
-          _rawFieldMeta.value = result.fieldMeta;
+          // Preserve decoded keys info from worker's type detection
+          const decodedKeys = new Set();
+          for (const f of (result.fieldMeta.detectedFields || [])) {
+            if (f.isExpanded) decodedKeys.add(f.key);
+          }
+          _rawFieldMeta.value = {
+            ...result.fieldMeta,
+            _decodedKeys: decodedKeys,
+            _detectedFormat: result.detectedFormat,
+          };
+
+          // Snapshot row 0 before any processing (for pipeline debug)
+          const sampleOriginal = result.rows.length > 0 ? { ...result.rows[0] } : null;
 
           // Use currentFileId if set (user action), otherwise fallback to localStorage
           const fileId = currentFileId || localStorage.getItem('custom_viewer_cache');
@@ -840,26 +969,24 @@ export default {
 
             viewLogger.detail(`parsed: ${result.rows.length} rows, ${(result.fieldMeta.detectedFields || []).length} fields`);
 
-            // Run the full plugin pipeline first, then re-score using enhanced
-            // fieldMeta so conversation/toolList types detected by plugins get
-            // correct -100 priority.
+            // Run optional plugins + re-score using runPipeline with cached records.
+            // This allows decode/reconstruct/extractStats to run on already-expanded data,
+            // then re-detect types and re-score for correct plugin-enhanced priorities.
             runWithoutAutoSave(() => {
-              viewLogger.stage('runPlugins');
-              const { rows, fieldMeta: enhancedMeta } = runPlugins(
-                _rawRows.value,
-                result.fieldMeta,
-                pluginConfig.value.enabledPlugins,
-              );
+              viewLogger.stage('runPipeline (plugins + re-score)');
+              const { rows, fieldMeta: enhancedMeta, debug: pipelineDebugData } = runPipeline(null, {
+                cachedRecords: _rawRows.value,
+                detectedFormat: result.detectedFormat,
+                expandNestedJsonStrings: true,
+                enabledPluginIds: pluginConfig.value.enabledPlugins,
+              });
               tableData.value = rows;
               viewLogger.stageEnd();
 
-              // Re-score with plugin-enhanced fieldMeta
-              viewLogger.stage('assignFieldVisibility (enhanced)');
-              const { debugMeta, patternMatchCounts } = assignFieldVisibility(enhancedMeta.detectedFields);
-              enhancedMeta.priorityDebug = debugMeta;
-              enhancedMeta.patternMatchCounts = patternMatchCounts;
-              viewLogger.detail(`${enhancedMeta.detectedFields.length} fields scored`);
-              viewLogger.stageEnd();
+              // Snapshot row 0 after plugins (for pipeline debug)
+              const sampleAfterPlugins = rows.length > 0 ? { ...rows[0] } : null;
+
+              viewLogger.detail(`pipeline complete: ${rows.length} rows, ${(enhancedMeta.detectedFields || []).length} fields`);
 
               // Init from enhanced meta (stores priorityDebug + patternMatchCounts internally)
               viewLogger.stage('initFromMeta');
@@ -871,7 +998,28 @@ export default {
               updateFromPluginMeta(fileId, enhancedMeta);
               viewLogger.stageEnd();
 
-              viewLogger.detail(`pipeline complete: ${rows.length} rows, ${(enhancedMeta.detectedFields || []).length} fields`);
+              // Populate pipeline debug store
+              if (isDebugLogging()) {
+                populatePipelineDebug({
+                  cache: { status: 'miss', fileId, parserVersion: '3' },
+                  pipeline: {
+                    timings: result.timings || {},
+                    detectedFormat: result.detectedFormat || 'unknown',
+                    rowCount: result.rows.length,
+                    formatDebug: result.formatDebug || { conversationArrays: [], toolArrays: [], homogeneousArrays: [] },
+                    stages: pipelineDebugData || [],
+                  },
+                  scoring: {
+                    debugMeta: enhancedMeta.priorityDebug || [],
+                    patternMatchCounts: enhancedMeta.patternMatchCounts || {},
+                    fieldTree: enhancedMeta.detectedFieldsTree || [],
+                  },
+                  samples: {
+                    original: sampleOriginal,
+                    afterPlugins: sampleAfterPlugins,
+                  },
+                });
+              }
             });
           }
         }
@@ -899,6 +1047,7 @@ export default {
       columnFilterMap.clear();
       expandInfo.value = [];
       schemaSnapshot.value = null;
+      resetPipelineDebug();
     }
 
     // Wrap file select to set up the parser
@@ -961,14 +1110,15 @@ export default {
     }
 
     function onFieldReset() {
-      // Run plugin pipeline first to get enhanced data
+      // Run plugin pipeline via runPipeline to get enhanced data
       let enhancedFieldMeta = _rawFieldMeta.value;
       runWithoutAutoSave(() => {
-        const { rows, fieldMeta } = runPlugins(
-          _rawRows.value,
-          _rawFieldMeta.value,
-          pluginConfig.value.enabledPlugins,
-        );
+        const { rows, fieldMeta } = runPipeline(null, {
+          cachedRecords: _rawRows.value,
+          detectedFormat: _rawFieldMeta.value._detectedFormat,
+          expandNestedJsonStrings: true,
+          enabledPluginIds: pluginConfig.value.enabledPlugins,
+        });
         tableData.value = rows;
         enhancedFieldMeta = fieldMeta;
       });
@@ -977,11 +1127,6 @@ export default {
       // Apply plugin modifications AFTER reset (remove array leaves, hide sub-fields)
       updateFromPluginMeta(lastFileId.value, enhancedFieldMeta);
       ElMessage.success(t('common.resetSuccess'));
-    }
-
-    function onRecalculateScores() {
-      recalculateScores();
-      ElMessage.success(t('custom.recalculateSuccess'));
     }
 
     function onToggleGroup(groupKey) {
@@ -1063,6 +1208,8 @@ export default {
       getFieldLabel,
       // Debug
       debugMode,
+      pipelineDebugVisible,
+      pipelineDebug,
       // Presets
       presets,
       activePresetId,
@@ -1089,6 +1236,10 @@ export default {
       isLongValue,
       formatNumber,
       openConversation,
+      openNestedConversation,
+      getNestedMessages,
+      countNestedMessages,
+      previewObjectValue,
       previewCellValue,
       countItems,
       getRowValue,
@@ -1113,7 +1264,6 @@ export default {
       onFieldConfigSave,
       onStatsChange,
       onFieldReset,
-      onRecalculateScores,
       onToggleGroup,
       onSavePreset,
       onApplyPreset,

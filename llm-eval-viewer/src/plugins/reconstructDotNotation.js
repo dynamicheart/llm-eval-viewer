@@ -20,6 +20,7 @@
 
 import { registerPlugin } from './pluginRegistry';
 import { createLogger } from '@/utils/pipelineLogger';
+import { parseTextMessages } from '@/utils/customParserHelpers';
 
 const logger = createLogger('reconstructDotNotation');
 
@@ -88,29 +89,6 @@ function hasArrayIndex(key) {
 }
 
 /**
- * Parse [role] content text format into structured message array.
- */
-function parseTextMessages(text) {
-  if (!text || typeof text !== 'string') return null;
-  const lines = text.split('\n');
-  const messages = [];
-  let current = null;
-
-  for (const line of lines) {
-    const match = line.match(/^\[(system|user|assistant|human|ai|bot)\]\s*(.*)/i);
-    if (match) {
-      if (current) messages.push(current);
-      current = { role: match[1].toLowerCase(), content: match[2] || '' };
-    } else if (current) {
-      current.content += (current.content ? '\n' : '') + line;
-    }
-  }
-  if (current) messages.push(current);
-
-  return messages.length > 0 ? messages : null;
-}
-
-/**
  * Detect if a string value looks like [role] content format.
  */
 function isTextMessageFormat(value) {
@@ -122,6 +100,8 @@ const reconstructDotNotation = {
   id: 'reconstructDotNotation',
   nameKey: 'custom.pluginReconstructName',
   descriptionKey: 'custom.pluginReconstructDesc',
+  stage: 'transform',
+  order: 60,
 
   process(rows, fieldMeta) {
     if (!rows || rows.length === 0) return { rows, fieldMeta };
@@ -278,9 +258,28 @@ const reconstructDotNotation = {
     logger.detail(`merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`);
     logger.stageEnd();
 
+    const _pluginDebug = {
+      summary: `merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`,
+      rootGroups: {},
+    };
+
+    // Collect per-root debug info
+    for (const [rootKey, subFields] of rootGroups) {
+      if (processedRoots.has(rootKey)) {
+        const arrayLeaves = subFields.filter(f => hasArrayIndex(f.key)).map(f => f.key);
+        const directSubs = subFields.filter(f => !hasArrayIndex(f.key)).map(f => f.key);
+        pluginDebug.rootGroups[rootKey] = {
+          directSubs,
+          arrayLeaves,
+          totalSubs: subFields.length,
+        };
+      }
+    }
+
     return {
       rows: processedRows,
       fieldMeta: { ...fieldMeta, detectedFields: newDetectedFields },
+      _pluginDebug,
     };
   },
 };

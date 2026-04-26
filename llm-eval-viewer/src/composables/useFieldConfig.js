@@ -31,7 +31,7 @@ export function useFieldConfig(options = {}) {
 
   // ===== Plugin config =====
   const pluginConfig = ref({
-    enabledPlugins: ['decodeNestedJson', 'reconstructDotNotation'],
+    enabledPlugins: ['decodeNestedJson', 'reconstructDotNotation', 'dedupNestedFields'],
   });
 
   function togglePlugin(pluginId) {
@@ -152,7 +152,7 @@ export function useFieldConfig(options = {}) {
     return _smartSelect(numericFields, HISTOGRAM_SELECT_PATTERNS, max);
   }
 
-  const CONFIG_VERSION = 7; // Bumped: assignFieldVisibility now skips plugin fields, changing visibleCount allocation
+  const CONFIG_VERSION = 8; // Bumped: pipeline refactored — plugins now produce fieldMeta with scoring
 
   // ===== Debounced auto-save =====
   // Catches all mutations (including direct v-model changes from the panel)

@@ -132,3 +132,17 @@ html.dark .hljs-section { color: #61afef; }
 html.dark .hljs-symbol,
 html.dark .hljs-bullet { color: #56b6c2; }
 html.dark .hljs-subst { color: #e5eaf3; }
+
+/* ===== vue-json-pretty dark overrides ===== */
+html.dark .vjs-value-string { color: #98c379; }
+html.dark .vjs-value-number { color: #61afef; }
+html.dark .vjs-value-boolean { color: #61afef; }
+html.dark .vjs-value-null { color: #d2a8ff; }
+html.dark .vjs-key { color: #e06c75; }
+
+/* ===== Pre-based JSON syntax highlighting ===== */
+.pj-key { color: #e06c75; }
+.pj-str { color: #98c379; }
+.pj-num { color: #61afef; }
+.pj-bool { color: #61afef; }
+.pj-null { color: #d2a8ff; }

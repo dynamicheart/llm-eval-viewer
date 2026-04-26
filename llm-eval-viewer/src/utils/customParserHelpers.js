@@ -13,6 +13,8 @@ export const ENUM_THRESHOLD = 20;
 export const SAMPLE_SIZE_FOR_TYPE = 50;
 export const PREVIEW_LENGTH_THRESHOLD = 50;
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+const CONV_ROLE_RE = /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i;
+const TOOL_DEF_RE = /^\[tool:[^\]]+\]\s*\{/;
 
 /**
  * Detect if an array looks like a conversation (chat messages) — all items are
@@ -129,68 +131,6 @@ export function isToolDefinitionsArray(arr) {
 }
 
 /**
- * Deep flatten an object/array into dot-notation keys.
- * Homogeneous object arrays are kept as single formatted fields.
- */
-export function flattenValue(value, parentKey = '', depth = 0, maxDepth = 3) {
-  const result = {};
-
-  if (value === null || value === undefined) {
-    result[parentKey] = '';
-    return result;
-  }
-
-  if (Array.isArray(value)) {
-    if (parentKey === '') {
-      result[''] = JSON.stringify(value);
-      return result;
-    }
-    // Conversation arrays (items have "role" key) are kept as single fields,
-    // regardless of array size.
-    if (isConversationLikeArray(value)) {
-      result[parentKey] = formatConversationArray(value);
-      return result;
-    }
-    if (isHomogeneousObjectArray(value)) {
-      result[parentKey] = formatConversationArray(value);
-      return result;
-    }
-    const limit = Math.min(value.length, MAX_ARRAY_EXPAND);
-    for (let i = 0; i < limit; i++) {
-      const itemKey = `${parentKey}.[${i}]`;
-      const item = value[i];
-      if (item !== null && typeof item === 'object' && depth < maxDepth) {
-        Object.assign(result, flattenValue(item, itemKey, depth + 1, maxDepth));
-      } else {
-        result[itemKey] = item === null || item === undefined ? '' : typeof item === 'object' ? JSON.stringify(item) : item;
-      }
-    }
-    return result;
-  }
-
-  if (typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) {
-      const fullKey = parentKey ? `${parentKey}.${k}` : k;
-      if (v === null || v === undefined) {
-        result[fullKey] = '';
-      } else if (Array.isArray(v) || typeof v === 'object') {
-        if (depth < maxDepth) {
-          Object.assign(result, flattenValue(v, fullKey, depth + 1, maxDepth));
-        } else {
-          result[fullKey] = JSON.stringify(v);
-        }
-      } else {
-        result[fullKey] = v;
-      }
-    }
-    return result;
-  }
-
-  result[parentKey] = value;
-  return result;
-}
-
-/**
  * Try to parse a string as JSON and return the parsed value.
  */
 export function tryParseJsonString(value) {
@@ -211,7 +151,350 @@ export function tryParseJsonString(value) {
 }
 
 /**
- * Detect field types by sampling rows.
+ * Parse "[role] content" text format into structured message array.
+ * Used by extractMessageStats, reconstructDotNotation, and FormatConv plugin.
+ */
+export function parseTextMessages(text) {
+  if (!text || typeof text !== 'string') return null;
+  const lines = text.split('\n');
+  const messages = [];
+  let current = null;
+
+  for (const line of lines) {
+    const match = line.match(/^\[(system|user|assistant|human|ai|bot)\]\s*(.*)/i);
+    if (match) {
+      if (current) messages.push(current);
+      current = { role: match[1].toLowerCase(), content: match[2] || '' };
+    } else if (current) {
+      current.content += (current.content ? '\n' : '') + line;
+    }
+  }
+  if (current) messages.push(current);
+
+  return messages.length > 0 ? messages : null;
+}
+
+/**
+ * Skipped key prefixes for type detection.
+ */
+const SKIP_KEY_PREFIXES = ['_raw_', '_reconstructed_', '_decoded_'];
+const SKIP_KEYS = new Set(['_rawJsonText']);
+
+function shouldSkipKey(key) {
+  return SKIP_KEYS.has(key) || SKIP_KEY_PREFIXES.some(p => key.startsWith(p));
+}
+
+/**
+ * Scan a nested object's string properties for conversation/tool-definition patterns.
+ * Returns { path: string, isToolDef: boolean } or null.
+ */
+function scanObjectForConversation(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  for (const [subKey, subVal] of Object.entries(obj)) {
+    if (typeof subVal === 'string' && subVal.length > 0) {
+      const lines = subVal.split('\n');
+      if (lines.length >= 2 && lines.some(l => CONV_ROLE_RE.test(l.trim()))) {
+        const roleLines = lines.filter(l => CONV_ROLE_RE.test(l.trim()));
+        const toolDefLines = roleLines.filter(l => TOOL_DEF_RE.test(l.trim()));
+        return { path: subKey, isToolDef: roleLines.length >= 2 && toolDefLines.length === roleLines.length };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Recursive type detection that walks nested JSON structure.
+ * Returns both a tree (for hierarchical debug display) and a flat field list
+ * (for scoring and UI backward compatibility).
+ *
+ * @param {Array} rows - sampled rows
+ * @param {Object} options
+ * @param {Set<string>} options.decodedKeys - top-level keys that were decoded from JSON strings
+ * @param {number} [options.maxDepth=3] - max recursion depth into nested objects
+ * @returns {{ tree: TreeNode[], flatFields: FieldDescriptor[] }}
+ */
+export function detectFieldTypesTree(rows, options = {}) {
+  const { decodedKeys = new Set(), maxDepth = 3 } = options;
+  const sampleSize = Math.min(rows.length, SAMPLE_SIZE_FOR_TYPE);
+
+  // Accumulators keyed by dot-path
+  const accumulators = {};
+
+  function ensureAccumulator(path) {
+    if (!accumulators[path]) {
+      accumulators[path] = {
+        typeCounts: {},
+        stringValues: new Set(),
+        stringLengthSum: 0,
+        stringCount: 0,
+        emptyCount: 0,
+        uniqueValues: new Set(),
+        nonEmptyCount: 0,
+        isoTimestampVotes: 0,
+        nestedConversationPath: null,
+        nestedToolDefPath: null,
+        conversationVotes: 0,
+        toolDefVotes: 0,
+      };
+    }
+    return accumulators[path];
+  }
+
+  function countValue(acc, value) {
+    if (value === undefined || value === null || value === '') {
+      acc.emptyCount++;
+      return;
+    }
+
+    if (typeof value === 'number') {
+      acc.typeCounts.number = (acc.typeCounts.number || 0) + 1;
+      acc.nonEmptyCount++;
+      if (acc.uniqueValues.size <= ENUM_THRESHOLD) acc.uniqueValues.add(value);
+    } else if (typeof value === 'boolean') {
+      acc.typeCounts.boolean = (acc.typeCounts.boolean || 0) + 1;
+      acc.nonEmptyCount++;
+      if (acc.uniqueValues.size <= ENUM_THRESHOLD) acc.uniqueValues.add(value);
+    } else if (typeof value === 'string') {
+      acc.typeCounts.string = (acc.typeCounts.string || 0) + 1;
+      acc.nonEmptyCount++;
+      acc.stringValues.add(value);
+      if (acc.uniqueValues.size <= ENUM_THRESHOLD) acc.uniqueValues.add(value);
+      acc.stringLengthSum += value.length;
+      acc.stringCount++;
+      if (ISO_TIMESTAMP_RE.test(value)) acc.isoTimestampVotes++;
+      const lines = value.split('\n');
+      if (lines.length >= 2 && lines.some(l => CONV_ROLE_RE.test(l.trim()))) {
+        acc.conversationVotes++;
+        const roleLines = lines.filter(l => CONV_ROLE_RE.test(l.trim()));
+        const toolDefLines = roleLines.filter(l => TOOL_DEF_RE.test(l.trim()));
+        if (roleLines.length >= 2 && toolDefLines.length === roleLines.length) {
+          acc.toolDefVotes++;
+        }
+      }
+    } else if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        acc.typeCounts.array = (acc.typeCounts.array || 0) + 1;
+      } else {
+        acc.typeCounts.object = (acc.typeCounts.object || 0) + 1;
+        if (!acc.nestedConversationPath) {
+          const hit = scanObjectForConversation(value);
+          if (hit) {
+            if (hit.isToolDef) acc.nestedToolDefPath = hit.path;
+            else acc.nestedConversationPath = hit.path;
+          }
+        }
+      }
+      acc.nonEmptyCount++;
+    }
+  }
+
+  function walkValue(value, pathParts, depth, rootKey) {
+    const path = pathParts.join('.');
+    ensureAccumulator(path);
+    countValue(accumulators[path], value);
+
+    // Stop recursing if max depth reached or value is not a plain object
+    if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) {
+      return;
+    }
+    if (depth >= maxDepth) return;
+
+    for (const [childKey, childValue] of Object.entries(value)) {
+      walkValue(childValue, [...pathParts, childKey], depth + 1, rootKey);
+    }
+  }
+
+  // Walk each sampled row
+  for (let i = 0; i < sampleSize; i++) {
+    const row = rows[i];
+    for (const key of Object.keys(row)) {
+      if (shouldSkipKey(key)) continue;
+      walkValue(row[key], [key], 0, key);
+    }
+  }
+
+  // Build result from accumulators
+  const pathAccs = Object.entries(accumulators);
+
+  // Build flat fields list
+  const flatFields = pathAccs.map(([path, acc]) => {
+    const lastSegment = path.split('.').pop();
+    const dotCount = path.includes('.') ? path.split('.').length - 1 : 0;
+    const isExpanded = decodedKeys.has(path.split('.')[0]);
+    const result = finalizeType(path, acc, sampleSize);
+    return {
+      key: path,
+      label: lastSegment.replace(/^\[(\d+)\]$/, '[$1]'),
+      depth: dotCount,
+      detectedType: result.detectedType,
+      isExpanded,
+      isLongString: result.isLongString,
+      emptyRate: result.emptyRate,
+      constantRate: result.constantRate,
+      uniqueCount: result.uniqueCount,
+      avgValueLength: result.avgValueLength,
+      isTimestamp: result.isTimestamp,
+      conversationPath: result.conversationPath,
+    };
+  });
+
+  // Build tree structure
+  const tree = buildTreeFromFlat(flatFields);
+
+  return { tree, flatFields };
+}
+
+/**
+ * Finalize type detection for a single accumulator.
+ */
+function finalizeType(path, acc, sampleSize) {
+  let detectedType = 'string';
+  let isLongString = false;
+
+  if (acc.stringCount > 0) {
+    const avgLen = acc.stringLengthSum / acc.stringCount;
+    isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
+  }
+
+  const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) +
+    (acc.typeCounts.boolean || 0) + (acc.typeCounts.object || 0) + (acc.typeCounts.array || 0);
+
+  if (acc.typeCounts.object === total && total > 0) {
+    detectedType = 'nestedObject';
+  } else if (acc.typeCounts.array === total && total > 0) {
+    detectedType = 'nestedObject';
+  } else if (acc.typeCounts.number === total && total > 0) {
+    detectedType = 'number';
+  } else if (acc.typeCounts.boolean === total && total > 0) {
+    detectedType = 'boolean';
+  } else if (acc.typeCounts.string > 0) {
+    if ((acc.conversationVotes || 0) > sampleSize * 0.3) {
+      detectedType = (acc.toolDefVotes || 0) > sampleSize * 0.3 ? 'toolList' : 'conversation';
+    } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize && !isLongString) {
+      detectedType = 'enum';
+    } else {
+      detectedType = 'string';
+    }
+  }
+
+  let conversationPath = null;
+  if (detectedType === 'nestedObject') {
+    if (acc.nestedConversationPath) conversationPath = acc.nestedConversationPath;
+    else if (acc.nestedToolDefPath) conversationPath = acc.nestedToolDefPath;
+  }
+
+  const emptyRate = sampleSize > 0 ? acc.emptyCount / sampleSize : 0;
+  const constantRate = acc.nonEmptyCount > 1 && acc.uniqueValues.size === 1 ? 1.0
+    : acc.nonEmptyCount > 1 && acc.uniqueValues.size <= 2 ? 0.5 : 0;
+
+  return {
+    detectedType,
+    isLongString,
+    emptyRate,
+    constantRate,
+    uniqueCount: acc.uniqueValues.size,
+    avgValueLength: acc.stringCount > 0 ? Math.round(acc.stringLengthSum / acc.stringCount) : 0,
+    isTimestamp: acc.nonEmptyCount > 0 && (acc.isoTimestampVotes / acc.nonEmptyCount) >= 0.8,
+    conversationPath,
+  };
+}
+
+/**
+ * Build a hierarchical tree from flat field descriptors.
+ */
+function buildTreeFromFlat(flatFields) {
+  const rootMap = new Map();
+
+  for (const field of flatFields) {
+    const segments = field.key.split('.');
+    if (segments.length === 1) {
+      if (!rootMap.has(field.key)) {
+        rootMap.set(field.key, { ...field, children: field.depth === 0 ? [] : null });
+      } else {
+        // Update root node with detection data (may have been created as parent placeholder)
+        const node = rootMap.get(field.key);
+        Object.assign(node, field);
+        if (field.depth === 0) node.children = [];
+      }
+    } else {
+      // Navigate/create the tree path
+      const rootKey = segments[0];
+      if (!rootMap.has(rootKey)) {
+        rootMap.set(rootKey, {
+          key: rootKey,
+          label: rootKey,
+          fullPath: rootKey,
+          depth: 0,
+          detectedType: 'nestedObject',
+          emptyRate: 0,
+          constantRate: 0,
+          uniqueCount: 0,
+          avgValueLength: 0,
+          isTimestamp: false,
+          isExpanded: false,
+          conversationPath: null,
+          children: [],
+        });
+      }
+      let current = rootMap.get(rootKey);
+      // Ensure children array exists
+      if (!current.children) current.children = [];
+
+      for (let i = 1; i < segments.length; i++) {
+        const seg = segments[i];
+        const parentPath = segments.slice(0, i).join('.');
+        const childPath = segments.slice(0, i + 1).join('.');
+        const isLeaf = i === segments.length - 1;
+
+        let childNode = current.children?.find(c => c.key === seg);
+        if (!childNode) {
+          childNode = {
+            key: seg,
+            fullPath: childPath,
+            depth: i,
+            detectedType: isLeaf ? field.detectedType : 'nestedObject',
+            emptyRate: isLeaf ? field.emptyRate : 0,
+            constantRate: isLeaf ? field.constantRate : 0,
+            uniqueCount: isLeaf ? field.uniqueCount : 0,
+            avgValueLength: isLeaf ? field.avgValueLength : 0,
+            isTimestamp: isLeaf ? field.isTimestamp : false,
+            isExpanded: field.isExpanded,
+            conversationPath: isLeaf ? field.conversationPath : null,
+            children: isLeaf ? null : [],
+          };
+          current.children.push(childNode);
+        } else if (isLeaf) {
+          // Update leaf node with actual detection data
+          Object.assign(childNode, {
+            detectedType: field.detectedType,
+            emptyRate: field.emptyRate,
+            constantRate: field.constantRate,
+            uniqueCount: field.uniqueCount,
+            avgValueLength: field.avgValueLength,
+            isTimestamp: field.isTimestamp,
+            conversationPath: field.conversationPath,
+          });
+          childNode.children = null;
+        }
+        if (childNode.children) current = childNode;
+        else break;
+      }
+    }
+  }
+
+  // Convert children arrays to null for leaf nodes
+  function cleanChildren(node) {
+    if (node.children && node.children.length === 0) node.children = null;
+    else if (node.children) node.children.forEach(cleanChildren);
+  }
+  for (const node of rootMap.values()) cleanChildren(node);
+
+  return Array.from(rootMap.values());
+}
+
+/**
+ * Detect field types by sampling rows (flat, legacy).
  * Returns { [key]: { detectedType: string, isLongString: boolean, emptyRate: number } }
  */
 export function detectFieldTypes(rows, allKeys) {
@@ -228,6 +511,8 @@ export function detectFieldTypes(rows, allKeys) {
       uniqueValues: new Set(),
       nonEmptyCount: 0,
       isoTimestampVotes: 0,
+      nestedConversationPath: null,
+      nestedToolDefPath: null,
     };
   }
 
@@ -261,15 +546,34 @@ export function detectFieldTypes(rows, allKeys) {
         if (ISO_TIMESTAMP_RE.test(v)) acc.isoTimestampVotes++;
         // Track per-row conversation / tool-definition votes
         const lines = v.split('\n');
-        if (lines.length >= 2 && lines.some(l => /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i.test(l.trim()))) {
+        if (lines.length >= 2 && lines.some(l => CONV_ROLE_RE.test(l.trim()))) {
           acc.conversationVotes = (acc.conversationVotes || 0) + 1;
           // Tool definitions: ALL non-empty role lines are [tool:name] with JSON content
-          const roleLines = lines.filter(l => /^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/i.test(l.trim()));
-          const toolDefLines = roleLines.filter(l => /^\[tool:[^\]]+\]\s*\{/.test(l.trim()));
+          const roleLines = lines.filter(l => CONV_ROLE_RE.test(l.trim()));
+          const toolDefLines = roleLines.filter(l => TOOL_DEF_RE.test(l.trim()));
           if (roleLines.length >= 2 && toolDefLines.length === roleLines.length) {
             acc.toolDefVotes = (acc.toolDefVotes || 0) + 1;
           }
         }
+      } else if (typeof v === 'object') {
+        // Nested objects from JSON expansion or native arrays
+        if (Array.isArray(v)) {
+          acc.typeCounts.array = (acc.typeCounts.array || 0) + 1;
+        } else {
+          acc.typeCounts.object = (acc.typeCounts.object || 0) + 1;
+          // Scan nested object for conversation/tool patterns
+          if (!acc.nestedConversationPath) {
+            const hit = scanObjectForConversation(v);
+            if (hit) {
+              if (hit.isToolDef) {
+                acc.nestedToolDefPath = hit.path;
+              } else {
+                acc.nestedConversationPath = hit.path;
+              }
+            }
+          }
+        }
+        acc.nonEmptyCount++;
       }
     }
   }
@@ -286,9 +590,13 @@ export function detectFieldTypes(rows, allKeys) {
       isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
     }
 
-    const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) + (acc.typeCounts.boolean || 0);
+    const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) + (acc.typeCounts.boolean || 0) + (acc.typeCounts.object || 0) + (acc.typeCounts.array || 0);
 
-    if (acc.typeCounts.number === total && total > 0) {
+    if (acc.typeCounts.object === total && total > 0) {
+      detectedType = 'nestedObject';
+    } else if (acc.typeCounts.array === total && total > 0) {
+      detectedType = 'nestedObject';
+    } else if (acc.typeCounts.number === total && total > 0) {
       detectedType = 'number';
     } else if (acc.typeCounts.boolean === total && total > 0) {
       detectedType = 'boolean';
@@ -303,6 +611,16 @@ export function detectFieldTypes(rows, allKeys) {
       }
     }
 
+    // Nested object containing conversation/tool arrays → mark with path
+    let conversationPath = null;
+    if (detectedType === 'nestedObject') {
+      if (acc.nestedConversationPath) {
+        conversationPath = acc.nestedConversationPath;
+      } else if (acc.nestedToolDefPath) {
+        conversationPath = acc.nestedToolDefPath;
+      }
+    }
+
     const emptyRate = sampleSize > 0 ? acc.emptyCount / sampleSize : 0;
     // constantRate: how "constant" is this field (1.0 = all non-empty values are identical)
     const constantRate = acc.nonEmptyCount > 1 && acc.uniqueValues.size === 1 ? 1.0
@@ -314,6 +632,8 @@ export function detectFieldTypes(rows, allKeys) {
       uniqueCount: acc.uniqueValues.size,
       avgValueLength: acc.stringCount > 0 ? Math.round(acc.stringLengthSum / acc.stringCount) : 0,
       isTimestamp: acc.nonEmptyCount > 0 && (acc.isoTimestampVotes / acc.nonEmptyCount) >= 0.8,
+      conversationVotes: acc.conversationVotes || 0,
+      toolDefVotes: acc.toolDefVotes || 0,
     };
   }
 
@@ -423,7 +743,7 @@ export const LOW_PRIORITY_PATTERNS = [
 /**
  * Scoring algorithm step descriptors for debug visualization.
  * Display convention: positive = bonus (green), negative = penalty (red).
- * Internally the algorithm uses inverted signs (lower score = higher priority).
+ * Higher score = higher priority (same convention internally and externally).
  */
 export const SCORING_STEPS = [
   {
@@ -523,16 +843,16 @@ function findMatchingPatternSources(patterns, key, lastSegment) {
  * Sort and assign visibility to detected fields.
  * Uses pattern-based priority rules instead of hardcoded field name lists.
  *
- * Priority scoring (lower = higher priority):
- *   -100  conversation type
- *   -50   matches HIGH_PRIORITY_PATTERNS (original field)
- *   -40   matches HIGH_PRIORITY_PATTERNS (expanded field)
- *     0   default
- *   +55   constantRate == 1.0 (all values identical, additive)
- *   +20   deeply nested (>3 dot segments)
- *   +20   emptyRate >= 0.80 (additive)
- *   +80   emptyRate >= 0.95 (additive, replaces +20; overrides high-priority)
- *   +40   matches LOW_PRIORITY_PATTERNS
+ * Priority scoring (higher = higher priority):
+ *   +100  conversation / toolList type
+ *    +50  matches HIGH_PRIORITY_PATTERNS (original field)
+ *    +40  matches HIGH_PRIORITY_PATTERNS (expanded field)
+ *      0  default
+ *    -20  deeply nested (>3 dot segments)
+ *    -20  emptyRate >= 0.80 (additive)
+ *    -40  matches LOW_PRIORITY_PATTERNS
+ *    -55  constantRate >= 1.0 (additive)
+ *    -80  emptyRate >= 0.95 (additive, overrides most bonuses)
  *
  * After visibility assignment, each field gets a `visibilityReason` string.
  *
@@ -567,7 +887,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
 
     if (field.detectedType === 'conversation' || field.detectedType === 'toolList') {
       breakdown.patternCategory = 'conversation';
-      return { score: -100, breakdown };
+      return { score: 100, breakdown };
     }
 
     let priority = 0;
@@ -579,17 +899,17 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     if (isHigh) {
       // Timestamp fields (80%+ values match ISO format) → low priority
       if (field.isTimestamp) {
-        priority = 40;
+        priority = -40;
         breakdown.patternCategory = 'low';
       } else {
-        priority = field.isExpanded ? -40 : -50;
+        priority = field.isExpanded ? 40 : 50;
         breakdown.patternCategory = 'high';
       }
     } else if (isLow || field.isTimestamp) {
-      priority = 40;
+      priority = -40;
       breakdown.patternCategory = 'low';
-    } else if (key.includes('.') && key.split('.').length > 3) {
-      priority = 20;
+    } else if ((field.depth ?? (key.includes('.') ? key.split('.').length - 1 : 0)) >= 3) {
+      priority = -20;
       breakdown.patternCategory = 'depth';
     }
     breakdown.patternPenalty = priority;
@@ -597,47 +917,44 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     // Empty-rate additive penalty
     // Nearly-all-empty fields should be hidden regardless of pattern priority
     const emptyRate = field.emptyRate || 0;
-    if (emptyRate >= 0.95) { priority += 80; breakdown.emptyPenalty = 80; }
-    else if (emptyRate >= 0.80) { priority += 20; breakdown.emptyPenalty = 20; }
+    if (emptyRate >= 0.95) { priority -= 80; breakdown.emptyPenalty = 80; }
+    else if (emptyRate >= 0.80) { priority -= 20; breakdown.emptyPenalty = 20; }
 
     // Constant-value additive penalty (all rows have same value = low information)
-    // Strong enough to hide even high-priority constant fields (score -50 + 55 = +5)
+    // Strong enough to hide even high-priority constant fields (score +50 - 55 = -5)
     const constantRate = field.constantRate || 0;
-    if (constantRate >= 1.0) { priority += 55; breakdown.constantPenalty = 55; }
+    if (constantRate >= 1.0) { priority -= 55; breakdown.constantPenalty = 55; }
 
     // Unique count bonus: more unique values = more informative
-    // Clamped to avoid overwhelming other factors (max -5 bonus)
     const uniqueCount = field.uniqueCount || 0;
     if (uniqueCount > 1 && uniqueCount <= 5) {
-      priority -= 2;
+      priority += 2;
       breakdown.uniqueBonus = 2;
     } else if (uniqueCount > 5) {
-      priority -= 5;
+      priority += 5;
       breakdown.uniqueBonus = 5;
     }
 
     // Content length bonus: longer average values = more informative content
     const avgLen = field.avgValueLength || 0;
     if (avgLen > 50) {
-      priority -= 5;
+      priority += 5;
       breakdown.contentBonus = 5;
     } else if (avgLen > 10) {
-      priority -= 2;
+      priority += 2;
       breakdown.contentBonus = 2;
     }
 
     // Type weight: enum > number > string > boolean
-    // For high-priority fields that are string type (e.g. "123ms" time strings),
-    // apply a penalty since the value isn't a meaningful numeric metric
     const type = field.detectedType;
     if (type === 'enum') {
-      priority -= 3;
+      priority += 3;
       breakdown.typeBonus = 3;
     } else if (type === 'number') {
-      priority -= 1;
+      priority += 1;
       breakdown.typeBonus = 1;
     } else if (type === 'boolean') {
-      priority += 3;
+      priority -= 3;
       breakdown.typeBonus = -3;
     }
 
@@ -647,13 +964,13 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
   fields.sort((a, b) => {
     const pa = fieldPriority(a).score;
     const pb = fieldPriority(b).score;
-    if (pa !== pb) return pa - pb;
+    if (pa !== pb) return pb - pa;
     if (a.isExpanded !== b.isExpanded) return a.isExpanded ? 1 : -1;
     return 0;
   });
 
   let visibleCount = 0;
-  const visibleKeysLower = new Set();
+  const visibleKeysLower = new Map(); // lowercased lastSegment -> field.key (for duplicateOf tracking)
 
   for (const field of fields) {
     // Skip only fully-managed plugin fields:
@@ -667,34 +984,39 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     if (field.isExpanded) {
       const priority = fieldPriority(field).score;
       const lastSegment = field.key.split('.').pop().toLowerCase();
-      const isDuplicate = visibleKeysLower.has(lastSegment);
+      const duplicateOf = visibleKeysLower.get(lastSegment);
+      const isDuplicate = !!duplicateOf;
       field._isDuplicate = isDuplicate;
+      field._duplicateOf = duplicateOf;
       // Conversation always visible.
       // High-priority enum expanded fields visible (for filtering/distribution).
       // High-priority number expanded fields visible only if non-constant (e.g. tokens vary, temperature doesn't).
-      const isHighEnum = priority < 0 && field.detectedType === 'enum';
-      const isHighNumber = priority < 0 && field.detectedType === 'number' && (field.constantRate || 0) < 1.0;
-      field.visible = !isDuplicate && (field.detectedType === 'conversation' || field.detectedType === 'toolList' || isHighEnum || isHighNumber);
+      const isHighEnum = priority > 0 && field.detectedType === 'enum';
+      const isHighNumber = priority > 0 && field.detectedType === 'number' && (field.constantRate || 0) < 1.0;
+      const hasNestedConv = !!field.conversationPath;
+      field.visible = !isDuplicate && (field.detectedType === 'conversation' || field.detectedType === 'toolList' || hasNestedConv || isHighEnum || isHighNumber);
       field.searchable = field.detectedType === 'enum' || field.detectedType === 'string';
       field.filterable = field.detectedType === 'enum';
-      field.previewable = field.detectedType === 'conversation' || field.detectedType === 'toolList';
+      field.previewable = field.detectedType === 'conversation' || field.detectedType === 'toolList' || hasNestedConv;
       field.sortable = field.detectedType === 'number';
       if (field.visible) {
-        visibleKeysLower.add(lastSegment);
+        visibleKeysLower.set(lastSegment, field.key);
         visibleCount++;
       }
     } else {
       const lastSegment = field.key.split('.').pop().toLowerCase();
-      const isDuplicate = visibleKeysLower.has(lastSegment);
+      const duplicateOf = visibleKeysLower.get(lastSegment);
+      const isDuplicate = !!duplicateOf;
       const priority = fieldPriority(field).score;
       field._isDuplicate = isDuplicate;
-      field.visible = !isDuplicate && priority < 30 && visibleCount < maxVisible;
+      field._duplicateOf = duplicateOf;
+      field.visible = !isDuplicate && (field.conversationPath || priority > -30) && visibleCount < maxVisible;
       field.searchable = false;
       field.filterable = field.detectedType === 'enum';
-      field.previewable = !!field.isLongString;
+      field.previewable = !!field.isLongString || !!field.conversationPath;
       field.sortable = true;
       if (field.visible) {
-        visibleKeysLower.add(lastSegment);
+        visibleKeysLower.set(lastSegment, field.key);
         visibleCount++;
       }
     }
@@ -712,7 +1034,9 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
         field.visibilityReason = 'conversation';
       } else if (field.detectedType === 'toolList') {
         field.visibilityReason = 'toolList';
-      } else if (fieldPriority(field).score < 0) {
+      } else if (field.conversationPath) {
+        field.visibilityReason = 'conversation';
+      } else if (fieldPriority(field).score > 0) {
         field.visibilityReason = 'highPriority';
       } else {
         field.visibilityReason = 'default';
@@ -724,15 +1048,16 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
         field.visibilityReason = 'expandedNonChat';
       } else if ((field.emptyRate || 0) >= 0.80) {
         field.visibilityReason = 'mostlyEmpty';
-      } else if ((field.constantRate || 0) >= 1.0 && fieldPriority(field).score >= 30) {
+      } else if ((field.constantRate || 0) >= 1.0 && fieldPriority(field).score <= -30) {
         field.visibilityReason = 'constant';
-      } else if (fieldPriority(field).score >= 30) {
+      } else if (fieldPriority(field).score <= -30) {
         field.visibilityReason = 'lowPriority';
       } else {
         field.visibilityReason = 'maxVisible';
       }
     }
     delete field._isDuplicate;
+    delete field._duplicateOf;
   }
 
   const debugMeta = fields
@@ -756,6 +1081,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       constantRate: field.constantRate || 0,
       uniqueCount: field.uniqueCount || 0,
       avgValueLength: field.avgValueLength || 0,
+      duplicateOf: field._duplicateOf || null,
     };
   });
 

@@ -59,21 +59,25 @@
       </div>
 
       <!-- Data Plugins -->
-      <el-divider content-position="left">{{ $t('custom.dataPlugins') }}</el-divider>
-
-      <div v-if="registeredPlugins.length" class="config-section">
-        <div v-for="plugin in registeredPlugins" :key="plugin.id" class="plugin-row">
-          <el-switch
-            :model-value="isPluginEnabled(plugin.id)"
-            size="small"
-            @change="onPluginToggle(plugin.id)"
-          />
-          <div class="plugin-info">
-            <span class="plugin-name">{{ plugin.nameKey ? $t(plugin.nameKey) : plugin.name }}</span>
-            <span class="plugin-desc">{{ plugin.descriptionKey ? $t(plugin.descriptionKey) : plugin.description }}</span>
+      <el-collapse v-model="pluginSections" class="config-section" lazy>
+        <el-collapse-item :title="$t('custom.dataPlugins')" name="plugins">
+          <div v-if="registeredPlugins.length" class="plugin-list">
+            <div v-for="plugin in registeredPlugins" :key="plugin.id" class="plugin-row">
+              <el-switch
+                :model-value="plugin.required ? true : isPluginEnabled(plugin.id)"
+                size="small"
+                :disabled="plugin.required"
+                @change="onPluginToggle(plugin.id)"
+              />
+              <div class="plugin-info">
+                <span class="plugin-name">{{ plugin.nameKey ? $t(plugin.nameKey) : plugin.name }}</span>
+                <el-tag v-if="plugin.required" size="small" type="info" style="margin-left:6px">{{ $t('custom.pluginRequired') }}</el-tag>
+                <span class="plugin-desc">{{ plugin.descriptionKey ? $t(plugin.descriptionKey) : plugin.description }}</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </el-collapse-item>
+      </el-collapse>
 
       <!-- Stats configuration -->
       <el-divider content-position="left">{{ $t('custom.statsConfig') }}</el-divider>
@@ -266,185 +270,22 @@
           {{ $t('custom.resetDefaults') }}
         </el-button>
         <div style="flex:1"></div>
-        <el-button v-if="debugMode" @click="debugDialogVisible = true">
-          {{ $t('custom.debug') }}
-        </el-button>
         <el-button type="primary" @click="$emit('save')">
           {{ $t('common.copy') }} {{ $t('custom.fieldConfig') }}
         </el-button>
       </div>
     </template>
   </el-drawer>
-
-  <!-- Debug dialog -->
-  <el-dialog
-    :model-value="debugDialogVisible"
-    @update:model-value="debugDialogVisible = $event"
-    width="80%"
-    top="5vh"
-  >
-    <template #header>
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <span>{{ $t('custom.debugTitle') }}</span>
-        <div style="display:flex;gap:8px">
-          <el-button size="small" @click="onRecalculate">
-            <el-icon><Refresh /></el-icon>
-            {{ $t('custom.recalculateScores') }}
-          </el-button>
-          <el-button size="small" @click="copyDebugAsMarkdown">
-            {{ $t('common.copy') }} Markdown
-          </el-button>
-        </div>
-      </div>
-    </template>
-
-    <el-tabs v-model="debugActiveTab">
-      <!-- Tab 1: Field Scoring -->
-      <el-tab-pane :label="$t('custom.debugFieldScoring')" name="scoring">
-        <el-table :data="debugTableData" border size="small" max-height="50vh" style="width:100%" default-sort="{prop:'priority',order:'descending'}">
-          <el-table-column prop="key" label="Field" min-width="180" show-overflow-tooltip />
-          <el-table-column prop="priority" label="Priority" width="90" sortable sort-by="priority">
-            <template #default="{row}">
-              <span :style="{ color: row.priority > 0 ? 'var(--el-color-success)' : row.priority < -30 ? 'var(--el-color-danger)' : '' }">
-                {{ row.priority > 0 ? '+' : '' }}{{ row.priority }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="Breakdown" min-width="200">
-            <template #default="{row}">
-              <span class="breakdown-text">{{ formatBreakdown(row) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="Visible" width="80">
-            <template #default="{row}">
-              <el-tag :type="row.currentVisible?'success':'info'" size="small">{{ row.currentVisible ? 'Yes' : 'No' }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="visibilityReason" label="Reason" width="140" />
-        </el-table>
-        <template v-if="statsDebugEntries.length">
-          <el-divider content-position="left">{{ $t('custom.debugStatsSelection') }}</el-divider>
-          <el-table :data="statsDebugEntries" border size="small" style="width:100%">
-            <el-table-column prop="key" label="Field" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="type" label="Type" width="120" />
-            <el-table-column prop="reason" label="Reason" min-width="180" />
-          </el-table>
-        </template>
-      </el-tab-pane>
-
-      <!-- Tab 2: Priority Rules -->
-      <el-tab-pane :label="$t('custom.debugPriorityRules')" name="rules">
-        <div style="max-height:62vh;overflow-y:auto">
-          <!-- HIGH Priority Patterns -->
-          <div class="rules-section">
-            <div class="rules-section-header">
-              <el-tag type="success" effect="dark" size="small">HIGH</el-tag>
-              <span class="rules-section-title">{{ $t('custom.highPriorityPatterns') }}</span>
-              <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: highPatterns.length }) }}</span>
-            </div>
-            <p class="rules-note">{{ $t('custom.scoringStepPatternDesc') }}</p>
-            <el-table :data="highPatterns" border size="small" style="width:100%">
-              <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
-              <el-table-column :label="$t('custom.patternRegex')" min-width="240">
-                <template #default="{ row }">
-                  <code class="regex-code">{{ row.source }}</code>
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.scoringDescription')" min-width="160">
-                <template #default="{ row }">
-                  {{ row.comment }}
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.scoringDelta')" width="100">
-                <template #default>
-                  <span class="delta-bonus">+50/+40</span>
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
-                <template #default="{ row }">
-                  <el-tag :type="row.matchCount > 0 ? 'success' : 'info'" size="small" effect="plain">
-                    {{ row.matchCount }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-
-          <!-- LOW Priority Patterns -->
-          <div class="rules-section" style="margin-top:16px">
-            <div class="rules-section-header">
-              <el-tag type="danger" effect="dark" size="small">LOW</el-tag>
-              <span class="rules-section-title">{{ $t('custom.lowPriorityPatterns') }}</span>
-              <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: lowPatterns.length }) }}</span>
-            </div>
-            <el-table :data="lowPatterns" border size="small" style="width:100%">
-              <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
-              <el-table-column :label="$t('custom.patternRegex')" min-width="240">
-                <template #default="{ row }">
-                  <code class="regex-code">{{ row.source }}</code>
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.scoringDescription')" min-width="160">
-                <template #default="{ row }">
-                  {{ row.comment }}
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.scoringDelta')" width="100">
-                <template #default>
-                  <span class="delta-penalty">-40</span>
-                </template>
-              </el-table-column>
-              <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
-                <template #default="{ row }">
-                  <el-tag :type="row.matchCount > 0 ? 'danger' : 'info'" size="small" effect="plain">
-                    {{ row.matchCount }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-
-          <!-- Scoring Algorithm -->
-          <el-divider content-position="left">{{ $t('custom.scoringAlgorithm') }}</el-divider>
-          <p class="rules-note">{{ $t('custom.bonus') }}: {{ $t('custom.scoringDelta') }} &gt; 0 (green) &nbsp;|&nbsp; {{ $t('custom.penalty') }}: {{ $t('custom.scoringDelta') }} &lt; 0 (red)</p>
-          <el-table :data="scoringSteps" border size="small" style="width:100%">
-            <el-table-column prop="step" :label="$t('custom.scoringStep')" width="55" />
-            <el-table-column :label="$t('custom.scoringFactor')" min-width="180">
-              <template #default="{ row }">
-                {{ $t('custom.' + row.nameKey) }}
-              </template>
-            </el-table-column>
-            <el-table-column :label="$t('custom.scoringCondition')" min-width="300">
-              <template #default="{ row }">
-                <code class="condition-code">{{ row.condition }}</code>
-              </template>
-            </el-table-column>
-            <el-table-column :label="$t('custom.scoringDelta')" width="110">
-              <template #default="{ row }">
-                <span :class="getDeltaClass(row.delta)">{{ row.delta }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column :label="$t('custom.scoringDescription')" min-width="240">
-              <template #default="{ row }">
-                <span class="step-description">{{ $t('custom.' + row.nameKey.replace('Name', 'Desc')) }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
-  </el-dialog>
 </template>
 
 <script>
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessageBox, ElMessage } from 'element-plus';
-import { ArrowRight, Search, QuestionFilled, Refresh } from '@element-plus/icons-vue';
-import { HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, SCORING_STEPS } from '@/utils/customParserHelpers';
+import { ArrowRight, Search, QuestionFilled } from '@element-plus/icons-vue';
 
 export default {
-  components: { ArrowRight, Search, QuestionFilled, Refresh },
+  components: { ArrowRight, Search, QuestionFilled },
 
   props: {
     visible: Boolean,
@@ -456,15 +297,12 @@ export default {
     presets: { type: Array, default: () => [] },
     activePresetId: { type: String, default: null },
     schemaSnapshot: { type: Object, default: null },
-    priorityDebug: { type: Array, default: () => [] },
-    debugMode: { type: Boolean, default: false },
-    patternMatchCounts: { type: Object, default: () => null },
     pluginConfig: { type: Object, default: () => ({ enabledPlugins: [] }) },
     registeredPlugins: { type: Array, default: () => [] },
   },
 
   emits: [
-    'close', 'save', 'stats-change', 'reset', 'recalculate',
+    'close', 'save', 'stats-change', 'reset',
     'save-preset', 'apply-preset', 'delete-preset', 'clear-preset',
     'toggle-group', 'plugin-toggle',
   ],
@@ -616,6 +454,8 @@ export default {
       });
     }
 
+    const pluginSections = ref([]); // collapsed by default
+
     function isPluginEnabled(pluginId) {
       return (props.pluginConfig?.enabledPlugins || []).includes(pluginId);
     }
@@ -748,12 +588,9 @@ export default {
     });
 
     async function copyDebugAsMarkdown() {
-      let text;
-      if (debugActiveTab.value === 'rules') {
-        text = copyRulesAsMarkdown();
-      } else {
-        text = copyScoringAsMarkdown();
-      }
+      const text = markdownExportTab.value === 'rules'
+        ? copyRulesAsMarkdown()
+        : copyScoringAsMarkdown();
       try {
         await navigator.clipboard.writeText(text);
         ElMessage.success(t('common.copiedToClipboard'));
@@ -761,6 +598,12 @@ export default {
         ElMessage.error(t('common.copyFailed'));
       }
     }
+
+    const markdownPreviewText = computed(() => {
+      return markdownExportTab.value === 'rules'
+        ? copyRulesAsMarkdown()
+        : copyScoringAsMarkdown();
+    });
 
     function copyScoringAsMarkdown() {
       const tableHeader = '| Field | Priority | Breakdown | Visible | Reason |';
@@ -842,7 +685,8 @@ export default {
     }
 
     // ===== Priority Rules tab =====
-    const debugActiveTab = ref('scoring');
+    const debugActiveTab = ref('pipeline');
+    const markdownExportTab = ref('scoring');
 
     const HIGH_PATTERN_COMMENTS = {
       '^model(_name)?$': 'Model, model_name',
@@ -903,10 +747,6 @@ export default {
       return 'delta-neutral';
     }
 
-    function onRecalculate() {
-      emit('recalculate');
-    }
-
     return {
       localDistFields,
       localHistFields,
@@ -924,6 +764,7 @@ export default {
       toggleGroupCollapse,
       toggleShowOnlyVisible,
       onStatsChange,
+      pluginSections,
       isPluginEnabled,
       onPluginToggle,
       onFieldChange,
@@ -941,11 +782,12 @@ export default {
       formatBreakdown,
       copyDebugAsMarkdown,
       debugActiveTab,
+      markdownExportTab,
+      markdownPreviewText,
       highPatterns,
       lowPatterns,
       scoringSteps,
       getDeltaClass,
-      onRecalculate,
     };
   },
 };
@@ -1355,5 +1197,20 @@ export default {
   font-size: 12px;
   color: var(--ev-text-secondary);
   line-height: 1.5;
+}
+
+.markdown-preview pre {
+  margin: 0;
+  padding: 12px;
+  background: var(--ev-fill-color-lighter);
+  border: 1px solid var(--ev-border-color-lighter);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  line-height: 1.6;
+  max-height: 65vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>

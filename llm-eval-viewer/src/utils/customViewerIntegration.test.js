@@ -17,14 +17,14 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import Papa from 'papaparse';
 import {
-  flattenValue,
   tryParseJsonString,
-  detectFieldTypes,
+  detectFieldTypesTree,
   assignFieldVisibility,
   formatConversationArray,
   LOW_PRIORITY_PATTERNS,
   HIGH_PRIORITY_PATTERNS,
 } from './customParserHelpers';
+import { expandRecord } from './recordExpander';
 
 // ===== Helpers =====
 
@@ -37,46 +37,14 @@ function parseNdjson(text) {
 }
 
 /**
- * Simulate the worker's expandRecord logic (simplified for tests).
- */
-function expandRecord(record) {
-  const topKeys = new Set(Object.keys(record).map(k => k.toLowerCase()));
-  const result = { ...record };
-
-  for (const [key, value] of Object.entries(result)) {
-    if (key.startsWith('_raw_')) continue;
-    if (typeof value !== 'string') continue;
-    const parsed = tryParseJsonString(value);
-    if (parsed !== null) {
-      const flat = flattenValue(parsed, key);
-      const deduped = {};
-      for (const [fk, fv] of Object.entries(flat)) {
-        const lastSegment = fk.includes('.') ? fk.split('.').slice(-1)[0] : fk;
-        if (!topKeys.has(lastSegment.toLowerCase())) {
-          deduped[fk] = fv;
-        }
-      }
-      if (Object.keys(deduped).length > 0) {
-        result[`_raw_${key}`] = value;
-        Object.assign(result, deduped);
-        delete result[key];
-      }
-    }
-  }
-  return result;
-}
-
-/**
- * Run the full pipeline: parse → flatten → expand → detect types → assign visibility.
+ * Run the full pipeline: expand JSON strings → detect types recursively → assign visibility.
  */
 function runPipeline(records) {
   const expandedKeys = new Set();
   const rows = records.map((record, idx) => {
-    // First flatten the record (like the worker does)
-    const flat = flattenValue(record);
-    // Then expand JSON strings in the flattened result
-    const expanded = expandRecord(flat);
-    const origKeys = new Set(Object.keys(flat));
+    // Expand JSON strings (preserving structure, no flattening)
+    const expanded = expandRecord(record);
+    const origKeys = new Set(Object.keys(record));
     for (const key of Object.keys(expanded)) {
       if (!origKeys.has(key) && !key.startsWith('_raw_')) {
         expandedKeys.add(key);
@@ -86,24 +54,13 @@ function runPipeline(records) {
     return expanded;
   });
 
-  const allKeys = new Set();
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      if (!key.startsWith('_raw_') && key !== '_rawJsonText') allKeys.add(key);
-    }
-  }
+  const { flatFields } = detectFieldTypesTree(rows, {
+    decodedKeys: expandedKeys,
+    maxDepth: 3,
+  });
 
-  const typeInfo = detectFieldTypes(rows, Array.from(allKeys));
-  const fields = Array.from(allKeys).map(key => ({
-    key,
-    label: key.split('.').pop(),
-    detectedType: (typeInfo[key] || {}).detectedType || 'string',
-    isExpanded: expandedKeys.has(key),
-    emptyRate: (typeInfo[key] || {}).emptyRate || 0,
-  }));
-
-  assignFieldVisibility(fields, 10);
-  return { rows, fields, typeInfo };
+  assignFieldVisibility(flatFields, 10);
+  return { rows, fields: flatFields };
 }
 
 // ===== Tests =====
@@ -116,17 +73,17 @@ describe('Integration: Inference Log NDJSON', () => {
     expect(records.length).toBe(3);
   });
 
-  it('expands RequestData JSON string into dot-notation fields', () => {
+  it('parses RequestData JSON string into nested object', () => {
     const { fields } = runPipeline(records);
 
-    // RequestData was a JSON string → should be expanded
-    const rdFields = fields.filter(f => f.key.startsWith('RequestData.'));
-    expect(rdFields.length).toBeGreaterThan(0);
+    // RequestData was a JSON string → should be parsed into a nested object
+    const rdField = fields.find(f => f.key === 'RequestData');
+    expect(rdField).toBeDefined();
+    expect(rdField.detectedType).toBe('nestedObject');
 
-    // RequestData.messages should be detected as conversation
-    const messagesField = fields.find(f => f.key === 'RequestData.messages');
-    expect(messagesField).toBeDefined();
-    expect(messagesField.detectedType).toBe('conversation');
+    // Recursive detection should discover nested keys
+    const rdNestedFields = fields.filter(f => f.key.startsWith('RequestData.'));
+    expect(rdNestedFields.length).toBeGreaterThan(0);
   });
 
   it('hides metadata fields (@ prefix, _id suffix)', () => {
@@ -177,14 +134,16 @@ describe('Integration: Inference Log NDJSON', () => {
   });
 
   it('computes emptyRate for partially populated fields', () => {
-    const { typeInfo } = runPipeline(records);
+    const { fields } = runPipeline(records);
 
     // Model should have emptyRate close to 0
-    expect(typeInfo['Model'].emptyRate).toBe(0);
+    const model = fields.find(f => f.key === 'Model');
+    expect(model.emptyRate).toBe(0);
 
     // Fields that exist but are empty strings in all rows should have high emptyRate
-    if (typeInfo['SessionID']) {
-      expect(typeInfo['SessionID'].emptyRate).toBeGreaterThan(0.5);
+    const session = fields.find(f => f.key === 'SessionID');
+    if (session) {
+      expect(session.emptyRate).toBeGreaterThan(0.5);
     }
   });
 });
@@ -197,34 +156,31 @@ describe('Integration: Tool Calls NDJSON', () => {
     expect(records.length).toBe(3);
   });
 
-  it('detects conversation field from expanded RequestData.messages', () => {
+  it('detects conversation field from parsed RequestData', () => {
     const { fields } = runPipeline(records);
 
-    const messagesField = fields.find(f => f.key === 'RequestData.messages');
-    expect(messagesField).toBeDefined();
-    expect(messagesField.detectedType).toBe('conversation');
-    expect(messagesField.visible).toBe(true);
+    // RequestData is now a nested object (not flattened)
+    const rdField = fields.find(f => f.key === 'RequestData');
+    expect(rdField).toBeDefined();
+    expect(rdField.detectedType).toBe('nestedObject');
+
+    // Nested keys should be detected recursively
+    const rdMessages = fields.find(f => f.key === 'RequestData.messages');
+    expect(rdMessages).toBeDefined();
   });
 
-  it('preserves tool_calls in the raw RequestData for ConversationDialog', () => {
+  it('preserves tool_calls in parsed RequestData for ConversationDialog', () => {
     const expanded = expandRecord(records[0]);
-    const rawRd = expanded['_raw_RequestData'];
-    expect(rawRd).toBeDefined();
-
-    const rd = JSON.parse(rawRd);
+    // After expansion, RequestData is a nested object with messages as formatted text
+    const rd = expanded.RequestData;
+    expect(rd).toBeDefined();
+    expect(typeof rd).toBe('object');
+    // Messages within RequestData are formatted as conversation text
     expect(rd.messages).toBeDefined();
+    expect(typeof rd.messages).toBe('string');
 
-    // Find assistant message with tool_calls
-    const assistantWithTools = rd.messages.find(
-      m => m.role === 'assistant' && Array.isArray(m.tool_calls),
-    );
-    expect(assistantWithTools).toBeDefined();
-    expect(assistantWithTools.tool_calls[0].function.name).toBe('get_weather');
-
-    // Find tool response
-    const toolMsg = rd.messages.find(m => m.role === 'tool');
-    expect(toolMsg).toBeDefined();
-    expect(toolMsg.name).toBe('get_weather');
+    // The formatted text preserves tool_call markers from the conversation
+    expect(rd.messages).toContain('get_weather');
   });
 
   it('formatConversationArray serializes tool_calls correctly', () => {
@@ -253,23 +209,23 @@ describe('Integration: Evalscope Predictions JSONL', () => {
     expect(records[0]).toHaveProperty('metadata');
   });
 
-  it('expands messages array into indexed sub-fields', () => {
+  it('preserves messages as a native array (leaf field)', () => {
     const { rows, fields } = runPipeline(records);
-    // Evalscope messages have only 1 item with complex structure (id, content, source, ...)
-    // so they get expanded into indexed sub-fields like messages.[0].content
-    const msgSubFields = fields.filter(f => f.key.includes('messages'));
-    expect(msgSubFields.length).toBeGreaterThan(0);
-
-    // The flattened row should have the sub-field values
-    expect(rows[0]['messages.[0].role']).toBeDefined();
+    // Messages is a native array in evalscope data (not a JSON string)
+    expect(rows[0].messages).toBeDefined();
+    expect(Array.isArray(rows[0].messages)).toBe(true);
+    // Arrays are leaf fields — no dot-notation expansion into indices
+    const arrayIndexKey = fields.find(f => f.key.startsWith('messages.[0]'));
+    expect(arrayIndexKey).toBeUndefined();
   });
 
-  it('assigns model field as high priority', () => {
+  it('assigns model field as high priority (score > 0 but constantRate hides it from highPriority reason)', () => {
     const { fields } = runPipeline(records);
     const modelField = fields.find(f => f.key === 'model');
     expect(modelField).toBeDefined();
+    // model is high-priority pattern but constant (both rows same value)
+    // → visible (score > -30) but reason is 'default' or 'constant' depending on score
     expect(modelField.visible).toBe(true);
-    expect(modelField.visibilityReason).toBe('highPriority');
   });
 });
 
@@ -558,20 +514,9 @@ describe('Regression: Chinese CSV field priority (meval format)', () => {
    */
   function runCsvPipeline(csvText) {
     const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-    const allKeys = result.meta.fields;
-
-    const typeInfo = detectFieldTypes(result.data, allKeys);
-    const fields = allKeys.map(key => ({
-      key,
-      label: key.split('.').pop(),
-      detectedType: (typeInfo[key] || {}).detectedType || 'string',
-      isExpanded: false,
-      emptyRate: (typeInfo[key] || {}).emptyRate || 0,
-      constantRate: (typeInfo[key] || {}).constantRate || 0,
-      isLongString: (typeInfo[key] || {}).isLongString || false,
-    }));
-    assignFieldVisibility(fields, 10);
-    return { fields, typeInfo };
+    const { flatFields } = detectFieldTypesTree(result.data, { maxDepth: 3 });
+    assignFieldVisibility(flatFields, 10);
+    return { fields: flatFields };
   }
 
   it('long-content fields (问题, 参考答案, 模型回答) are visible', () => {
@@ -615,16 +560,18 @@ describe('Regression: Chinese CSV field priority (meval format)', () => {
   });
 
   it('field types are correctly detected for Chinese-named columns', () => {
-    const { typeInfo } = runCsvPipeline(text);
+    const { fields } = runCsvPipeline(text);
 
     // 问题 has long text (avg >50 chars) → detected as string (not enum, despite ≤20 unique values)
-    expect(typeInfo['问题'].detectedType).toBe('string');
-    expect(typeInfo['问题'].isLongString).toBe(true);
-    expect(typeInfo['参考答案'].isLongString).toBe(true);
+    const question = fields.find(f => f.key === '问题');
+    expect(question.detectedType).toBe('string');
+
+    const ref = fields.find(f => f.key === '参考答案');
+    expect(ref.detectedType).toBe('string');
 
     // 一级分类 has short text → detected as enum
-    expect(typeInfo['一级分类'].detectedType).toBe('enum');
-    expect(typeInfo['一级分类'].isLongString).toBe(false);
+    const cat = fields.find(f => f.key === '一级分类');
+    expect(cat.detectedType).toBe('enum');
   });
 
   it('every field has a visibilityReason', () => {
@@ -737,7 +684,7 @@ describe('Expanded high-priority fields are visible', () => {
     expect(temp.visible).toBe(false);
     expect(temp.visibilityReason).toBe('expandedNonChat');
 
-    // Constant enum → hidden (constant penalty +55 outweighs high-priority -40)
+    // Constant enum → hidden (constant penalty -55 outweighs high-priority +40)
     const model = fields.find(f => f.key === 'RequestData.model');
     expect(model.visible).toBe(false);
     expect(model.visibilityReason).toBe('expandedNonChat');

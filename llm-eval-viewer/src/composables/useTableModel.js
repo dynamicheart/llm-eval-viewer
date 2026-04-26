@@ -6,7 +6,8 @@
 import { ref, shallowRef, computed, watch } from 'vue';
 
 export function useTableModel(options = {}) {
-  const { pageSize: defaultPageSize = 10 } = options;
+  const { pageSize: defaultPageSize = 10, getValue } = options;
+  const _get = getValue || ((row, key) => row[key]);
 
   // ===== Base state =====
   // Use shallowRef: we always replace the entire array, never mutate individual rows.
@@ -29,7 +30,7 @@ export function useTableModel(options = {}) {
   // ===== filter =====
   function createColumnFilter(key, formatter) {
     const filters = computed(() =>
-      [...new Set(tableData.value.map((d) => d[key]))]
+      [...new Set(tableData.value.map((d) => _get(d, key)))]
         .filter((v) => v != null)
         .map((v) => ({
           text: formatter ? formatter(v) : String(v),
@@ -85,14 +86,14 @@ export function useTableModel(options = {}) {
     return tableData.value.filter((row) => {
       // enum filter
       const enumOk = Object.entries(activeFilters.value).every(
-        ([key, values]) => values.includes(row[key])
+        ([key, values]) => values.includes(_get(row, key))
       );
       if (!enumOk) return false;
 
       // keyword filter
       const keywordOk = Object.entries(keywordFilters.value).every(
         ([key, keyword]) =>
-          String(row[key] ?? '')
+          String(_get(row, key) ?? '')
             .toLowerCase()
             .includes(keyword.toLowerCase())
       );
@@ -110,8 +111,8 @@ export function useTableModel(options = {}) {
     const factor = sortOrder.value === 'ascending' ? 1 : -1;
 
     data.sort((a, b) => {
-      const va = a[sortProp.value];
-      const vb = b[sortProp.value];
+      const va = _get(a, sortProp.value);
+      const vb = _get(b, sortProp.value);
 
       if (va == null && vb == null) return 0;
       if (va == null) return -1 * factor;

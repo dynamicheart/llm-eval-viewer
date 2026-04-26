@@ -18,7 +18,17 @@ import { ref, watch } from 'vue';
  * @param {Function} config.getHistogramFields - Returns Array<{key, label, color}> for histograms
  */
 export function useDynamicViewStats(tableData, config = {}) {
-  const { getDistributionFields = () => [], getHistogramFields = () => [] } = config;
+  const { getDistributionFields = () => [], getHistogramFields = () => [], getValue } = config;
+  const _get = getValue || ((row, fieldKey) => {
+    if (row[fieldKey] !== undefined) return row[fieldKey];
+    const parts = fieldKey.split('.');
+    let val = row;
+    for (const part of parts) {
+      if (val == null || typeof val !== 'object') return undefined;
+      val = val[part];
+    }
+    return val;
+  });
 
   const distributions = ref({});
   const histogramData = ref({});
@@ -56,22 +66,7 @@ export function useDynamicViewStats(tableData, config = {}) {
 
       // Distributions
       for (const field of distributionFields) {
-        let val = row[field];
-        // For reconstructed sub-fields (e.g. RequestData.model), read from _reconstructed_ parent
-        const dotIdx = field.indexOf('.');
-        if (dotIdx > 0) {
-          const rootKey = field.substring(0, dotIdx);
-          const reconObj = row[`_reconstructed_${rootKey}`];
-          if (reconObj) {
-            const subPath = field.substring(dotIdx + 1);
-            let current = reconObj;
-            for (const part of subPath.split('.')) {
-              if (current == null || typeof current !== 'object') { current = undefined; break; }
-              current = current[part];
-            }
-            if (current !== undefined) val = current;
-          }
-        }
+        const val = _get(row, field);
         const key = val === null || val === undefined || val === '' ? '__empty__' : val;
         const map = distMaps[field];
         if (map) {
@@ -81,22 +76,7 @@ export function useDynamicViewStats(tableData, config = {}) {
 
       // Histograms
       for (const field of histogramFields) {
-        let val = row[field.key];
-        // For reconstructed sub-fields, read from _reconstructed_ parent
-        const dotIdx = field.key.indexOf('.');
-        if (dotIdx > 0) {
-          const rootKey = field.key.substring(0, dotIdx);
-          const reconObj = row[`_reconstructed_${rootKey}`];
-          if (reconObj) {
-            const subPath = field.key.substring(dotIdx + 1);
-            let current = reconObj;
-            for (const part of subPath.split('.')) {
-              if (current == null || typeof current !== 'object') { current = undefined; break; }
-              current = current[part];
-            }
-            if (current !== undefined) val = current;
-          }
-        }
+        const val = _get(row, field.key);
         const v = Number(val);
         if (!isNaN(v) && v >= 0) {
           const acc = histAccum[field.key];
