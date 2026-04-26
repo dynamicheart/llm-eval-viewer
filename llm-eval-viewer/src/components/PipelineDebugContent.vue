@@ -367,7 +367,7 @@ export default {
       if (!obj || typeof obj !== 'object') return obj;
       const clone = {};
       for (const [k, v] of Object.entries(obj)) {
-        if (k.startsWith('_raw_') || k === '_rawJsonText') continue;
+        if (k.startsWith('_raw_') || k.startsWith('_decoded_') || k.startsWith('_reconstructed_') || k.startsWith('_original') || k === '_rawJsonText' || k === 'index') continue;
         clone[k] = v;
       }
       return clone;

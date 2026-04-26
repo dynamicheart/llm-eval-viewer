@@ -526,7 +526,7 @@ export default {
     function cleanRowForJson(row) {
       const clean = { ...row };
       for (const key of Object.keys(clean)) {
-        if (key.startsWith('_raw_') || key.startsWith('_reconstructed_') || key.startsWith('_plugin_') || key.startsWith('_decoded_') || key === '_rawJsonText' || key === 'index') {
+        if (key.startsWith('_raw_') || key.startsWith('_reconstructed_') || key.startsWith('_plugin_') || key.startsWith('_decoded_') || key.startsWith('_original') || key === '_rawJsonText' || key === 'index') {
           delete clean[key];
         }
       }
@@ -579,9 +579,9 @@ export default {
       const hasPluginsEnabled = pluginConfig.value.enabledPlugins.length > 0;
 
       if (hasPluginsEnabled && _rawRows.value.length > 0) {
-        // Find original row by index
-        const idx = row.index ?? row.__index;
-        const originalRow = idx != null ? _rawRows.value[idx] : _rawRows.value[0];
+        // Find original row by its original array index (preserves correctness after sorting)
+        const originalIndex = row._originalIndex ?? (row.index != null ? row.index - 1 : 0);
+        const originalRow = _rawRows.value[originalIndex];
 
         // Build enhanced row: replace reconstructed roots, remove flat sub-fields
         const enhancedRow = cleanRowForJson(row);
@@ -945,7 +945,7 @@ export default {
           viewLogger.header('Parse Result Pipeline');
 
           // Cache rows for plugin re-processing (post-transform, pre-analyze)
-          _rawRows.value = result.rows.map((r) => ({ ...r }));
+          _rawRows.value = result.rows.map((r, i) => ({ ...r, _originalIndex: i }));
           // Preserve decoded keys info from worker's type detection
           const decodedKeys = new Set();
           for (const f of (result.fieldMeta.detectedFields || [])) {

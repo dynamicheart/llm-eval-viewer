@@ -12,7 +12,8 @@
     <div class="file-toolbar">
       <!-- Single file selection -->
       <el-upload
-        :before-upload="handleFileSelect"
+        :auto-upload="false"
+        :on-change="handleFileChange"
         :show-file-list="false"
         :accept="accept"
       >
@@ -194,9 +195,8 @@ const emits = defineEmits([
   'remove-recent-dir',
 ]);
 
-function handleFileSelect(file) {
-  emits('handle-file-select', file);
-  return false;
+function handleFileChange(uploadFile) {
+  emits('handle-file-select', uploadFile.raw);
 }
 
 function openRecentFile(file) {
