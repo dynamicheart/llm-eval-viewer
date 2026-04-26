@@ -96,7 +96,7 @@
         @sort-change="onTableSortChange"
         border
       >
-        <el-table-column prop="index" label="#" width="70" sortable />
+        <el-table-column prop="__index" label="#" width="70" sortable :formatter="(row) => row.__index != null ? row.__index + 1 : ''" />
 
         <el-table-column
           v-for="col in activeColumns"
@@ -245,12 +245,15 @@
       @save="onFieldConfigSave"
       @stats-change="onStatsChange"
       @reset="onFieldReset"
+      @rerun-pipeline="onRerunPipeline"
+      @save-config="onFieldConfigSave"
       @save-preset="onSavePreset"
       @apply-preset="onApplyPreset"
       @delete-preset="onDeletePreset"
       @clear-preset="clearActivePreset"
       @toggle-group="onToggleGroup"
       @plugin-toggle="onPluginToggle"
+      @open-debug-dialog="onOpenDebugDialog"
     />
 
     <ConversationDialog
@@ -347,6 +350,10 @@ export default {
     const conversationIsToolList = ref(false);
     const samplePromptVisible = ref(false);
     const pipelineDebugVisible = ref(false);
+
+    function onOpenDebugDialog() {
+      pipelineDebugVisible.value = true;
+    }
 
     const ONBOARDED_KEY = 'custom_viewer_onboarded';
 
@@ -526,7 +533,7 @@ export default {
     function cleanRowForJson(row) {
       const clean = { ...row };
       for (const key of Object.keys(clean)) {
-        if (key.startsWith('_raw_') || key.startsWith('_reconstructed_') || key.startsWith('_plugin_') || key.startsWith('_decoded_') || key.startsWith('_original') || key === '_rawJsonText' || key === 'index') {
+        if (key.startsWith('_raw_') || key.startsWith('_reconstructed_') || key.startsWith('_plugin_') || key.startsWith('_decoded_') || key === '_rawJsonText' || key === '__index') {
           delete clean[key];
         }
       }
@@ -579,8 +586,8 @@ export default {
       const hasPluginsEnabled = pluginConfig.value.enabledPlugins.length > 0;
 
       if (hasPluginsEnabled && _rawRows.value.length > 0) {
-        // Find original row by its original array index (preserves correctness after sorting)
-        const originalIndex = row._originalIndex ?? (row.index != null ? row.index - 1 : 0);
+        // Find original row by its pipeline index
+        const originalIndex = row.__index ?? 0;
         const originalRow = _rawRows.value[originalIndex];
 
         // Build enhanced row: replace reconstructed roots, remove flat sub-fields
@@ -945,7 +952,7 @@ export default {
           viewLogger.header('Parse Result Pipeline');
 
           // Cache rows for plugin re-processing (post-transform, pre-analyze)
-          _rawRows.value = result.rows.map((r, i) => ({ ...r, _originalIndex: i }));
+          _rawRows.value = result.rows.map((r) => ({ ...r }));
           // Preserve decoded keys info from worker's type detection
           const decodedKeys = new Set();
           for (const f of (result.fieldMeta.detectedFields || [])) {
@@ -1102,11 +1109,26 @@ export default {
 
     function onFieldConfigSave() {
       saveFieldConfig();
-      ElMessage.success(t('common.copiedToClipboard'));
     }
 
     function onStatsChange(config) {
       setStatsConfig(config.distributionFields, config.histogramFields);
+    }
+
+    function onRerunPipeline() {
+      if (!_rawRows.value.length || !_rawFieldMeta.value) return;
+      runWithoutAutoSave(() => {
+        const { rows, fieldMeta } = runPipeline(null, {
+          cachedRecords: _rawRows.value,
+          detectedFormat: _rawFieldMeta.value._detectedFormat,
+          expandNestedJsonStrings: true,
+          enabledPluginIds: pluginConfig.value.enabledPlugins,
+        });
+        tableData.value = rows;
+        // Apply plugin modifications WITHOUT resetting field config
+        updateFromPluginMeta(lastFileId.value, fieldMeta);
+      });
+      ElMessage.success(t('custom.recalculateSuccess'));
     }
 
     function onFieldReset() {
@@ -1209,6 +1231,7 @@ export default {
       // Debug
       debugMode,
       pipelineDebugVisible,
+      onOpenDebugDialog,
       pipelineDebug,
       // Presets
       presets,
@@ -1264,6 +1287,7 @@ export default {
       onFieldConfigSave,
       onStatsChange,
       onFieldReset,
+      onRerunPipeline,
       onToggleGroup,
       onSavePreset,
       onApplyPreset,

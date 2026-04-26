@@ -177,7 +177,7 @@ export function parseTextMessages(text) {
 /**
  * Skipped key prefixes for type detection.
  */
-const SKIP_KEY_PREFIXES = ['_raw_', '_reconstructed_', '_decoded_'];
+const SKIP_KEY_PREFIXES = ['_raw_', '_reconstructed_', '_decoded_', '__'];
 const SKIP_KEYS = new Set(['_rawJsonText']);
 
 function shouldSkipKey(key) {
@@ -896,6 +896,17 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     const isHigh = matchesPatterns(HIGH_PRIORITY_PATTERNS, key, lastSegment);
     const isLow = matchesPatterns(LOW_PRIORITY_PATTERNS, key, lastSegment);
 
+    // Find the actual matched pattern source for debug tracing
+    let matchedPatternSource = null;
+    if (isHigh) {
+      const highMatches = findMatchingPatternSources(HIGH_PRIORITY_PATTERNS, key, lastSegment);
+      matchedPatternSource = highMatches[0] || null;
+    } else if (isLow) {
+      const lowMatches = findMatchingPatternSources(LOW_PRIORITY_PATTERNS, key, lastSegment);
+      matchedPatternSource = lowMatches[0] || null;
+    }
+    breakdown.matchedPattern = matchedPatternSource || null;
+
     if (isHigh) {
       // Timestamp fields (80%+ values match ISO format) → low priority
       if (field.isTimestamp) {
@@ -1068,6 +1079,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       key: field.key,
       score,
       patternCategory: breakdown.patternCategory,
+      matchedPattern: breakdown.matchedPattern || null,
       patternPenalty: breakdown.patternPenalty,
       emptyPenalty: breakdown.emptyPenalty,
       constantPenalty: breakdown.constantPenalty,

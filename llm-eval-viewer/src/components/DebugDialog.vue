@@ -26,13 +26,13 @@
       <!-- Tab 1: Pipeline Debug -->
       <el-tab-pane :label="$t('custom.pipelineDebugButton')" name="pipeline">
         <div style="max-height:75vh;overflow-y:auto">
-          <PipelineDebugContent :data="pipelineDebug" @plugin-toggle="$emit('plugin-toggle', $event)" />
+          <PipelineDebugContent :data="pipelineDebug" @plugin-toggle="$emit('plugin-toggle', $event)" @scroll-to-rule="onScrollToRule" />
         </div>
       </el-tab-pane>
 
       <!-- Tab 2: Priority Rules -->
       <el-tab-pane :label="$t('custom.debugPriorityRules')" name="rules">
-        <div style="max-height:75vh;overflow-y:auto">
+        <div ref="rulesTabRef" style="max-height:75vh;overflow-y:auto">
           <!-- HIGH Priority Patterns -->
           <div class="rules-section">
             <div class="rules-section-header">
@@ -41,7 +41,7 @@
               <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: highPatterns.length }) }}</span>
             </div>
             <p class="rules-note">{{ $t('custom.scoringStepPatternDesc') }}</p>
-            <el-table :data="highPatterns" border size="small" style="width:100%">
+            <el-table :data="highPatterns" border size="small" style="width:100%" :row-class-name="getRowClass">
               <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
               <el-table-column :label="$t('custom.patternRegex')" min-width="240">
                 <template #default="{ row }">
@@ -56,7 +56,23 @@
               </el-table-column>
               <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
                 <template #default="{ row }">
-                  <el-tag :type="row.matchCount > 0 ? 'success' : 'info'" size="small" effect="plain">{{ row.matchCount }}</el-tag>
+                  <el-popover
+                    v-if="row.matchCount > 0"
+                    placement="top"
+                    :width="280"
+                    trigger="click"
+                  >
+                    <template #reference>
+                      <el-tag class="match-count-clickable" :type="'success'" size="small" effect="plain">{{ row.matchCount }}</el-tag>
+                    </template>
+                    <div class="matched-fields-popover">
+                      <div class="matched-fields-title">{{ $t('custom.matchedFieldsTitle') }}</div>
+                      <div v-for="field in getMatchedFields(row.source)" :key="field" class="matched-field-item">
+                        <code>{{ field }}</code>
+                      </div>
+                    </div>
+                  </el-popover>
+                  <el-tag v-else type="info" size="small" effect="plain">{{ row.matchCount }}</el-tag>
                 </template>
               </el-table-column>
             </el-table>
@@ -69,7 +85,7 @@
               <span class="rules-section-title">{{ $t('custom.lowPriorityPatterns') }}</span>
               <span class="rules-section-count">{{ $t('custom.patternMatchCount', { count: lowPatterns.length }) }}</span>
             </div>
-            <el-table :data="lowPatterns" border size="small" style="width:100%">
+            <el-table :data="lowPatterns" border size="small" style="width:100%" :row-class-name="getRowClass">
               <el-table-column type="index" :label="$t('custom.scoringStep')" width="50" />
               <el-table-column :label="$t('custom.patternRegex')" min-width="240">
                 <template #default="{ row }">
@@ -84,7 +100,23 @@
               </el-table-column>
               <el-table-column :label="$t('custom.matchCount')" width="90" sortable sort-by="matchCount">
                 <template #default="{ row }">
-                  <el-tag :type="row.matchCount > 0 ? 'danger' : 'info'" size="small" effect="plain">{{ row.matchCount }}</el-tag>
+                  <el-popover
+                    v-if="row.matchCount > 0"
+                    placement="top"
+                    :width="280"
+                    trigger="click"
+                  >
+                    <template #reference>
+                      <el-tag class="match-count-clickable" :type="'danger'" size="small" effect="plain">{{ row.matchCount }}</el-tag>
+                    </template>
+                    <div class="matched-fields-popover">
+                      <div class="matched-fields-title">{{ $t('custom.matchedFieldsTitle') }}</div>
+                      <div v-for="field in getMatchedFields(row.source)" :key="field" class="matched-field-item">
+                        <code>{{ field }}</code>
+                      </div>
+                    </div>
+                  </el-popover>
+                  <el-tag v-else type="info" size="small" effect="plain">{{ row.matchCount }}</el-tag>
                 </template>
               </el-table-column>
             </el-table>
@@ -123,7 +155,7 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Refresh } from '@element-plus/icons-vue';
 import { HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, SCORING_STEPS } from '@/utils/customParserHelpers';
@@ -138,11 +170,43 @@ export default {
     patternMatchCounts: { type: Object, default: () => null },
   },
 
-  emits: ['update:visible', 'reset', 'plugin-toggle'],
+  emits: ['update:visible', 'reset', 'plugin-toggle', 'scroll-to-rule'],
 
   setup(props) {
     const { t } = useI18n();
     const activeTab = ref('pipeline');
+    const rulesTabRef = ref(null);
+
+    // ===== Scroll to Rule =====
+    function onScrollToRule({ category, patternSource }) {
+      activeTab.value = 'rules';
+      nextTick(() => {
+        const container = rulesTabRef.value;
+        if (!container) return;
+
+        // Find the row with matching pattern by class name
+        const escapedPattern = CSS.escape(patternSource || '');
+        const target = container.querySelector(`.pattern-row-${escapedPattern}`);
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Brief highlight
+          target.classList.add('rule-row-highlight');
+          setTimeout(() => target.classList.remove('rule-row-highlight'), 2000);
+        }
+      });
+    }
+
+    function getRowClass({ row }) {
+      return row.source ? `pattern-row-${CSS.escape(row.source)}` : '';
+    }
+
+    // ===== Matched fields per pattern =====
+    function getMatchedFields(patternSource) {
+      const debugMeta = props.pipelineDebug?.scoring?.debugMeta || [];
+      return debugMeta
+        .filter(entry => entry.matchedPattern === patternSource)
+        .map(entry => entry.key);
+    }
 
     // ===== Priority Rules =====
     const HIGH_PATTERN_COMMENTS = {
@@ -206,6 +270,10 @@ export default {
 
     return {
       activeTab,
+      rulesTabRef,
+      onScrollToRule,
+      getRowClass,
+      getMatchedFields,
       highPatterns,
       lowPatterns,
       scoringSteps,
@@ -287,5 +355,38 @@ export default {
   font-size: 12px;
   color: var(--ev-text-secondary);
   line-height: 1.5;
+}
+
+.match-count-clickable {
+  cursor: pointer;
+}
+
+.match-count-clickable:hover {
+  opacity: 0.8;
+}
+
+.matched-fields-popover {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.matched-fields-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-primary);
+  margin-bottom: 6px;
+}
+
+.matched-field-item {
+  font-size: 11px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  padding: 2px 0;
+  color: var(--el-color-primary);
+}
+
+/* Highlight animation for scroll-to target */
+:deep(.rule-row-highlight) {
+  background-color: var(--el-color-primary-light-9) !important;
+  transition: background-color 0.5s ease;
 }
 </style>

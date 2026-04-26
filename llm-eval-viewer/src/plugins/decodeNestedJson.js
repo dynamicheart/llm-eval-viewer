@@ -66,7 +66,7 @@ const decodeNestedJson = {
         }
       }
 
-      processed.index = idx + 1;
+      processed.__index = idx;
 
       if (idx % PROGRESS_INTERVAL === 0 && progressCallback) {
         progressCallback(Math.round(50 + (idx / total) * 50));

@@ -165,9 +165,25 @@
               <span v-else>-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="visibilityReason" :label="$t('custom.pipelineDebugScoreReason')" width="140" />
+          <el-table-column prop="visibilityReason" :label="$t('custom.pipelineDebugScoreReason')" width="140">
+            <template #default="{ row }">
+              <span
+                v-if="row.patternCategory === 'high' || row.patternCategory === 'low'"
+                class="debug-link"
+                @click="onScrollToRule(row)"
+              >{{ row.visibilityReason }}</span>
+              <span v-else>{{ row.visibilityReason }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="patternCategory" label="Pattern" width="90">
-            <template #default="{ row }">{{ row.patternCategory || '-' }}</template>
+            <template #default="{ row }">
+              <span
+                v-if="row.patternCategory === 'high' || row.patternCategory === 'low'"
+                class="debug-link"
+                @click="onScrollToRule(row)"
+              >{{ row.patternCategory || '-' }}</span>
+              <span v-else>{{ row.patternCategory || '-' }}</span>
+            </template>
           </el-table-column>
           <el-table-column label="Pat" width="60"><template #default="{ row }">{{ row.patternPenalty != null ? (row.patternPenalty > 0 ? '+' : '') + row.patternPenalty : '-' }}</template></el-table-column>
           <el-table-column label="Empty" width="55"><template #default="{ row }">{{ row.emptyPenalty ? '-' + row.emptyPenalty : '-' }}</template></el-table-column>
@@ -198,7 +214,7 @@
 </template>
 
 <script>
-import { ref, computed } from 'vue';
+import { ref, computed, getCurrentInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import JsonViewer from '@/components/JsonViewer.vue';
 import { getRegisteredPlugins } from '@/plugins/pluginRegistry';
@@ -217,9 +233,10 @@ export default {
   props: {
     data: Object,
   },
-  emits: ['copy-markdown', 'plugin-toggle'],
+  emits: ['copy-markdown', 'plugin-toggle', 'scroll-to-rule'],
   setup(props) {
     const { t } = useI18n();
+    const instance = getCurrentInstance();
     const allPlugins = computed(() => getRegisteredPlugins());
     const activeSections = ref(['cache', 'pipeline', 'types', 'scoring', 'samples']);
     const sampleTab = ref('original');
@@ -367,7 +384,7 @@ export default {
       if (!obj || typeof obj !== 'object') return obj;
       const clone = {};
       for (const [k, v] of Object.entries(obj)) {
-        if (k.startsWith('_raw_') || k.startsWith('_decoded_') || k.startsWith('_reconstructed_') || k.startsWith('_original') || k === '_rawJsonText' || k === 'index') continue;
+        if (k.startsWith('_raw_') || k.startsWith('_decoded_') || k.startsWith('_reconstructed_') || k === '_rawJsonText' || k === '__index') continue;
         clone[k] = v;
       }
       return clone;
@@ -393,7 +410,15 @@ export default {
         .replace(/:\s*(null)/g, ': <span class="pj-null">$1</span>');
     }
 
-    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc };
+    function onScrollToRule(row) {
+      if (!row.patternCategory || row.patternCategory === 'none' || row.patternCategory === 'conversation') return;
+      instance.emit('scroll-to-rule', {
+        category: row.patternCategory,
+        patternSource: row.matchedPattern || null,
+      });
+    }
+
+    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc, onScrollToRule };
   },
 };
 </script>
@@ -491,5 +516,18 @@ export default {
 .plugin-debug-json-toggle:hover { background: var(--el-fill-color); }
 .toggle-arrow { font-size: 10px; }
 
-.json-inspector { max-height: 50vh; overflow: auto; padding: 8px; background: var(--el-fill-color-lighter); border-radius: 4px; }
+.json-inspector { max-height: 50vh; overflow: auto; padding: 8px; background: var(--ev-fill-color-lighter); border-radius: 4px; }
+
+.debug-link {
+  color: var(--el-color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.debug-link:hover {
+  color: var(--el-color-primary-light-3);
+  text-decoration-style: solid;
+}
 </style>

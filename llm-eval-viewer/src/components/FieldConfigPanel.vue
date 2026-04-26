@@ -62,17 +62,20 @@
       <el-collapse v-model="pluginSections" class="config-section" lazy>
         <el-collapse-item :title="$t('custom.dataPlugins')" name="plugins">
           <div v-if="registeredPlugins.length" class="plugin-list">
-            <div v-for="plugin in registeredPlugins" :key="plugin.id" class="plugin-row">
-              <el-switch
-                :model-value="plugin.required ? true : isPluginEnabled(plugin.id)"
-                size="small"
-                :disabled="plugin.required"
-                @change="onPluginToggle(plugin.id)"
-              />
-              <div class="plugin-info">
-                <span class="plugin-name">{{ plugin.nameKey ? $t(plugin.nameKey) : plugin.name }}</span>
-                <el-tag v-if="plugin.required" size="small" type="info" style="margin-left:6px">{{ $t('custom.pluginRequired') }}</el-tag>
-                <span class="plugin-desc">{{ plugin.descriptionKey ? $t(plugin.descriptionKey) : plugin.description }}</span>
+            <div v-for="group in pluginsByStage" :key="group.stage" class="plugin-stage-group">
+              <div class="stage-header">{{ group.label }}</div>
+              <div v-for="plugin in group.plugins" :key="plugin.id" class="plugin-row">
+                <el-switch
+                  :model-value="plugin.required ? true : isPluginEnabled(plugin.id)"
+                  size="small"
+                  :disabled="plugin.required"
+                  @change="onPluginToggle(plugin.id)"
+                />
+                <div class="plugin-info">
+                  <span class="plugin-name">{{ plugin.nameKey ? $t(plugin.nameKey) : plugin.name }}</span>
+                  <el-tag v-if="plugin.required" size="small" type="info" style="margin-left:6px">{{ $t('custom.pluginRequired') }}</el-tag>
+                  <span class="plugin-desc">{{ plugin.descriptionKey ? $t(plugin.descriptionKey) : plugin.description }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -99,7 +102,10 @@
               size="small"
             >
               {{ f.label }}
-              <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
+              <el-tooltip v-if="getSmartTagTooltip(f.key)" :content="getSmartTagTooltip(f.key)" placement="top" :show-after="300">
+                <span class="smart-tag">{{ getSmartTag(f.key) }}</span>
+              </el-tooltip>
+              <span v-else-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
             </el-checkbox>
           </el-checkbox-group>
         </div>
@@ -122,7 +128,10 @@
               size="small"
             >
               {{ f.label }}
-              <span v-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
+              <el-tooltip v-if="getSmartTagTooltip(f.key)" :content="getSmartTagTooltip(f.key)" placement="top" :show-after="300">
+                <span class="smart-tag">{{ getSmartTag(f.key) }}</span>
+              </el-tooltip>
+              <span v-else-if="getSmartTag(f.key)" class="smart-tag">{{ getSmartTag(f.key) }}</span>
             </el-checkbox>
           </el-checkbox-group>
         </div>
@@ -220,6 +229,38 @@
                   <el-icon class="reason-help"><QuestionFilled /></el-icon>
                 </el-tooltip>
               </span>
+              <!-- Score traceability popover -->
+              <el-popover
+                v-if="getFieldDebugMeta(field.key)"
+                placement="top"
+                :width="300"
+                trigger="click"
+              >
+                <template #reference>
+                  <el-icon class="score-debug-icon"><InfoFilled /></el-icon>
+                </template>
+                <div class="score-debug-content">
+                  <div class="score-debug-row">
+                    <span class="score-debug-label">Score:</span>
+                    <span :style="{ color: getFieldDebugMeta(field.key).score > 0 ? 'var(--el-color-success)' : getFieldDebugMeta(field.key).score < -30 ? 'var(--el-color-danger)' : '' }">
+                      {{ getFieldDebugMeta(field.key).score > 0 ? '+' : '' }}{{ getFieldDebugMeta(field.key).score }}
+                    </span>
+                  </div>
+                  <div v-if="getFieldDebugMeta(field.key).matchedPattern" class="score-debug-row">
+                    <span class="score-debug-label">Pattern:</span>
+                    <code class="score-debug-pattern">{{ getFieldDebugMeta(field.key).matchedPattern }}</code>
+                  </div>
+                  <div class="score-debug-row">
+                    <span class="score-debug-label">Breakdown:</span>
+                    <span class="score-debug-breakdown">{{ formatBreakdown(getFieldDebugMeta(field.key)) }}</span>
+                  </div>
+                  <div class="score-debug-link">
+                    <el-button text size="small" @click="$emit('open-debug-dialog')">
+                      {{ $t('custom.viewFullScoring') }}
+                    </el-button>
+                  </div>
+                </div>
+              </el-popover>
               <span v-if="field.emptyRate > 0.5" class="field-empty-rate">
                 {{ Math.round(field.emptyRate * 100) }}% {{ $t('custom.empty') }}
               </span>
@@ -269,9 +310,12 @@
         <el-button @click="onReset">
           {{ $t('custom.resetDefaults') }}
         </el-button>
+        <el-button @click="onRerunPipeline">
+          {{ $t('custom.rerunDataPipeline') }}
+        </el-button>
         <div style="flex:1"></div>
-        <el-button type="primary" @click="$emit('save')">
-          {{ $t('common.copy') }} {{ $t('custom.fieldConfig') }}
+        <el-button type="primary" @click="onSaveConfig">
+          {{ $t('custom.saveConfig') }}
         </el-button>
       </div>
     </template>
@@ -279,13 +323,13 @@
 </template>
 
 <script>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, getCurrentInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessageBox, ElMessage } from 'element-plus';
-import { ArrowRight, Search, QuestionFilled } from '@element-plus/icons-vue';
+import { ArrowRight, Search, QuestionFilled, InfoFilled } from '@element-plus/icons-vue';
 
 export default {
-  components: { ArrowRight, Search, QuestionFilled },
+  components: { ArrowRight, Search, QuestionFilled, InfoFilled },
 
   props: {
     visible: Boolean,
@@ -299,16 +343,19 @@ export default {
     schemaSnapshot: { type: Object, default: null },
     pluginConfig: { type: Object, default: () => ({ enabledPlugins: [] }) },
     registeredPlugins: { type: Array, default: () => [] },
+    priorityDebug: { type: Array, default: () => [] },
+    patternMatchCounts: { type: Object, default: () => ({}) },
   },
 
   emits: [
-    'close', 'save', 'stats-change', 'reset',
+    'close', 'save', 'stats-change', 'reset', 'rerun-pipeline', 'save-config',
     'save-preset', 'apply-preset', 'delete-preset', 'clear-preset',
-    'toggle-group', 'plugin-toggle',
+    'toggle-group', 'plugin-toggle', 'open-debug-dialog',
   ],
 
-  setup(props, { emit }) {
+  setup(props) {
     const { t } = useI18n();
+    const instance = getCurrentInstance();
     const localDistFields = ref([]);
     const localHistFields = ref([]);
     const searchQuery = ref('');
@@ -448,7 +495,7 @@ export default {
     }
 
     function onStatsChange() {
-      emit('stats-change', {
+      instance.emit('stats-change', {
         distributionFields: localDistFields.value,
         histogramFields: localHistFields.value,
       });
@@ -456,12 +503,24 @@ export default {
 
     const pluginSections = ref([]); // collapsed by default
 
+    const pluginsByStage = computed(() => {
+      const stages = ['parse', 'transform', 'analyze', 'post'];
+      return stages
+        .map(stage => ({
+          stage,
+          label: t(`custom.pipelineStage${stage.charAt(0).toUpperCase() + stage.slice(1)}`),
+          plugins: props.registeredPlugins.filter(p => p.stage === stage),
+        }))
+        .filter(g => g.plugins.length > 0);
+    });
+
     function isPluginEnabled(pluginId) {
       return (props.pluginConfig?.enabledPlugins || []).includes(pluginId);
     }
 
     function onPluginToggle(pluginId) {
-      emit('plugin-toggle', pluginId);
+      const enabled = !isPluginEnabled(pluginId);
+      instance.emit('plugin-toggle', { id: pluginId, enabled });
     }
 
     function onFieldChange() {
@@ -469,7 +528,16 @@ export default {
     }
 
     function onReset() {
-      emit('reset');
+      instance.emit('reset');
+    }
+
+    function onRerunPipeline() {
+      instance.emit('rerun-pipeline');
+    }
+
+    function onSaveConfig() {
+      instance.emit('save-config');
+      ElMessage.success(t('custom.saveConfigSuccess'));
     }
 
     async function onSavePreset() {
@@ -480,7 +548,7 @@ export default {
           inputPlaceholder: '',
         });
         if (value && value.trim()) {
-          emit('save-preset', value.trim());
+          instance.emit('save-preset', value.trim());
         }
       } catch {
         // User cancelled
@@ -489,9 +557,9 @@ export default {
 
     function onPresetChange(presetId) {
       if (presetId) {
-        emit('apply-preset', presetId);
+        instance.emit('apply-preset', presetId);
       } else {
-        emit('clear-preset');
+        instance.emit('clear-preset');
       }
     }
 
@@ -512,6 +580,22 @@ export default {
       const reason = props.statsConfig?.selectionReasons?.[fieldKey];
       if (!reason) return '';
       return t(`custom.smartTag.${reason}`);
+    }
+
+    function getSmartTagTooltip(fieldKey) {
+      const meta = props.priorityDebug?.find(d => d.key === fieldKey);
+      if (meta?.matchedPattern) {
+        return t('custom.smartTagDesc.matchedPattern', { pattern: meta.matchedPattern });
+      }
+      const reason = props.statsConfig?.selectionReasons?.[fieldKey];
+      if (reason) {
+        return t(`custom.smartTag.${reason}`);
+      }
+      return '';
+    }
+
+    function getFieldDebugMeta(fieldKey) {
+      return props.priorityDebug?.find(d => d.key === fieldKey) || null;
     }
 
     function getReasonLabel(reason) {
@@ -765,14 +849,19 @@ export default {
       toggleShowOnlyVisible,
       onStatsChange,
       pluginSections,
+      pluginsByStage,
       isPluginEnabled,
       onPluginToggle,
       onFieldChange,
       onReset,
+      onRerunPipeline,
+      onSaveConfig,
       onSavePreset,
       onPresetChange,
       typeTagType,
       getSmartTag,
+      getSmartTagTooltip,
+      getFieldDebugMeta,
       getReasonLabel,
       getReasonTooltip,
       getReasonDesc,
@@ -885,6 +974,22 @@ export default {
 }
 
 /* Plugin rows */
+.plugin-stage-group + .plugin-stage-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ev-border-color-light);
+}
+
+.stage-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ev-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+
 .plugin-row {
   display: flex;
   align-items: flex-start;
@@ -1212,5 +1317,59 @@ export default {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Score debug popover */
+.score-debug-icon {
+  font-size: 13px;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  opacity: 0.5;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.score-debug-icon:hover {
+  opacity: 1;
+}
+
+.score-debug-content {
+  font-size: 12px;
+}
+
+.score-debug-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.score-debug-label {
+  color: var(--ev-text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.score-debug-pattern {
+  font-size: 11px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: var(--ev-fill-color);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--el-color-primary);
+  word-break: break-all;
+}
+
+.score-debug-breakdown {
+  font-size: 11px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: var(--ev-text-secondary);
+  word-break: break-all;
+}
+
+.score-debug-link {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ev-border-color-lighter);
 }
 </style>
