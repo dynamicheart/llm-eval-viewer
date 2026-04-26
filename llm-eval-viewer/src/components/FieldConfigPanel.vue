@@ -11,39 +11,33 @@
     @close="$emit('close')"
   >
     <template v-if="fieldConfig">
-      <!-- Preset management -->
+      <!-- Preset management (temporarily disabled)
       <div class="preset-section">
-        <div class="preset-row">
-          <el-select
-            :model-value="activePresetId || ''"
-            :placeholder="$t('custom.noPreset')"
-            size="small"
-            class="preset-select"
-            clearable
-            @change="onPresetChange"
-            @clear="$emit('clear-preset')"
+        <el-select
+          :model-value="activePresetId || ''"
+          :placeholder="$t('custom.noPreset')"
+          size="small"
+          class="preset-select"
+          clearable
+          @change="onPresetChange"
+          @clear="$emit('clear-preset')"
+        >
+          <el-option
+            v-for="p in presets"
+            :key="p.id"
+            :label="p.name"
+            :value="p.id"
           >
-            <el-option
-              v-for="p in presets"
-              :key="p.id"
-              :label="p.name"
-              :value="p.id"
-            />
-          </el-select>
-          <el-button size="small" type="primary" plain @click="onSavePreset">
-            {{ $t('custom.savePreset') }}
-          </el-button>
-          <el-button
-            size="small"
-            type="danger"
-            plain
-            :disabled="!activePresetId"
-            @click="$emit('delete-preset', activePresetId)"
-          >
-            {{ $t('custom.deletePreset') }}
-          </el-button>
-        </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+              <span>{{ p.name }}</span>
+              <span class="preset-delete-icon" @click.stop="$emit('delete-preset', p.id)">
+                <el-icon><Close /></el-icon>
+              </span>
+            </div>
+          </el-option>
+        </el-select>
       </div>
+      -->
 
       <!-- Schema Preview (collapsible) -->
       <div v-if="schemaSnapshot" class="schema-section">
@@ -58,8 +52,8 @@
         </div>
       </div>
 
-      <!-- Data Plugins -->
-      <el-collapse v-model="pluginSections" class="config-section" lazy>
+      <!-- Data Plugins (hidden by default — defaults are fine) -->
+      <!-- <el-collapse v-model="pluginSections" class="config-section" lazy>
         <el-collapse-item :title="$t('custom.dataPlugins')" name="plugins">
           <div v-if="registeredPlugins.length" class="plugin-list">
             <div v-for="group in pluginsByStage" :key="group.stage" class="plugin-stage-group">
@@ -80,9 +74,10 @@
             </div>
           </div>
         </el-collapse-item>
-      </el-collapse>
+      </el-collapse> -->
 
       <!-- Stats configuration -->
+      <template v-if="enumFields.length || numericFields.length">
       <el-divider content-position="left">{{ $t('custom.statsConfig') }}</el-divider>
 
       <div v-if="enumFields.length" class="config-section">
@@ -136,6 +131,7 @@
           </el-checkbox-group>
         </div>
       </div>
+      </template>
 
       <!-- Column configuration -->
       <el-divider content-position="left">
@@ -180,11 +176,9 @@
               @click.stop
               @change="$emit('toggle-group', group.groupKey)"
             />
-            <span class="group-label">
-              {{ group.groupKey === '__top__' ? $t('custom.topLevelFields') : group.groupLabel }}
-              <span class="group-nest-badge">
-                {{ group.groupKey === '__top__' ? 'L0' : 'L1' }}
-              </span>
+            <span class="group-label" :title="group.subKey === '__top__' ? '' : group.subKey">
+              {{ group.subKey === '__top__' ? '顶级字段' : group.groupLabel }}
+              <span class="field-nest-badge">{{ group.levelLabel }}</span>
             </span>
             <span class="group-count">{{ group.visibleCount }} / {{ group.totalCount }}</span>
           </div>
@@ -194,11 +188,7 @@
               v-for="field in group.fields"
               :key="field.key"
               class="field-row"
-              :class="{
-                'field-row-expanded': field.isExpanded,
-                'field-row-nested': getFieldNestingLevel(field.key, group.groupKey) > 0,
-                'field-row-deep': getFieldNestingLevel(field.key, group.groupKey) > 1,
-              }"
+              :class="{ 'field-row-expanded': field.isExpanded }"
             >
               <!-- Visible toggle -->
               <el-checkbox v-model="field.visible" size="small" @change="onFieldChange" />
@@ -206,10 +196,10 @@
               <!-- Key path + label -->
               <div class="field-info">
                 <span class="field-key" :title="field.key">
-                  {{ getFieldDisplayPath(field.key, group.groupKey) }}
+                  {{ group.prefix ? field.key.substring(group.prefix.length) : field.key }}
                 </span>
                 <span class="field-nest-badge">
-                  L{{ getFieldNestingLevel(field.key, group.groupKey) + 1 }}
+                  L{{ field.key.includes('.') ? field.key.split('.').length : 1 }}
                 </span>
               </div>
 
@@ -229,38 +219,6 @@
                   <el-icon class="reason-help"><QuestionFilled /></el-icon>
                 </el-tooltip>
               </span>
-              <!-- Score traceability popover -->
-              <el-popover
-                v-if="getFieldDebugMeta(field.key)"
-                placement="top"
-                :width="300"
-                trigger="click"
-              >
-                <template #reference>
-                  <el-icon class="score-debug-icon"><InfoFilled /></el-icon>
-                </template>
-                <div class="score-debug-content">
-                  <div class="score-debug-row">
-                    <span class="score-debug-label">Score:</span>
-                    <span :style="{ color: getFieldDebugMeta(field.key).score > 0 ? 'var(--el-color-success)' : getFieldDebugMeta(field.key).score < -30 ? 'var(--el-color-danger)' : '' }">
-                      {{ getFieldDebugMeta(field.key).score > 0 ? '+' : '' }}{{ getFieldDebugMeta(field.key).score }}
-                    </span>
-                  </div>
-                  <div v-if="getFieldDebugMeta(field.key).matchedPattern" class="score-debug-row">
-                    <span class="score-debug-label">Pattern:</span>
-                    <code class="score-debug-pattern">{{ getFieldDebugMeta(field.key).matchedPattern }}</code>
-                  </div>
-                  <div class="score-debug-row">
-                    <span class="score-debug-label">Breakdown:</span>
-                    <span class="score-debug-breakdown">{{ formatBreakdown(getFieldDebugMeta(field.key)) }}</span>
-                  </div>
-                  <div class="score-debug-link">
-                    <el-button text size="small" @click="$emit('open-debug-dialog')">
-                      {{ $t('custom.viewFullScoring') }}
-                    </el-button>
-                  </div>
-                </div>
-              </el-popover>
               <span v-if="field.emptyRate > 0.5" class="field-empty-rate">
                 {{ Math.round(field.emptyRate * 100) }}% {{ $t('custom.empty') }}
               </span>
@@ -307,16 +265,15 @@
 
     <template #footer>
       <div class="footer-bar">
-        <el-button @click="onReset">
+        <div style="flex:1"></div>
+        <el-button size="small" @click="onReset">
           {{ $t('custom.resetDefaults') }}
         </el-button>
-        <el-button @click="onRerunPipeline">
-          {{ $t('custom.rerunDataPipeline') }}
+        <!-- Preset save disabled temporarily
+        <el-button size="small" type="primary" @click="onSavePreset">
+          {{ $t('custom.savePreset') }}
         </el-button>
-        <div style="flex:1"></div>
-        <el-button type="primary" @click="onSaveConfig">
-          {{ $t('custom.saveConfig') }}
-        </el-button>
+        -->
       </div>
     </template>
   </el-drawer>
@@ -326,10 +283,10 @@
 import { ref, computed, watch, getCurrentInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessageBox, ElMessage } from 'element-plus';
-import { ArrowRight, Search, QuestionFilled, InfoFilled } from '@element-plus/icons-vue';
+import { ArrowRight, Search, QuestionFilled, Close } from '@element-plus/icons-vue';
 
 export default {
-  components: { ArrowRight, Search, QuestionFilled, InfoFilled },
+  components: { ArrowRight, Search, QuestionFilled, Close },
 
   props: {
     visible: Boolean,
@@ -456,34 +413,25 @@ export default {
       return lines.join('\n');
     }
 
-    function getDisplayKey(key, groupKey) {
-      if (groupKey === '__top__') return key;
-      // Remove the group prefix for cleaner display
-      const prefix = groupKey + '.';
-      return key.startsWith(prefix) ? key.substring(prefix.length) : key;
+    function getDisplayKey(key) {
+      return key;
     }
 
     /**
-     * Get nesting depth relative to group (0 = direct child, 1 = grandchild, etc.)
+     * Get nesting depth (0 = top-level, 1 = one dot, etc.)
      */
-    function getFieldNestingLevel(key, groupKey) {
-      if (groupKey === '__top__') return 0;
-      const prefix = groupKey + '.';
-      if (!key.startsWith(prefix)) return 0;
-      const remaining = key.substring(prefix.length);
-      return Math.max(0, remaining.split('.').length - 2);
+    function getFieldNestingLevel(key) {
+      if (!key.includes('.')) return 0;
+      return key.split('.').length - 1;
     }
 
     /**
      * Display key path with hierarchy separators for nested fields.
-     * e.g. 'ResponseData.usage.input_tokens' → 'usage › input_tokens'
-     *       'RequestData.model' → 'model'
+     * e.g. 'ResponseData.usage.input_tokens' → 'ResponseData › usage › input_tokens'
      */
-    function getFieldDisplayPath(key, groupKey) {
-      const displayKey = getDisplayKey(key, groupKey);
-      if (!displayKey.includes('.')) return displayKey;
-      // Replace dots with › to show hierarchy
-      return displayKey.replace(/\./g, ' \u203A ');
+    function getFieldDisplayPath(key) {
+      if (!key.includes('.')) return key;
+      return key.replace(/\./g, ' \u203A ');
     }
 
     function toggleGroupCollapse(groupKey) {
@@ -570,6 +518,7 @@ export default {
         case 'enum': return 'success';
         case 'conversation': return 'danger';
         case 'toolList': return 'primary';
+        case 'nestedArray': return 'info';
         case 'nestedObject': return 'success';
         case 'decodedJson': return 'success';
         default: return 'info';
@@ -897,6 +846,18 @@ export default {
   flex: 1;
 }
 
+.preset-delete-icon {
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  transition: all 0.15s;
+}
+.preset-delete-icon:hover {
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+}
+
 /* Schema preview */
 .schema-section {
   margin-bottom: 8px;
@@ -1098,6 +1059,7 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .group-count {
@@ -1161,10 +1123,7 @@ export default {
   font-size: 12px;
   color: var(--ev-text-primary);
   font-family: monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
 }
 
 .field-type-tag {

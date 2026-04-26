@@ -108,6 +108,8 @@ export function runPipeline(input, options = {}) {
       debug.push({
         stage: 'parse',
         id: plugin.id,
+        required: plugin.required,
+        skipped: false,
         summary: pluginResult._pluginDebug?.summary || '',
         elapsedMs: Math.round(elapsed),
         debug: pluginResult._pluginDebug || null,

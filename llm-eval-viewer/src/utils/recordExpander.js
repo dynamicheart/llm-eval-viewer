@@ -9,15 +9,13 @@
  *
  * Key behavior: parses JSON string fields into nested objects/arrays,
  * preserving the original JSON structure (no dot-notation flattening).
- * Special arrays (conversations, tool definitions) are formatted as text.
+ * Native arrays are preserved as-is (not converted to text).
  */
 
 import {
   isConversationLikeArray,
   isHomogeneousObjectArray,
   isToolDefinitionsArray,
-  formatConversationArray,
-  formatToolDefinitions,
   tryParseJsonString,
 } from './customParserHelpers';
 
@@ -26,7 +24,7 @@ export const MAX_EXPAND_DEPTH = 5;
 /**
  * Expand a record by:
  * 1. Parsing JSON string fields into nested objects/arrays (preserve structure)
- * 2. Formatting special arrays (conversations, tools, homogeneous objects) as text
+ * 2. Recording special array info in expDebug (without converting to text)
  * 3. Deep-expanding nested JSON strings within parsed objects (multi-layer JSON)
  * 4. Storing original string values as _raw_<key> backups
  *
@@ -54,7 +52,9 @@ export function expandRecord(record, depth = 0, topKeys = null, expDebug = null)
     if (typeof value === 'string' && value.length > 0) {
       const c = value.charCodeAt(0);
       if (c === 123 || c === 91) { hasExpandable = true; break; }
-    } else if (Array.isArray(value) && value.length >= 2) {
+    }
+    // Also process records with native arrays (for debug info recording)
+    if (Array.isArray(value) && value.length >= 2 && depth === 0) {
       hasExpandable = true; break;
     }
   }
@@ -68,26 +68,9 @@ export function expandRecord(record, depth = 0, topKeys = null, expDebug = null)
     if (key.startsWith('_raw_')) continue;
     const value = result[key];
 
-    // Handle already-array values (e.g., messages/tools in a single JSON object)
+    // Record debug info for native arrays (e.g., messages/tools) but keep as-is
     if (Array.isArray(value) && value.length >= 2 && depth === 0) {
-      if (isConversationLikeArray(value)) {
-        if (expDebug && expDebug.conversationArrays.length < 5) expDebug.conversationArrays.push(key);
-        result[key] = formatConversationArray(value);
-        expanded = true;
-        continue;
-      }
-      if (isToolDefinitionsArray(value)) {
-        if (expDebug && expDebug.toolArrays.length < 5) expDebug.toolArrays.push(key);
-        result[key] = formatToolDefinitions(value);
-        expanded = true;
-        continue;
-      }
-      if (isHomogeneousObjectArray(value)) {
-        if (expDebug && expDebug.homogeneousArrays.length < 5) expDebug.homogeneousArrays.push(key);
-        result[key] = formatConversationArray(value);
-        expanded = true;
-        continue;
-      }
+      recordArrayDebugInfo(expDebug, key, value);
     }
 
     // Handle JSON strings → parse and store as nested object (preserve structure)
@@ -99,26 +82,9 @@ export function expandRecord(record, depth = 0, topKeys = null, expDebug = null)
     const parsed = tryParseJsonString(value);
     if (parsed === null) continue;
 
-    // Format special arrays as text
+    // Record debug info for parsed arrays but keep as native arrays
     if (Array.isArray(parsed)) {
-      if (isConversationLikeArray(parsed)) {
-        if (expDebug && expDebug.conversationArrays.length < 5) expDebug.conversationArrays.push(key);
-        result[key] = formatConversationArray(parsed);
-        expanded = true;
-        continue;
-      }
-      if (isToolDefinitionsArray(parsed)) {
-        if (expDebug && expDebug.toolArrays.length < 5) expDebug.toolArrays.push(key);
-        result[key] = formatToolDefinitions(parsed);
-        expanded = true;
-        continue;
-      }
-      if (isHomogeneousObjectArray(parsed)) {
-        if (expDebug && expDebug.homogeneousArrays.length < 5) expDebug.homogeneousArrays.push(key);
-        result[key] = formatConversationArray(parsed);
-        expanded = true;
-        continue;
-      }
+      recordArrayDebugInfo(expDebug, key, parsed);
     }
 
     // Store parsed object/array as field value (preserve JSON structure)
@@ -147,6 +113,21 @@ export function expandRecord(record, depth = 0, topKeys = null, expDebug = null)
   }
 
   return record;
+}
+
+/**
+ * Record debug info for a recognized array type (conversation, tool, homogeneous).
+ * Does NOT modify the array itself.
+ */
+function recordArrayDebugInfo(expDebug, key, arr) {
+  if (!expDebug) return;
+  if (isConversationLikeArray(arr)) {
+    if (expDebug.conversationArrays.length < 5) expDebug.conversationArrays.push(key);
+  } else if (isToolDefinitionsArray(arr)) {
+    if (expDebug.toolArrays.length < 5) expDebug.toolArrays.push(key);
+  } else if (isHomogeneousObjectArray(arr)) {
+    if (expDebug.homogeneousArrays.length < 5) expDebug.homogeneousArrays.push(key);
+  }
 }
 
 /**
@@ -196,19 +177,9 @@ function deepExpandValues(obj, expDebug, pathPrefix, depth, maxDepth) {
         }
       }
     } else if (Array.isArray(value) && value.length >= 2) {
-      // Format special arrays within parsed objects (conversations, tools, homogeneous)
-      if (isConversationLikeArray(value)) {
-        if (expDebug && expDebug.conversationArrays.length < 5) expDebug.conversationArrays.push(fullPath);
-        obj[key] = formatConversationArray(value);
-      } else if (isToolDefinitionsArray(value)) {
-        if (expDebug && expDebug.toolArrays.length < 5) expDebug.toolArrays.push(fullPath);
-        obj[key] = formatToolDefinitions(value);
-      } else if (isHomogeneousObjectArray(value)) {
-        if (expDebug && expDebug.homogeneousArrays.length < 5) expDebug.homogeneousArrays.push(fullPath);
-        obj[key] = formatConversationArray(value);
-      } else {
-        deepExpandValues(value, expDebug, fullPath, depth + 1, maxDepth);
-      }
+      // Record debug info for special arrays within parsed objects, but keep native
+      recordArrayDebugInfo(expDebug, fullPath, value);
+      deepExpandValues(value, expDebug, fullPath, depth + 1, maxDepth);
     } else if (typeof value === 'object' && value !== null) {
       deepExpandValues(value, expDebug, fullPath, depth + 1, maxDepth);
     }
@@ -216,23 +187,13 @@ function deepExpandValues(obj, expDebug, pathPrefix, depth, maxDepth) {
 }
 
 /**
- * Handle a parsed JSON value: format special arrays, deep-expand nested objects.
+ * Handle a parsed JSON value: record debug info for special arrays, deep-expand nested objects.
+ * Always returns the native parsed value (no text conversion).
  */
 function handleParsedValue(parsed, path, expDebug, depth, maxDepth) {
   if (Array.isArray(parsed)) {
-    if (isConversationLikeArray(parsed)) {
-      if (expDebug && expDebug.conversationArrays.length < 5) expDebug.conversationArrays.push(path);
-      return formatConversationArray(parsed);
-    }
-    if (isToolDefinitionsArray(parsed)) {
-      if (expDebug && expDebug.toolArrays.length < 5) expDebug.toolArrays.push(path);
-      return formatToolDefinitions(parsed);
-    }
-    if (isHomogeneousObjectArray(parsed)) {
-      if (expDebug && expDebug.homogeneousArrays.length < 5) expDebug.homogeneousArrays.push(path);
-      return formatConversationArray(parsed);
-    }
-    // Non-special array — keep as array, deep-expand its items
+    recordArrayDebugInfo(expDebug, path, parsed);
+    // Keep as array, deep-expand its items
     deepExpandValues(parsed, expDebug, path, depth, maxDepth);
     return parsed;
   }
@@ -260,7 +221,14 @@ export function buildSchemaSnapshot(record, depth = 0, maxDepth = 2) {
       snapshot[key] = { type: 'null' };
     } else if (Array.isArray(value)) {
       const sample = value[0];
-      if (value.length > 0 && sample && typeof sample === 'object' && 'role' in sample) {
+      if (value.length > 0 && Array.isArray(sample)) {
+        // Multi-level array: [[{role,...},...], ...]
+        if (sample.length > 0 && typeof sample[0] === 'object' && sample[0] !== null && 'role' in sample[0]) {
+          snapshot[key] = { type: 'array', itemType: 'multiConversation', length: value.length };
+        } else {
+          snapshot[key] = { type: 'array', itemType: 'array', length: value.length };
+        }
+      } else if (value.length > 0 && sample && typeof sample === 'object' && 'role' in sample) {
         snapshot[key] = { type: 'array', itemType: 'conversation', length: value.length };
       } else if (value.length > 0 && typeof sample === 'object') {
         snapshot[key] = { type: 'array', itemType: 'object', length: value.length, sample: buildSchemaSnapshot(sample, depth + 1, maxDepth) };

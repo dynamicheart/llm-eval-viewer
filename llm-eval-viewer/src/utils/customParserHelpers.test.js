@@ -408,8 +408,8 @@ describe('detectFieldTypes', () => {
 
   it('handles empty rows', () => {
     const result = detectFieldTypes([], ['a', 'b']);
-    expect(result.a).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false, conversationVotes: 0, toolDefVotes: 0 });
-    expect(result.b).toEqual({ detectedType: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false, conversationVotes: 0, toolDefVotes: 0 });
+    expect(result.a).toEqual({ detectedType: 'string', typeRule: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false, conversationVotes: 0, toolDefVotes: 0 });
+    expect(result.b).toEqual({ detectedType: 'string', typeRule: 'string', isLongString: false, emptyRate: 0, constantRate: 0, uniqueCount: 0, avgValueLength: 0, isTimestamp: false, conversationVotes: 0, toolDefVotes: 0 });
   });
 
   it('samples at most SAMPLE_SIZE_FOR_TYPE rows', () => {
@@ -980,7 +980,7 @@ describe('detectFieldTypesTree', () => {
     // items is an array → leaf field, no array index keys
     const items = flatFields.find(f => f.key === 'data.items');
     expect(items).toBeDefined();
-    expect(items.detectedType).toBe('nestedObject'); // array → nestedObject type
+    expect(items.detectedType).toBe('nestedArray'); // array → nestedArray type
 
     // No array index expansion
     const arrayIndexKey = flatFields.find(f => f.key.includes('items.[0]'));
@@ -1066,5 +1066,107 @@ describe('detectFieldTypesTree', () => {
     const messages = flatFields.find(f => f.key === 'data.messages');
     expect(messages).toBeDefined();
     expect(messages.detectedType).toBe('conversation');
+  });
+
+  it('preserves correct depth and parentPath for dot-in-key root fields', () => {
+    // A top-level key containing dots (e.g. "DeepSeek-V3.2-API") must have depth=0
+    const rows = [
+      {
+        '标注结果详情-DeepSeek-V3.2-API': {
+          evaluator: { extracted_answer: '42', score: 95 },
+          model: 'deepseek',
+        },
+      },
+    ];
+    const { flatFields, tree } = detectFieldTypesTree(rows);
+
+    // Root key with dots should be depth 0
+    const root = flatFields.find(f => f.key === '标注结果详情-DeepSeek-V3.2-API');
+    expect(root).toBeDefined();
+    expect(root.depth).toBe(0);
+    expect(root.parentPath).toBeNull();
+
+    // Children should be depth 1 with parentPath pointing to root
+    const evaluator = flatFields.find(f => f.key === '标注结果详情-DeepSeek-V3.2-API.evaluator');
+    expect(evaluator).toBeDefined();
+    expect(evaluator.depth).toBe(1);
+    expect(evaluator.parentPath).toBe('标注结果详情-DeepSeek-V3.2-API');
+
+    // Leaves should be depth 2
+    const ea = flatFields.find(f => f.key === '标注结果详情-DeepSeek-V3.2-API.evaluator.extracted_answer');
+    expect(ea).toBeDefined();
+    expect(ea.depth).toBe(2);
+    expect(ea.parentPath).toBe('标注结果详情-DeepSeek-V3.2-API.evaluator');
+
+    // Tree should have exactly 1 root node (not multiple due to dot splitting)
+    expect(tree.length).toBe(1);
+    expect(tree[0].key).toBe('标注结果详情-DeepSeek-V3.2-API');
+    expect(tree[0].children).not.toBeNull();
+    expect(tree[0].children.length).toBeGreaterThan(0);
+  });
+
+  it('builds correct tree for nested object with dot-in-key root', () => {
+    const rows = [
+      {
+        'model_output': { usage: { input_tokens: 115, output_tokens: 50 }, model: 'gpt-4' },
+      },
+    ];
+    const { tree } = detectFieldTypesTree(rows);
+
+    expect(tree.length).toBe(1);
+    const root = tree[0];
+    expect(root.key).toBe('model_output');
+    expect(root.depth).toBe(0);
+    expect(root.children).not.toBeNull();
+
+    // usage and model are direct children
+    const usage = root.children.find(c => c.key === 'usage');
+    expect(usage).toBeDefined();
+    expect(usage.depth).toBe(1);
+    expect(usage.children).not.toBeNull();
+
+    // input_tokens and output_tokens are children of usage
+    const inputTokens = usage.children.find(c => c.key === 'input_tokens');
+    expect(inputTokens).toBeDefined();
+    expect(inputTokens.depth).toBe(2);
+    expect(inputTokens.detectedType).toBe('number');
+  });
+
+  it('correctly groups fields with multiple dot-in-key roots', () => {
+    const rows = [
+      {
+        '结果-V3.2': { score: 90 },
+        '结果-V3.3': { score: 85 },
+        'model_output': { usage: { input_tokens: 100 } },
+      },
+    ];
+    const { tree, flatFields } = detectFieldTypesTree(rows);
+
+    // Should have 3 root nodes (two with dots, one without)
+    expect(tree.length).toBe(3);
+
+    // Each dot-in-key root should be depth 0
+    const v32 = flatFields.find(f => f.key === '结果-V3.2');
+    expect(v32.depth).toBe(0);
+    const v33 = flatFields.find(f => f.key === '结果-V3.3');
+    expect(v33.depth).toBe(0);
+    const mo = flatFields.find(f => f.key === 'model_output');
+    expect(mo.depth).toBe(0);
+  });
+
+  it('label for depth-0 field is the full key, not a split segment', () => {
+    const rows = [
+      { 'DeepSeek-V3.2-API': { model: 'test', score: 100 } },
+    ];
+    const { flatFields } = detectFieldTypesTree(rows);
+
+    const root = flatFields.find(f => f.key === 'DeepSeek-V3.2-API');
+    expect(root).toBeDefined();
+    expect(root.label).toBe('DeepSeek-V3.2-API'); // full key, not "DeepSeek" or "V3.2"
+
+    // Non-root labels should be the last segment
+    const model = flatFields.find(f => f.key === 'DeepSeek-V3.2-API.model');
+    expect(model).toBeDefined();
+    expect(model.label).toBe('model');
   });
 });

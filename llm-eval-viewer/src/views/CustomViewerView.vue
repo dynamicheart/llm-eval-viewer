@@ -56,7 +56,7 @@
         <el-button size="small" @click="showFieldConfig = true">
           {{ $t('custom.fieldConfig') }}
         </el-button>
-        <el-button v-if="debugMode" size="small" type="warning" @click="pipelineDebugVisible = true">
+        <el-button v-if="debugMode" size="small" plain @click="pipelineDebugVisible = true">
           {{ $t('custom.debug') }}
         </el-button>
       </div>
@@ -132,6 +132,15 @@
                       <b>{{ tool.function?.name || tool.name || `#${i}` }}</b><span v-if="tool.function?.description" style="color:#999;margin-left:4px">{{ tool.function.description }}</span>
                     </div>
                   </div>
+                  <div v-else-if="isMultiConversationArray(getRowValue(row, col.key))">
+                    <div v-for="(conv, ci) in (getRowValue(row, col.key) || [])" :key="ci" style="margin-bottom:6px; border-bottom: 1px solid #eee; padding-bottom: 4px;">
+                      <div style="font-weight:600; font-size:12px; margin-bottom:2px; color:#666">{{ $t('custom.conversationTab', { idx: ci + 1 }) }} ({{ conv.length }} msgs)</div>
+                      <div v-for="(msg, i) in conv.slice(0, 3)" :key="i" style="margin-bottom:1px">
+                        <b :style="{color: msg.role === 'user' ? '#409eff' : msg.role === 'assistant' ? '#67c23a' : '#999'}">[{{ msg.role }}]</b> {{ truncateText(String(msg.content ?? ''), 100) }}
+                      </div>
+                      <div v-if="conv.length > 3" style="color:#999; font-size:11px">...</div>
+                    </div>
+                  </div>
                   <div v-else>
                     <div v-for="(msg, i) in (getRowValue(row, col.key) || [])" :key="i" style="margin-bottom:2px">
                       <b :style="{color: msg.role === 'user' ? '#409eff' : msg.role === 'assistant' ? '#67c23a' : '#999'}">[{{ msg.role }}]</b> {{ truncateText(String(msg.content ?? ''), 120) }}
@@ -140,10 +149,17 @@
                 </template>
                 <span class="clickable-cell conversation-cell" @click="openConversation(getRowValue(row, col.key), row, col.key, col)">
                   <span class="conversation-tag">{{ col.detectedType === 'toolList' ? 'tool' : 'chat' }}</span>
-                  <span class="conversation-count">{{ countItems(getRowValue(row, col.key), col.detectedType) }}</span>
+                  <span v-if="isMultiConversationArray(getRowValue(row, col.key))" class="conversation-count">{{ (getRowValue(row, col.key) || []).length }} convs</span>
+                  <span v-else class="conversation-count">{{ countItems(getRowValue(row, col.key), col.detectedType) }}</span>
                   {{ previewCellValue(getRowValue(row, col.key)) }}
                 </span>
               </el-tooltip>
+            </template>
+            <template v-else-if="col.detectedType === 'nestedArray'">
+              <span class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
+                <span class="conversation-tag" style="background: var(--el-color-info-light-9, rgba(144,147,153,0.1)); color: var(--el-color-info, #909399);">Array</span>
+                {{ previewObjectValue(getRowValue(row, col.key)) }}
+              </span>
             </template>
             <template v-else-if="col.detectedType === 'nestedObject'">
               <el-tooltip v-if="col.conversationPath" placement="top" :show-after="300">
@@ -156,41 +172,41 @@
                 </template>
                 <span class="clickable-cell conversation-cell" @click="openNestedConversation(row, col.key, col.conversationPath)">
                   <span class="conversation-tag">chat</span>
-                  <span class="conversation-count">{{ countNestedMessages(row[col.key], col.conversationPath) }}</span>
+                  <span class="conversation-count">{{ countNestedMessages(getRowValue(row, col.key), col.conversationPath) }}</span>
                 </span>
               </el-tooltip>
               <span v-else class="clickable-cell conversation-cell" @click="showFieldJson(row, col.key)">
                 <span class="conversation-tag" style="background: var(--ev-color-success-light-9, rgba(103,194,58,0.1)); color: var(--ev-color-success, #67c23a);">JSON</span>
-                {{ previewObjectValue(row[col.key]) }}
+                {{ previewObjectValue(getRowValue(row, col.key)) }}
               </span>
             </template>
             <template v-else-if="col.previewable">
               <el-tooltip
-                v-if="isLongValue(row[col.key])"
+                v-if="isLongValue(getRowValue(row, col.key))"
                 raw-content
-                :content="previewHtml(String(row[col.key] ?? ''))"
+                :content="previewHtml(String(getRowValue(row, col.key) ?? ''))"
                 placement="top"
                 :show-after="300"
                 popper-class="preview-tooltip"
               >
-                <span class="clickable-cell" @click="showDialog(String(row[col.key] ?? ''))">
-                  {{ truncateText(String(row[col.key] ?? ''), 80) }}
+                <span class="clickable-cell" @click="showDialog(String(getRowValue(row, col.key) ?? ''))">
+                  {{ truncateText(String(getRowValue(row, col.key) ?? ''), 80) }}
                 </span>
               </el-tooltip>
-              <span v-else class="clickable-cell" @click="showDialog(String(row[col.key] ?? ''))">
-                {{ truncateText(String(row[col.key] ?? ''), 80) }}
+              <span v-else class="clickable-cell" @click="showDialog(String(getRowValue(row, col.key) ?? ''))">
+                {{ truncateText(String(getRowValue(row, col.key) ?? ''), 80) }}
               </span>
             </template>
             <template v-else-if="col.detectedType === 'boolean'">
               <el-tag type="info" size="small" effect="plain">
-                {{ row[col.key] }}
+                {{ getRowValue(row, col.key) }}
               </el-tag>
             </template>
             <template v-else-if="col.detectedType === 'number'">
-              {{ formatNumber(row[col.key]) }}
+              {{ formatNumber(getRowValue(row, col.key)) }}
             </template>
             <template v-else>
-              {{ row[col.key] }}
+              {{ getRowValue(row, col.key) }}
             </template>
           </template>
         </el-table-column>
@@ -260,6 +276,7 @@
       :visible="conversationVisible"
       :text="conversationText"
       :messages="conversationMessages"
+      :conversations="conversationMulti"
       :tools="conversationTools"
       :title="conversationTitle"
       :show-filter="true"
@@ -275,6 +292,7 @@
       :pattern-match-counts="patternMatchCounts"
       @update:visible="(val) => (pipelineDebugVisible = val)"
       @reset="onFieldReset"
+      @reset-config="onFieldReset"
       @plugin-toggle="onPluginToggle"
     />
   </div>
@@ -311,7 +329,7 @@ import { useDebugMode, isDebugLogging } from '@/composables/useDebugMode';
 import { useDynamicViewStats } from '@/composables/useDynamicViewStats';
 import { SAMPLE_CUSTOM_TEXT } from '@/data/sampleData';
 import { runPlugins, getRegisteredPlugins, getOptionalPlugins } from '@/plugins/pluginRegistry';
-import { assignFieldVisibility } from '@/utils/customParserHelpers';
+import { assignFieldVisibility, isMultiConversationArray } from '@/utils/customParserHelpers';
 import { createLogger } from '@/utils/pipelineLogger';
 import { runPipeline } from '@/utils/pipelineRunner';
 import { pipelineDebug, populatePipelineDebug, resetPipelineDebug } from '@/utils/pipelineDebugStore';
@@ -344,6 +362,7 @@ export default {
     const conversationVisible = ref(false);
     const conversationText = ref('');
     const conversationMessages = ref(null);
+    const conversationMulti = ref(null);
     const conversationTools = ref(null);
     const conversationTitle = ref('');
     const conversationFilterPlaceholder = ref('');
@@ -368,16 +387,42 @@ export default {
       return current;
     }
 
+    /**
+     * Find the correct root key for a dot-notation colKey.
+     * Handles dots inside field names (e.g. "V3.2" in key names).
+     */
+    function findRootKey(row, colKey) {
+      // Check _reconstructed_ keys first
+      for (const key of Object.keys(row)) {
+        if (key.startsWith('_reconstructed_')) {
+          const root = key.substring('_reconstructed_'.length);
+          if (colKey === root || colKey.startsWith(root + '.')) return root;
+        }
+      }
+      // Fallback: match top-level keys that are prefixes
+      for (const key of Object.keys(row)) {
+        if (key.startsWith('_')) continue;
+        if (colKey === key || colKey.startsWith(key + '.')) return key;
+      }
+      return colKey.split('.')[0];
+    }
+
     function resolveRowValue(row, colKey) {
       if (!colKey.includes('.')) return row[colKey];
-      const rootKey = colKey.split('.')[0];
+      const rootKey = findRootKey(row, colKey);
+      // If rootKey === colKey, dots are part of the key name, not nesting
+      if (rootKey === colKey) return row[colKey];
       const reconObj = row[`_reconstructed_${rootKey}`];
       if (reconObj) {
         const val = getNestedValue(reconObj, colKey.substring(rootKey.length + 1));
         if (val !== undefined) return val;
       }
-      const val = getNestedValue(row, colKey);
-      if (val !== undefined) return val;
+      // Use rootKey to get nested value from the original row object
+      const rootVal = row[rootKey];
+      if (rootVal != null && typeof rootVal === 'object') {
+        const val = getNestedValue(rootVal, colKey.substring(rootKey.length + 1));
+        if (val !== undefined) return val;
+      }
       return row[`_decoded_${colKey}`];
     }
 
@@ -449,6 +494,27 @@ export default {
       });
       tableData.value = rows;
       updateFromPluginMeta(lastFileId.value, fieldMeta);
+
+      // Update pipeline debug store so the debug panel reflects new plugin states
+      populatePipelineDebug({
+        cache: { status: 'hit', fileId: lastFileId.value, parserVersion: '3' },
+        pipeline: {
+          timings: {},
+          detectedFormat: _rawFieldMeta.value._detectedFormat || 'unknown',
+          rowCount: rows.length,
+          stages: pipelineDebugData || [],
+        },
+        scoring: {
+          debugMeta: fieldMeta.priorityDebug || [],
+          patternMatchCounts: fieldMeta.patternMatchCounts || {},
+          fieldTree: fieldMeta.detectedFieldsTree || [],
+        },
+        samples: {
+          original: _rawRows.value[0] || null,
+          afterPlugins: rows[0] || null,
+        },
+      });
+
       viewLogger.detail(`result: ${rows.length} rows, ${(fieldMeta.detectedFields || []).length} fields`);
       t();
     }
@@ -544,9 +610,9 @@ export default {
      * Show JSON dialog for a single reconstructed field (e.g. RequestData).
      */
     function showFieldJson(row, colKey) {
-      // Direct object value (from decodeNestedJson preserving JSON structure)
-      const directValue = row[colKey];
-      if (directValue && typeof directValue === 'object') {
+      // Use resolveRowValue to handle dot-notation nested paths
+      const directValue = resolveRowValue(row, colKey);
+      if (directValue != null && typeof directValue === 'object') {
         dialogHasTabs.value = false;
         dialogJsonData.value = directValue;
         dialogRawText.value = JSON.stringify(directValue, null, 2);
@@ -698,6 +764,7 @@ export default {
      */
     function openConversation(cellValue, row, colKey, col) {
       conversationMessages.value = null;
+      conversationMulti.value = null;
       // cellValue may be a string (text/JSON) or an array (reconstructed data)
       const textValue = typeof cellValue === 'string' ? cellValue : (Array.isArray(cellValue) ? JSON.stringify(cellValue) : '');
       conversationText.value = textValue;
@@ -721,9 +788,15 @@ export default {
           if (rawJson && typeof rawJson === 'string') {
             try {
               const parsed = JSON.parse(rawJson);
-              const messages = getNestedValue(parsed, subPath);
-              if (Array.isArray(messages) && messages.length > 0 && messages[0]?.role) {
-                conversationMessages.value = messages;
+              const nested = getNestedValue(parsed, subPath);
+              if (Array.isArray(nested) && nested.length > 0) {
+                if (isToolList) {
+                  conversationTools.value = nested;
+                } else if (isMultiConversationArray(nested)) {
+                  conversationMulti.value = nested;
+                } else if (nested[0]?.role) {
+                  conversationMessages.value = nested;
+                }
               }
             } catch { /* fallback to text */ }
           }
@@ -739,15 +812,30 @@ export default {
             }
           }
         } else {
-          // Top-level field — check if the cell value is a JSON messages array
+          // Top-level field — check if the cell value is a JSON messages/tools array
           const raw = row[colKey];
           if (typeof raw === 'string') {
             try {
               const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.role) {
-                conversationMessages.value = parsed;
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                if (isToolList) {
+                  conversationTools.value = parsed;
+                } else if (isMultiConversationArray(parsed)) {
+                  conversationMulti.value = parsed;
+                } else if (parsed[0]?.role) {
+                  conversationMessages.value = parsed;
+                }
               }
             } catch { /* fallback to text */ }
+          } else if (Array.isArray(raw)) {
+            // Native array value
+            if (isToolList) {
+              conversationTools.value = raw;
+            } else if (isMultiConversationArray(raw)) {
+              conversationMulti.value = raw;
+            } else if (raw.length > 0 && raw[0]?.role) {
+              conversationMessages.value = raw;
+            }
           }
         }
       }
@@ -761,6 +849,7 @@ export default {
      */
     function openNestedConversation(row, colKey, conversationPath) {
       conversationMessages.value = null;
+      conversationMulti.value = null;
       conversationText.value = '';
       conversationTools.value = null;
       conversationTitle.value = t('custom.conversationTitle');
@@ -773,8 +862,12 @@ export default {
         try {
           const parsed = JSON.parse(rawValue);
           const messages = getNestedValue(parsed, conversationPath);
-          if (Array.isArray(messages) && messages.length > 0 && messages[0]?.role) {
-            conversationMessages.value = messages;
+          if (Array.isArray(messages) && messages.length > 0) {
+            if (isMultiConversationArray(messages)) {
+              conversationMulti.value = messages;
+            } else if (messages[0]?.role) {
+              conversationMessages.value = messages;
+            }
           }
         } catch { /* fallback */ }
       }
@@ -816,6 +909,17 @@ export default {
 
     function previewObjectValue(value) {
       if (!value || typeof value !== 'object') return '';
+      if (Array.isArray(value)) {
+        if (value.length === 0) return '[]';
+        const first = value[0];
+        if (first && typeof first === 'object' && !Array.isArray(first) && first.role && first.content) {
+          return `${value.length} msgs`;
+        }
+        if (first && typeof first === 'object' && !Array.isArray(first) && first.function?.name) {
+          return `${value.length} tools`;
+        }
+        return `[${value.length}]`;
+      }
       const keys = Object.keys(value);
       if (keys.length === 0) return '{}';
       // Show first few keys with type hints
@@ -833,6 +937,10 @@ export default {
         // Show first item summary instead of [object Object]
         if (value.length === 0) return '[]';
         const first = value[0];
+        // Multi-conversation: [[{role,...},...], ...]
+        if (Array.isArray(first)) {
+          return `${value.length} convs`;
+        }
         if (typeof first === 'object' && first !== null) {
           const name = first.name || first.function?.name || first.role || '';
           return name ? `${name}${value.length > 1 ? ' ...' : ''}` : `(${value.length} items)`;
@@ -852,7 +960,15 @@ export default {
         }
         return 0;
       }
-      // conversation: match [role] text format
+      // Multi-conversation array: [[{role,...},...], ...]
+      if (Array.isArray(value) && value.length > 0 && Array.isArray(value[0]) && value[0].length > 0 && value[0][0]?.role) {
+        return value.length;
+      }
+      // Single conversation array: [{role,...}, ...]
+      if (Array.isArray(value) && value.length > 0 && value[0]?.role) {
+        return value.length;
+      }
+      // conversation text: match [role] text format
       const matches = String(value ?? '').match(/^\[(system|user|assistant|human|ai|bot|tool_call:\S*|tool:\S*)\]/gim);
       return matches ? matches.length : 0;
     }
@@ -1209,6 +1325,7 @@ export default {
       conversationVisible,
       conversationText,
       conversationMessages,
+      conversationMulti,
       conversationTools,
       conversationTitle,
       conversationFilterPlaceholder,
@@ -1260,6 +1377,7 @@ export default {
       formatNumber,
       openConversation,
       openNestedConversation,
+      isMultiConversationArray,
       getNestedMessages,
       countNestedMessages,
       previewObjectValue,

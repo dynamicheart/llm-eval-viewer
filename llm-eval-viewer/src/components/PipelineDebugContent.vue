@@ -26,7 +26,7 @@
       </div>
     </div>
 
-    <el-collapse v-model="activeSections" class="pipeline-debug-collapse" lazy>
+    <el-collapse v-model="activeSections" class="pipeline-debug-collapse">
       <!-- 2. Cache -->
       <el-collapse-item name="cache">
         <template #title>
@@ -65,15 +65,20 @@
               <span class="stage-group-time">{{ stageGroup.totalMs }}ms</span>
             </div>
             <el-card v-for="s in stageGroup.plugins" :key="s.id" class="plugin-card" shadow="never" :class="{ 'plugin-skipped': s.skipped, 'plugin-no-effect': s.noEffect }">
-              <div class="plugin-card-header">
+              <div class="plugin-card-row">
+                <!-- TODO: plugin toggle 仍有 bug — 切换后调试面板的 skipped 状态偶尔不同步，
+                     可能是 applyPlugins() 中 populatePipelineDebug 与 Vue 响应式更新的时序问题。
+                     待排查：runPipeline 返回的 debug.stages 与 pipelineDebug store 的 diff。 -->
                 <el-switch
                   :model-value="!s.skipped"
                   size="small"
                   :disabled="s.required"
-                  @change="$emit('plugin-toggle', { id: s.id, enabled: !s.skipped })"
+                  @change="(val) => $emit('plugin-toggle', { id: s.id, enabled: val })"
                 />
                 <span class="plugin-name" :class="{ 'plugin-name-skipped': s.skipped }">{{ getPluginName(s.id) }}</span>
                 <span v-if="getPluginDesc(s.id)" class="plugin-desc">{{ getPluginDesc(s.id) }}</span>
+              </div>
+              <div class="plugin-card-meta">
                 <div style="display:flex;gap:4px;">
                   <el-tag size="small" :type="s.skipped ? 'info' : (s.noEffect ? 'warning' : (s.required ? undefined : 'success'))">
                     {{ s.skipped ? $t('custom.pipelineDebugPluginSkipped') : s.noEffect ? $t('custom.pipelineDebugPluginNoEffect') : $t('custom.pipelineDebugPluginRan') }}
@@ -100,7 +105,36 @@
         </div>
       </el-collapse-item>
 
-      <!-- 4. Type Detection -->
+      <!-- 4. Type Rules -->
+      <el-collapse-item name="typeRules">
+        <template #title>
+          <span class="collapse-title">
+            <el-icon><Grid /></el-icon> {{ $t('custom.pipelineDebugTypeRules') }}
+            <el-tag size="small">{{ typeRuleList.length }} rules</el-tag>
+          </span>
+        </template>
+        <div class="type-rules-list">
+          <div
+            v-for="(rule, idx) in typeRuleList"
+            :key="rule.id"
+            :id="'rule-' + rule.id"
+            class="type-rule-item"
+            :class="{ 'type-rule-highlighted': highlightedRule === rule.id }"
+          >
+            <div class="type-rule-header">
+              <span class="type-rule-order">#{{ idx + 1 }}</span>
+              <el-tag size="small" type="info">{{ rule.order }}</el-tag>
+              <span class="type-rule-name">{{ getTypeRuleName(rule.id) }}</span>
+              <span class="type-rule-desc">{{ getTypeRuleDesc(rule.id) }}</span>
+              <el-tag size="small" :type="ruleHitCounts[rule.id] > 0 ? 'success' : 'info'">
+                {{ ruleHitCounts[rule.id] || 0 }} hits
+              </el-tag>
+            </div>
+          </div>
+        </div>
+      </el-collapse-item>
+
+      <!-- 5. Type Detection -->
       <el-collapse-item name="types">
         <template #title>
           <span class="collapse-title">
@@ -112,8 +146,22 @@
           <el-table-column prop="key" label="Field" show-overflow-tooltip>
             <template #default="{ row }">{{ row.isGroupHeader ? row.key + ' (展开字段)' : row.key }}</template>
           </el-table-column>
+          <el-table-column label="Visible" width="70">
+            <template #default="{ row }">
+              <template v-if="row.visible != null">
+                <el-icon :color="row.visible ? '#67c23a' : '#f56c6c'"><CircleCheckFilled v-if="row.visible" /><CircleCloseFilled v-else /></el-icon>
+              </template>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="detectedType" label="Type" width="120">
             <template #default="{ row }"><el-tag v-if="row.detectedType" size="small" :type="typeTagType(row.detectedType)">{{ row.detectedType }}</el-tag><span v-else>-</span></template>
+          </el-table-column>
+          <el-table-column prop="typeRule" :label="$t('custom.pipelineDebugTypeRule')" width="130">
+            <template #default="{ row }">
+              <span v-if="row.typeRule" class="debug-link" @click="scrollToRule(row.typeRule)">{{ getTypeRuleName(row.typeRule) }}</span>
+              <span v-else>-</span>
+            </template>
           </el-table-column>
           <el-table-column prop="emptyRate" label="Empty %" width="80" sortable sort-by="emptyRate">
             <template #default="{ row }">{{ row.emptyRate != null ? pct(row.emptyRate) : '-' }}</template>
@@ -123,14 +171,6 @@
           </el-table-column>
           <el-table-column prop="avgValueLength" label="Avg Len" width="80" sortable sort-by="avgValueLength">
             <template #default="{ row }">{{ row.avgValueLength != null ? row.avgValueLength : '-' }}</template>
-          </el-table-column>
-          <el-table-column label="Visible" width="70">
-            <template #default="{ row }">
-              <template v-if="row.visible != null">
-                <el-icon :color="row.visible ? '#67c23a' : '#f56c6c'"><CircleCheckFilled v-if="row.visible" /><CircleCloseFilled v-else /></el-icon>
-              </template>
-              <span v-else>-</span>
-            </template>
           </el-table-column>
           <el-table-column prop="visibilityReason" label="Reason" width="130" />
         </el-table>
@@ -148,6 +188,14 @@
           <el-table-column prop="key" label="Field" show-overflow-tooltip>
             <template #default="{ row }">{{ row.isGroupHeader ? row.key + ' (展开字段)' : row.key }}</template>
           </el-table-column>
+          <el-table-column label="Visible" width="70">
+            <template #default="{ row }">
+              <template v-if="row.visible != null">
+                <el-icon :color="row.visible ? '#67c23a' : '#f56c6c'"><CircleCheckFilled v-if="row.visible" /><CircleCloseFilled v-else /></el-icon>
+              </template>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="score" :label="$t('custom.pipelineDebugScorePriority')" width="90" sortable sort-by="score">
             <template #default="{ row }">
               <span v-if="row.score != null" :style="{ color: row.score > 0 ? 'var(--el-color-success)' : row.score <= -30 ? 'var(--el-color-danger)' : '' }">{{ row.score > 0 ? '+' : '' }}{{ row.score }}</span>
@@ -157,11 +205,9 @@
           <el-table-column prop="detectedType" label="Type" width="100">
             <template #default="{ row }"><el-tag v-if="row.detectedType" size="small" :type="typeTagType(row.detectedType)">{{ row.detectedType }}</el-tag><span v-else>-</span></template>
           </el-table-column>
-          <el-table-column label="Visible" width="70">
+          <el-table-column prop="typeRule" :label="$t('custom.pipelineDebugTypeRule')" width="130">
             <template #default="{ row }">
-              <template v-if="row.visible != null">
-                <el-icon :color="row.visible ? '#67c23a' : '#f56c6c'"><CircleCheckFilled v-if="row.visible" /><CircleCloseFilled v-else /></el-icon>
-              </template>
+              <span v-if="row.typeRule" class="debug-link" @click="scrollToRule(row.typeRule)">{{ getTypeRuleName(row.typeRule) }}</span>
               <span v-else>-</span>
             </template>
           </el-table-column>
@@ -218,9 +264,10 @@ import { ref, computed, getCurrentInstance } from 'vue';
 import { useI18n } from 'vue-i18n';
 import JsonViewer from '@/components/JsonViewer.vue';
 import { getRegisteredPlugins } from '@/plugins/pluginRegistry';
+import { getTypeRules } from '@/utils/typeRuleRegistry';
 import {
   CircleCheckFilled, CircleCloseFilled, WarningFilled, RemoveFilled,
-  Coin, Cpu, DocumentCopy, DataAnalysis, View,
+  Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid,
 } from '@element-plus/icons-vue';
 
 export default {
@@ -228,7 +275,7 @@ export default {
   components: {
     JsonViewer,
     CircleCheckFilled, CircleCloseFilled, WarningFilled, RemoveFilled,
-    Coin, Cpu, DocumentCopy, DataAnalysis, View,
+    Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid,
   },
   props: {
     data: Object,
@@ -238,7 +285,7 @@ export default {
     const { t } = useI18n();
     const instance = getCurrentInstance();
     const allPlugins = computed(() => getRegisteredPlugins());
-    const activeSections = ref(['cache', 'pipeline', 'types', 'scoring', 'samples']);
+    const activeSections = ref(['cache', 'pipeline', 'typeRules', 'types', 'scoring', 'samples']);
     const sampleTab = ref('original');
     const pluginDebugExpanded = ref({});
 
@@ -249,6 +296,43 @@ export default {
     function getPluginDesc(id) {
       const p = allPlugins.value.find(p => p.id === id);
       return p ? (p.descriptionKey ? t(p.descriptionKey) : p.description || '') : '';
+    }
+
+    function getTypeRuleName(ruleId) {
+      if (!ruleId) return '-';
+      const rule = getTypeRules().find(r => r.id === ruleId);
+      return rule ? (rule.nameKey ? t('custom.' + rule.nameKey) : rule.name || ruleId) : ruleId;
+    }
+
+    function getTypeRuleDesc(ruleId) {
+      if (!ruleId) return '';
+      const rule = getTypeRules().find(r => r.id === ruleId);
+      return rule ? (rule.descriptionKey ? t('custom.' + rule.descriptionKey) : rule.description || '') : '';
+    }
+
+    const typeRuleList = computed(() => getTypeRules());
+
+    // Count how many fields matched each rule
+    const ruleHitCounts = computed(() => {
+      const counts = {};
+      for (const field of scoringFields.value) {
+        if (field.typeRule) {
+          counts[field.typeRule] = (counts[field.typeRule] || 0) + 1;
+        }
+      }
+      return counts;
+    });
+
+    const highlightedRule = ref(null);
+
+    function scrollToRule(ruleId) {
+      if (!ruleId) return;
+      highlightedRule.value = ruleId;
+      const el = document.getElementById('rule-' + ruleId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => { highlightedRule.value = null; }, 1500);
+      }
     }
 
     function togglePluginDebug(id) {
@@ -285,51 +369,94 @@ export default {
 
         function enrichNode(node) {
           const debugEntry = metaMap.get(node.fullPath || node.key);
-          if (debugEntry) {
-            return { ...node, ...debugEntry, key: node.key };
-          }
+          let enrichedChildren;
           if (node.children) {
-            return { ...node, children: node.children.map(enrichNode) };
+            enrichedChildren = node.children.map(enrichNode).filter(Boolean);
           }
-          return node;
+          if (debugEntry) {
+            return { ...node, ...debugEntry, key: node.key, children: enrichedChildren || node.children };
+          }
+          // No scoring data — keep as structural node (always preserve tree structure)
+          return { ...node, score: '-', visible: false, visibilityReason: 'default', children: enrichedChildren || node.children };
         }
 
-        return rawTree.map(enrichNode);
+        return rawTree.map(enrichNode).filter(Boolean);
       }
 
-      // Fallback: build synthetic 2-level tree from flat debugMeta
-      const rootNodes = [];
-      const childGroups = new Map();
+      // Fallback: build synthetic multi-level tree from flat debugMeta
+      const allNodes = new Map(); // fullPath → node
 
       for (const field of meta) {
-        const dotIdx = field.key.indexOf('.');
-        if (dotIdx < 0) {
-          rootNodes.push({ ...field });
-        } else {
-          const parentKey = field.key.substring(0, dotIdx);
-          if (!childGroups.has(parentKey)) childGroups.set(parentKey, []);
-          childGroups.get(parentKey).push({ ...field });
+        allNodes.set(field.key, { ...field, _isLeaf: true });
+      }
+
+      // Build tree structure from dot paths
+      const rootNodes = [];
+      for (const [path, field] of allNodes) {
+        const segments = path.split('.');
+        // Create intermediate parent nodes if missing
+        let currentPath = '';
+        for (let i = 0; i < segments.length - 1; i++) {
+          const parentPath = currentPath ? currentPath + '.' + segments[i] : segments[i];
+          currentPath = parentPath;
+          if (!allNodes.has(parentPath)) {
+            allNodes.set(parentPath, {
+              key: segments[i],
+              fullPath: parentPath,
+              _isLeaf: false,
+              isGroupHeader: true,
+              detectedType: 'nestedObject',
+              children: [],
+            });
+          }
         }
       }
 
-      rootNodes.sort((a, b) => sortBy(b, a));
-      const addedParents = new Set();
-
-      for (const root of rootNodes) {
-        if (childGroups.has(root.key)) {
-          root.children = childGroups.get(root.key).sort((a, b) => sortBy(b, a));
-          addedParents.add(root.key);
+      // Build parent-child relationships
+      for (const [path, node] of allNodes) {
+        if (node._isLeaf) {
+          const dotIdx = path.lastIndexOf('.');
+          if (dotIdx < 0) {
+            rootNodes.push(node);
+          } else {
+            const parentPath = path.substring(0, dotIdx);
+            const parent = allNodes.get(parentPath);
+            if (parent) {
+              if (!parent.children) parent.children = [];
+              parent.children.push(node);
+            } else {
+              rootNodes.push(node);
+            }
+          }
         }
       }
 
-      for (const [parentKey, children] of childGroups) {
-        if (addedParents.has(parentKey)) continue;
-        rootNodes.push({
-          key: parentKey,
-          isGroupHeader: true,
-          children: children.sort((a, b) => sortBy(b, a)),
-        });
+      // Collect remaining parents as roots
+      for (const [path, node] of allNodes) {
+        if (!node._isLeaf && !node.children?.length) continue;
+        const dotIdx = path.lastIndexOf('.');
+        if (dotIdx < 0 && !rootNodes.includes(node)) {
+          node.children = (node.children || []).sort(sortBy);
+          rootNodes.push(node);
+        } else if (dotIdx >= 0) {
+          const parentPath = path.substring(0, dotIdx);
+          const parent = allNodes.get(parentPath);
+          if (parent && !parent.children?.includes(node)) {
+            if (!parent.children) parent.children = [];
+            parent.children.push(node);
+          }
+        }
       }
+
+      // Sort recursively
+      function sortTree(nodes) {
+        if (!nodes) return;
+        nodes.sort(sortBy);
+        for (const n of nodes) {
+          if (n.children) sortTree(n.children);
+        }
+      }
+      sortTree(rootNodes);
 
       return rootNodes;
     }
@@ -339,10 +466,18 @@ export default {
     const scoringTreeData = computed(() => buildEnrichedTree(scoringFields.value, (a, b) => (b.score || 0) - (a.score || 0)));
 
     const treeRootKeys = computed(() => {
+      // Collect ALL non-leaf nodes so all tree levels are expanded by default
       const keys = [];
-      for (const node of scoringTreeData.value) {
-        keys.push(node.fullPath || node.key);
+      function collectKeys(nodes) {
+        for (const node of nodes) {
+          const id = node.fullPath || node.key;
+          if (node.children && node.children.length > 0) {
+            keys.push(id);
+            collectKeys(node.children);
+          }
+        }
       }
+      collectKeys(scoringTreeData.value);
       return keys;
     });
 
@@ -395,7 +530,7 @@ export default {
 
     function pct(val) { return val != null ? Math.round(val * 100) + '%' : '-'; }
     function typeTagType(type) {
-      const map = { conversation: 'success', toolList: 'warning', enum: 'info', number: '', boolean: 'info', nestedObject: 'warning', decodedJson: 'success' };
+      const map = { conversation: 'success', toolList: 'warning', enum: 'info', number: '', boolean: 'info', nestedObject: 'warning', nestedArray: '', decodedJson: 'success' };
       return map[type] || 'info';
     }
 
@@ -418,7 +553,7 @@ export default {
       });
     }
 
-    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc, onScrollToRule };
+    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc, getTypeRuleName, getTypeRuleDesc, typeRuleList, ruleHitCounts, highlightedRule, scrollToRule, onScrollToRule };
   },
 };
 </script>
@@ -472,6 +607,54 @@ export default {
 .debug-table-wrap h4 { margin: 0 0 8px 0; font-size: 13px; color: var(--el-text-color-regular); }
 .debug-code { font-size: 12px; background: var(--el-fill-color); padding: 2px 6px; border-radius: 3px; word-break: break-all; }
 .debug-empty { color: var(--el-text-color-placeholder); font-size: 13px; padding: 8px 0; }
+
+/* Type Rules list */
+.type-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.type-rule-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  transition: all 0.3s ease;
+}
+
+.type-rule-item.type-rule-highlighted {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-7);
+}
+
+.type-rule-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.type-rule-order {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--el-text-color-secondary);
+  min-width: 22px;
+}
+
+.type-rule-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.type-rule-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .debug-warn { color: var(--el-color-warning); font-size: 12px; }
 
 .stage-group { margin-bottom: 16px; }
@@ -487,12 +670,23 @@ export default {
 .stage-group-time { font-size: 12px; color: var(--el-text-color-secondary); }
 
 .plugin-card { margin-bottom: 8px; }
-.plugin-card.plugin-skipped { opacity: 0.5; }
-.plugin-card.plugin-no-effect { opacity: 0.7; }
-.plugin-card-header { display: flex; justify-content: space-between; align-items: center; }
+.plugin-card-plugin-skipped { opacity: 0.5; }
+.plugin-card-plugin-no-effect { opacity: 0.7; }
+.plugin-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.plugin-card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
+}
 .plugin-name { font-weight: 600; font-size: 14px; }
 .plugin-name-skipped { text-decoration: line-through; }
-.plugin-desc { font-size: 12px; color: var(--el-text-color-secondary); flex-shrink: 0; }
+.plugin-desc { font-size: 12px; color: var(--el-text-color-secondary); }
 .plugin-summary { font-size: 13px; color: var(--el-text-color-secondary); margin-top: 4px; }
 .plugin-changes { margin-top: 6px; font-size: 12px; }
 .plugin-added { color: var(--el-color-success); margin-right: 12px; }

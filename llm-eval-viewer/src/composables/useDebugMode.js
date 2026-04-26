@@ -26,7 +26,7 @@ export function useDebugMode() {
   return { debugMode };
 }
 
-/** Whether debug-level logging/UI should be active (DEV mode or user-activated debug mode). */
+/** Whether debug-level logging/UI should be active (controlled by user-activated debug mode only). */
 export function isDebugLogging() {
-  return import.meta.env.DEV || debugMode.value;
+  return debugMode.value;
 }

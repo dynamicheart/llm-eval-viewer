@@ -22,39 +22,40 @@ describe('expandRecord', () => {
     expect(result['_raw_data']).toBe('{"key": "value"}');
   });
 
-  it('formats conversation arrays as text', () => {
+  it('preserves conversation arrays as native arrays', () => {
     const messages = [
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'hi there' },
     ];
     const record = { messages };
     const result = expandRecord(record);
-    expect(result.messages).toContain('[user] hello');
-    expect(result.messages).toContain('[assistant] hi there');
+    // Native arrays are preserved as-is (not converted to text)
+    expect(Array.isArray(result.messages)).toBe(true);
+    expect(result.messages).toEqual(messages);
   });
 
-  it('formats tool definition arrays as text', () => {
+  it('preserves tool definition arrays as native arrays', () => {
     const tools = [
       { function: { name: 'search', description: 'search tool' } },
       { function: { name: 'calc', description: 'calc tool' } },
     ];
     const record = { tools };
     const result = expandRecord(record);
-    expect(result.tools).toContain('[tool:search]');
-    expect(result.tools).toContain('[tool:calc]');
+    expect(Array.isArray(result.tools)).toBe(true);
+    expect(result.tools).toEqual(tools);
   });
 
-  it('formats homogeneous object arrays as conversation text', () => {
+  it('preserves homogeneous object arrays as native arrays', () => {
     const items = [
       { id: 1, name: 'a' },
       { id: 2, name: 'b' },
     ];
-    const record = { items };
+    const record = { items, data: '{"key":"value"}' };
     const expDebug = { conversationArrays: [], toolArrays: [], homogeneousArrays: [] };
     const result = expandRecord(record, 0, null, expDebug);
     expect(expDebug.homogeneousArrays).toContain('items');
-    // Homogeneous arrays are formatted as text, not flattened
-    expect(typeof result.items).toBe('string');
+    // Homogeneous arrays are kept as native arrays
+    expect(Array.isArray(result.items)).toBe(true);
   });
 
   it('parses nested JSON strings recursively (multi-layer)', () => {
@@ -81,34 +82,35 @@ describe('expandRecord', () => {
     expect(result['_raw_data']).toBe('{"key": "value"}');
   });
 
-  it('records debug info for conversation arrays', () => {
+  it('does not expand native arrays but records debug info when string triggers expansion', () => {
     const messages = [
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'hi' },
     ];
-    const record = { chat: messages };
+    const record = { chat: messages, data: '{"key":"value"}' };
     const expDebug = { conversationArrays: [], toolArrays: [], homogeneousArrays: [] };
     expandRecord(record, 0, null, expDebug);
+    // Debug info is still recorded for native arrays when expansion happens
     expect(expDebug.conversationArrays).toContain('chat');
   });
 
-  it('records debug info for tool arrays', () => {
+  it('records debug info for tool arrays when expansion happens', () => {
     const tools = [
       { function: { name: 'fn1' } },
       { function: { name: 'fn2' } },
     ];
-    const record = { tools };
+    const record = { tools, data: '{"key":"value"}' };
     const expDebug = { conversationArrays: [], toolArrays: [], homogeneousArrays: [] };
     expandRecord(record, 0, null, expDebug);
     expect(expDebug.toolArrays).toContain('tools');
   });
 
-  it('records debug info for homogeneous arrays', () => {
+  it('records debug info for homogeneous arrays when expansion happens', () => {
     const items = [
       { a: 1, b: 2 },
       { a: 3, b: 4 },
     ];
-    const record = { items };
+    const record = { items, data: '{"key":"value"}' };
     const expDebug = { conversationArrays: [], toolArrays: [], homogeneousArrays: [] };
     expandRecord(record, 0, null, expDebug);
     expect(expDebug.homogeneousArrays).toContain('items');
@@ -133,8 +135,9 @@ describe('expandRecord', () => {
     expect(result.RequestData).toBeDefined();
     expect(typeof result.RequestData).toBe('object');
     expect(result.RequestData.messages).toBeDefined();
-    // Messages array within RequestData is formatted as text
-    expect(result.RequestData.messages).toContain('[system] You are helpful.');
+    // Messages array within RequestData is preserved as native array
+    expect(Array.isArray(result.RequestData.messages)).toBe(true);
+    expect(result.RequestData.messages[0].role).toBe('system');
     // Top-level fields preserved
     expect(result.RequestID).toBe('req-001');
     expect(result.Cost).toBe(100);
@@ -144,27 +147,27 @@ describe('expandRecord', () => {
     expect(result['RequestData.model']).toBeUndefined();
   });
 
-  it('handles JSON string containing a conversation array', () => {
+  it('preserves parsed conversation arrays from JSON strings', () => {
     const record = { chat: JSON.stringify([
       { role: 'user', content: 'hello' },
       { role: 'assistant', content: 'hi' },
     ]) };
     const result = expandRecord(record);
-    // Parsed array is detected as conversation and formatted as text
-    expect(result.chat).toContain('[user] hello');
-    expect(result.chat).toContain('[assistant] hi');
-    expect(typeof result.chat).toBe('string');
+    // Parsed array is preserved as native array (not formatted as text)
+    expect(Array.isArray(result.chat)).toBe(true);
+    expect(result.chat[0].role).toBe('user');
+    expect(result['_raw_chat']).toBeDefined();
   });
 
-  it('handles JSON string containing a tool definition array', () => {
+  it('preserves parsed tool definition arrays from JSON strings', () => {
     const record = { tools: JSON.stringify([
       { function: { name: 'search', description: 'search' } },
       { function: { name: 'calc', description: 'calc' } },
     ]) };
     const result = expandRecord(record);
-    expect(result.tools).toContain('[tool:search]');
-    expect(result.tools).toContain('[tool:calc]');
-    expect(typeof result.tools).toBe('string');
+    expect(Array.isArray(result.tools)).toBe(true);
+    expect(result.tools[0].function.name).toBe('search');
+    expect(result['_raw_tools']).toBeDefined();
   });
 });
 

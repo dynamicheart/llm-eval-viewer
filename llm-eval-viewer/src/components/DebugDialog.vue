@@ -9,11 +9,16 @@
     @update:model-value="$emit('update:visible', $event)"
     width="95%"
     top="2vh"
+    destroy-on-close
   >
     <template #header>
       <div style="display:flex;justify-content:space-between;align-items:center">
         <span>{{ $t('custom.debugTitle') }}</span>
         <div style="display:flex;gap:8px">
+          <el-button size="small" @click="$emit('reset-config')">
+            <el-icon><Setting /></el-icon>
+            {{ $t('custom.resetFieldConfig') }}
+          </el-button>
           <el-button size="small" @click="$emit('reset')">
             <el-icon><Refresh /></el-icon>
             {{ $t('custom.rerunPipeline') }}
@@ -157,12 +162,12 @@
 <script>
 import { ref, computed, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Refresh } from '@element-plus/icons-vue';
+import { Refresh, Setting } from '@element-plus/icons-vue';
 import { HIGH_PRIORITY_PATTERNS, LOW_PRIORITY_PATTERNS, SCORING_STEPS } from '@/utils/customParserHelpers';
 import PipelineDebugContent from '@/components/PipelineDebugContent.vue';
 
 export default {
-  components: { Refresh, PipelineDebugContent },
+  components: { Refresh, Setting, PipelineDebugContent },
 
   props: {
     visible: Boolean,
@@ -170,7 +175,7 @@ export default {
     patternMatchCounts: { type: Object, default: () => null },
   },
 
-  emits: ['update:visible', 'reset', 'plugin-toggle', 'scroll-to-rule'],
+  emits: ['update:visible', 'reset', 'reset-config', 'plugin-toggle', 'scroll-to-rule'],
 
   setup(props) {
     const { t } = useI18n();

@@ -9,6 +9,7 @@
 
 <template>
   <VueJsonPretty
+    :key="dataVersion"
     v-bind="jsonViewerProps"
     :data="data"
     :theme="theme"
@@ -28,7 +29,7 @@
 </template>
 
 <script>
-import { computed } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { useI18n } from 'vue-i18n';
 import VueJsonPretty from 'vue-json-pretty';
 import 'vue-json-pretty/lib/styles.css';
@@ -47,7 +48,11 @@ export default {
     const { isDark, expandedStrs, toggleStrExpand, isLongString, jsonViewerProps, MAX_STR_LEN } = useJsonViewer();
     const theme = computed(() => isDark.value ? 'dark' : 'light');
 
-    return { theme, expandedStrs, toggleStrExpand, isLongString, jsonViewerProps, MAX_STR_LEN, t };
+    // Force remount when data changes so vue-json-pretty resets expand/collapse state.
+    const dataVersion = ref(0);
+    watch(() => props.data, () => { nextTick(() => { dataVersion.value++; }); });
+
+    return { theme, expandedStrs, toggleStrExpand, isLongString, jsonViewerProps, MAX_STR_LEN, t, dataVersion };
   },
 };
 </script>

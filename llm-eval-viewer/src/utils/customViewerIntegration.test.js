@@ -171,16 +171,18 @@ describe('Integration: Tool Calls NDJSON', () => {
 
   it('preserves tool_calls in parsed RequestData for ConversationDialog', () => {
     const expanded = expandRecord(records[0]);
-    // After expansion, RequestData is a nested object with messages as formatted text
+    // After expansion, RequestData is a nested object with messages as native array
     const rd = expanded.RequestData;
     expect(rd).toBeDefined();
     expect(typeof rd).toBe('object');
-    // Messages within RequestData are formatted as conversation text
+    // Messages within RequestData are preserved as native array
     expect(rd.messages).toBeDefined();
-    expect(typeof rd.messages).toBe('string');
+    expect(Array.isArray(rd.messages)).toBe(true);
 
-    // The formatted text preserves tool_call markers from the conversation
-    expect(rd.messages).toContain('get_weather');
+    // The native array preserves tool_calls structure
+    const assistantMsg = rd.messages.find(m => m.role === 'assistant' && m.tool_calls);
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg.tool_calls[0].function.name).toBe('get_weather');
   });
 
   it('formatConversationArray serializes tool_calls correctly', () => {

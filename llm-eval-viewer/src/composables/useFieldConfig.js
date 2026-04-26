@@ -63,47 +63,62 @@ export function useFieldConfig(options = {}) {
   });
 
   /**
-   * Group fields into a tree structure by dot-notation prefix.
-   * Returns an array of { groupKey, groupLabel, fields, visibleCount, totalCount }.
-   * Top-level fields (no dot) go into a special '__top__' group.
+   * Group fields by nesting depth, with sub-groups by parent prefix.
+   * L0: top-level fields
+   * L1: sub-groups by first dot segment (metadata, model_output, ...)
+   * L2: sub-groups by first two dot segments
+   * Each group has { groupKey, groupLabel, fields, visibleCount, totalCount, prefix }
+   * `prefix` is stripped from display in the field rows.
    */
   const fieldTree = computed(() => {
     if (!fieldConfig.value) return [];
     const groups = new Map();
-    const TOP_KEY = '__top__';
+
+    // Build key→label map from flat fields for group labels
+    const labelMap = new Map();
+    for (const f of fieldConfig.value.fields) {
+      if (f.key && f.label) labelMap.set(f.key, f.label);
+    }
 
     for (const field of fieldConfig.value.fields) {
-      const dotIdx = field.key.indexOf('.');
-      const groupKey = dotIdx > 0 ? field.key.substring(0, dotIdx) : TOP_KEY;
+      const depth = field.depth ?? 0;
+      const groupKey = `L${depth}`;
 
       if (!groups.has(groupKey)) {
-        groups.set(groupKey, []);
+        groups.set(groupKey, new Map());
       }
-      groups.get(groupKey).push(field);
+
+      const levelGroups = groups.get(groupKey);
+      const subKey = depth === 0 ? '__top__' : (field.parentPath || '__top__');
+      if (!levelGroups.has(subKey)) {
+        levelGroups.set(subKey, []);
+      }
+      levelGroups.get(subKey).push(field);
     }
 
     const result = [];
-    // Top-level group first
-    if (groups.has(TOP_KEY)) {
-      const fields = groups.get(TOP_KEY);
-      result.push({
-        groupKey: TOP_KEY,
-        groupLabel: '__top__',
-        fields,
-        visibleCount: fields.filter((f) => f.visible).length,
-        totalCount: fields.length,
-      });
-    }
-    // Then other groups
-    for (const [key, fields] of groups) {
-      if (key === TOP_KEY) continue;
-      result.push({
-        groupKey: key,
-        groupLabel: key,
-        fields,
-        visibleCount: fields.filter((f) => f.visible).length,
-        totalCount: fields.length,
-      });
+    for (let d = 0; ; d++) {
+      const groupKey = `L${d}`;
+      const levelGroups = groups.get(groupKey);
+      if (!levelGroups) break;
+
+      const subKeys = [...levelGroups.keys()].sort();
+      for (const subKey of subKeys) {
+        const fields = levelGroups.get(subKey);
+        const prefix = subKey === '__top__' ? '' : subKey + '.';
+        // Use the parent field's label for group header (e.g. "usage" not "model_output.usage")
+        const label = subKey === '__top__' ? groupKey : (labelMap.get(subKey) || subKey);
+        result.push({
+          groupKey: `${groupKey}:${subKey}`,
+          groupLabel: label,
+          subKey,
+          levelLabel: groupKey,
+          prefix,
+          fields,
+          visibleCount: fields.filter((f) => f.visible).length,
+          totalCount: fields.length,
+        });
+      }
     }
     return result;
   });
@@ -206,6 +221,8 @@ export function useFieldConfig(options = {}) {
       filterable: f.filterable ?? false,
       previewable: f.previewable ?? false,
       sortable: f.sortable ?? true,
+      depth: f.depth ?? 0,
+      parentPath: f.parentPath ?? null,
     }));
 
     // Auto-configure stats: smart-select from ALL matching fields (not just visible).
@@ -370,6 +387,8 @@ export function useFieldConfig(options = {}) {
         previewable: pf.previewable ?? false,
         sortable: pf.sortable ?? true,
         isExpanded: pf.isExpanded || false,
+        depth: pf.depth ?? 0,
+        parentPath: pf.parentPath ?? null,
       });
       addedCount++;
     }
@@ -430,6 +449,8 @@ export function useFieldConfig(options = {}) {
         label: sf.label || current.label || sf.key,
         detectedType: current.detectedType || sf.detectedType || 'string',
         isExpanded: current.isExpanded || false,
+        depth: current.depth ?? sf.depth ?? 0,
+        parentPath: current.parentPath ?? sf.parentPath ?? null,
         emptyRate: current.emptyRate || 0,
         constantRate: current.constantRate || 0,
         visibilityReason: current.visibilityReason || '',
@@ -451,6 +472,8 @@ export function useFieldConfig(options = {}) {
         label: nf.label || nf.key,
         detectedType: nf.detectedType || 'string',
         isExpanded: nf.isExpanded || false,
+        depth: nf.depth ?? 0,
+        parentPath: nf.parentPath ?? null,
         emptyRate: nf.emptyRate || 0,
         constantRate: nf.constantRate || 0,
         visibilityReason: nf.visibilityReason || '',
@@ -530,10 +553,16 @@ export function useFieldConfig(options = {}) {
    */
   function toggleGroupVisibility(groupKey) {
     if (!fieldConfig.value) return;
-    const isTop = groupKey === '__top__';
+    // groupKey format: "L0:__top__" or "L1:model_output"
+    const prefix = groupKey.split(':')[0];
+    const parentKey = groupKey.substring(groupKey.indexOf(':') + 1);
+    const depth = parseInt(prefix.replace('L', ''), 10);
+
     const groupFields = fieldConfig.value.fields.filter((f) => {
-      if (isTop) return !f.key.includes('.');
-      return f.key.startsWith(groupKey + '.');
+      const fDepth = f.key.includes('.') ? f.key.split('.').length - 1 : 0;
+      if (fDepth !== depth) return false;
+      if (parentKey === '__top__') return !f.key.includes('.');
+      return f.key.startsWith(parentKey + '.');
     });
     const anyVisible = groupFields.some((f) => f.visible);
     for (const f of groupFields) {

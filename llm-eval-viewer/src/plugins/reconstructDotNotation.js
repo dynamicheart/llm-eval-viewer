@@ -108,6 +108,42 @@ const reconstructDotNotation = {
 
     const processedRows = rows.map((row) => ({ ...row }));
     const newDetectedFields = [...(fieldMeta.detectedFields || [])];
+    const hasFields = newDetectedFields.length > 0;
+
+    // Collect actual top-level keys from all rows (keys that don't start with _)
+    const actualTopKeys = new Set();
+    for (const row of processedRows) {
+      for (const key of Object.keys(row)) {
+        if (!key.startsWith('_')) actualTopKeys.add(key);
+      }
+    }
+
+    // Always return debug info so the UI can show what happened
+    const _pluginDebug = {
+      summary: hasFields ? 'processing...' : `no detectedFields yet (${actualTopKeys.size} row keys)`,
+      actualTopKeys: [...actualTopKeys],
+      detectedFieldsCount: newDetectedFields.length,
+      rootGroups: {},
+    };
+
+    if (!hasFields) {
+      return { rows, fieldMeta, _pluginDebug };
+    }
+
+    /**
+     * Find the correct root key for a dot-notation field key.
+     * Handles dots inside field names (e.g. "V3.2") by checking
+     * which actual top-level key is a prefix of the field key.
+     */
+    function findActualRoot(fieldKey) {
+      // Sort by length descending to match the longest prefix first
+      for (const topKey of [...actualTopKeys].sort((a, b) => b.length - a.length)) {
+        if (fieldKey === topKey || fieldKey.startsWith(topKey + '.')) return topKey;
+      }
+      // Fallback: split on first dot
+      const dotIdx = fieldKey.indexOf('.');
+      return dotIdx > 0 ? fieldKey.substring(0, dotIdx) : null;
+    }
 
     // Step 1: Group ALL dot-notation fields by root prefix
     const rootGroups = new Map();
@@ -115,14 +151,21 @@ const reconstructDotNotation = {
       const dotIdx = field.key.indexOf('.');
       if (dotIdx <= 0) continue;
 
-      const rootKey = field.key.substring(0, dotIdx);
+      const rootKey = findActualRoot(field.key);
+      if (!rootKey) continue;
+      // Skip if root === field (no actual nesting beyond root)
+      if (rootKey === field.key) continue;
+
       if (!rootGroups.has(rootKey)) {
         rootGroups.set(rootKey, []);
       }
       rootGroups.get(rootKey).push(field);
     }
 
-    if (rootGroups.size === 0) return { rows, fieldMeta };
+    if (rootGroups.size === 0) {
+      _pluginDebug.summary = `no dot-notation groups found (0 root groups)`;
+      return { rows, fieldMeta, _pluginDebug };
+    }
 
     logger.stage(`${rootGroups.size} root groups detected`);
     logger.detail(`roots: [${[...rootGroups.keys()].join(', ')}]`);
@@ -145,7 +188,11 @@ const reconstructDotNotation = {
         const obj = {};
         for (const field of subFields) {
           const subPath = field.key.substring(rootKey.length + 1);
+          // Try flat key first (for CSV-style flat data), then nested path
           let value = row[field.key];
+          if (value === undefined || value === '') {
+            value = getNestedValue(row, field.key);
+          }
           if (value == null || value === '') continue;
           // Use decoded object if available (from decodeNestedJson plugin)
           const decoded = row[`_decoded_${field.key}`];
@@ -157,8 +204,18 @@ const reconstructDotNotation = {
 
         if (Object.keys(obj).length > 0) {
           row[`_reconstructed_${rootKey}`] = obj;
-          // Set display value for the root field
-          row[rootKey] = JSON.stringify(obj, null, 2);
+          // Only overwrite root field if it's not already a native object
+          const original = row[rootKey];
+          if (typeof original !== 'object' || original === null || Array.isArray(original)) {
+            row[rootKey] = JSON.stringify(obj, null, 2);
+          }
+        } else {
+          // No flat fields found — original data might be fully nested
+          // Preserve the native object as the reconstructed version
+          const original = row[rootKey];
+          if (original !== undefined && typeof original === 'object' && original !== null && !Array.isArray(original)) {
+            row[`_reconstructed_${rootKey}`] = original;
+          }
         }
       }
 
@@ -258,17 +315,14 @@ const reconstructDotNotation = {
     logger.detail(`merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`);
     logger.stageEnd();
 
-    const _pluginDebug = {
-      summary: `merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`,
-      rootGroups: {},
-    };
+    _pluginDebug.summary = `merged ${processedRoots.size} root groups: [${[...processedRoots].join(', ')}]`;
 
     // Collect per-root debug info
     for (const [rootKey, subFields] of rootGroups) {
       if (processedRoots.has(rootKey)) {
         const arrayLeaves = subFields.filter(f => hasArrayIndex(f.key)).map(f => f.key);
         const directSubs = subFields.filter(f => !hasArrayIndex(f.key)).map(f => f.key);
-        pluginDebug.rootGroups[rootKey] = {
+        _pluginDebug.rootGroups[rootKey] = {
           directSubs,
           arrayLeaves,
           totalSubs: subFields.length,

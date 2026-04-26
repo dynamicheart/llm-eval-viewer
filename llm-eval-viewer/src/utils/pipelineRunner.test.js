@@ -166,9 +166,9 @@ describe('runPipeline', () => {
     expect(result.rows).toHaveLength(1);
     // RequestData is parsed into a nested object (not flattened)
     expect(typeof result.rows[0].RequestData).toBe('object');
-    // Messages within RequestData are formatted as conversation text
-    expect(result.rows[0].RequestData.messages).toContain('[system] Be helpful.');
-    expect(result.rows[0].RequestData.messages).toContain('[user] Hello!');
+    // Messages within RequestData are preserved as native array
+    expect(Array.isArray(result.rows[0].RequestData.messages)).toBe(true);
+    expect(result.rows[0].RequestData.messages[0].role).toBe('system');
     // Should be detected as nestedObject type
     const rdField = result.fieldMeta.detectedFields.find(f => f.key === 'RequestData');
     expect(rdField).toBeDefined();

@@ -8,6 +8,8 @@
  * Used by customParser.worker.js and unit tests.
  */
 
+import { getTypeRules } from './typeRuleRegistry';
+
 export const MAX_ARRAY_EXPAND = 10;
 export const ENUM_THRESHOLD = 20;
 export const SAMPLE_SIZE_FOR_TYPE = 50;
@@ -58,7 +60,21 @@ export function isHomogeneousObjectArray(arr) {
 }
 
 /**
- * Format a homogeneous object array into a readable conversation string.
+ * Check if an array is a multi-conversation array: [[{role,...},...], [{role,...},...]].
+ * Each sub-array must have >= 2 items with a "role" key.
+ */
+export function isMultiConversationArray(arr) {
+  if (!Array.isArray(arr) || arr.length < 2) return false;
+  const sampleLimit = Math.min(arr.length, 5);
+  for (let i = 0; i < sampleLimit; i++) {
+    const sub = arr[i];
+    if (!Array.isArray(sub) || sub.length < 2) return false;
+    if (typeof sub[0] !== 'object' || sub[0] === null || Array.isArray(sub[0]) || !('role' in sub[0])) return false;
+  }
+  return true;
+}
+
+/**
  * Supports tool_calls on assistant messages and tool-role messages.
  */
 export function formatConversationArray(arr, maxLen = Infinity) {
@@ -221,9 +237,11 @@ export function detectFieldTypesTree(rows, options = {}) {
   // Accumulators keyed by dot-path
   const accumulators = {};
 
-  function ensureAccumulator(path) {
+  function ensureAccumulator(path, depth, parentPath) {
     if (!accumulators[path]) {
       accumulators[path] = {
+        depth,
+        parentPath,
         typeCounts: {},
         stringValues: new Set(),
         stringLengthSum: 0,
@@ -235,7 +253,10 @@ export function detectFieldTypesTree(rows, options = {}) {
         nestedConversationPath: null,
         nestedToolDefPath: null,
         conversationVotes: 0,
+        conversationArrayVotes: 0,
+        multiConversationArrayVotes: 0,
         toolDefVotes: 0,
+        toolDefArrayVotes: 0,
       };
     }
     return accumulators[path];
@@ -275,6 +296,14 @@ export function detectFieldTypesTree(rows, options = {}) {
     } else if (typeof value === 'object') {
       if (Array.isArray(value)) {
         acc.typeCounts.array = (acc.typeCounts.array || 0) + 1;
+        // Detect native array types: multi-conversation, conversation-like, or tool definitions
+        if (isMultiConversationArray(value)) {
+          acc.multiConversationArrayVotes++;
+        } else if (isConversationLikeArray(value)) {
+          acc.conversationArrayVotes++;
+        } else if (isToolDefinitionsArray(value)) {
+          acc.toolDefArrayVotes++;
+        }
       } else {
         acc.typeCounts.object = (acc.typeCounts.object || 0) + 1;
         if (!acc.nestedConversationPath) {
@@ -291,7 +320,8 @@ export function detectFieldTypesTree(rows, options = {}) {
 
   function walkValue(value, pathParts, depth, rootKey) {
     const path = pathParts.join('.');
-    ensureAccumulator(path);
+    const parentPath = pathParts.length > 1 ? pathParts.slice(0, -1).join('.') : null;
+    ensureAccumulator(path, depth, parentPath);
     countValue(accumulators[path], value);
 
     // Stop recursing if max depth reached or value is not a plain object
@@ -319,15 +349,17 @@ export function detectFieldTypesTree(rows, options = {}) {
 
   // Build flat fields list
   const flatFields = pathAccs.map(([path, acc]) => {
-    const lastSegment = path.split('.').pop();
-    const dotCount = path.includes('.') ? path.split('.').length - 1 : 0;
-    const isExpanded = decodedKeys.has(path.split('.')[0]);
+    const lastSegment = acc.depth === 0 ? path : path.split('.').pop();
+    // Check if any decodedKey is a prefix of this path
+    const isExpanded = [...decodedKeys].some(dk => path === dk || path.startsWith(dk + '.'));
     const result = finalizeType(path, acc, sampleSize);
     return {
       key: path,
       label: lastSegment.replace(/^\[(\d+)\]$/, '[$1]'),
-      depth: dotCount,
+      depth: acc.depth,
+      parentPath: acc.parentPath,
       detectedType: result.detectedType,
+      typeRule: result.typeRule,
       isExpanded,
       isLongString: result.isLongString,
       emptyRate: result.emptyRate,
@@ -347,9 +379,9 @@ export function detectFieldTypesTree(rows, options = {}) {
 
 /**
  * Finalize type detection for a single accumulator.
+ * Iterates registered type rules and returns the first match.
  */
 function finalizeType(path, acc, sampleSize) {
-  let detectedType = 'string';
   let isLongString = false;
 
   if (acc.stringCount > 0) {
@@ -357,24 +389,15 @@ function finalizeType(path, acc, sampleSize) {
     isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
   }
 
-  const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) +
-    (acc.typeCounts.boolean || 0) + (acc.typeCounts.object || 0) + (acc.typeCounts.array || 0);
+  let detectedType = 'string';
+  let matchedRule = null;
 
-  if (acc.typeCounts.object === total && total > 0) {
-    detectedType = 'nestedObject';
-  } else if (acc.typeCounts.array === total && total > 0) {
-    detectedType = 'nestedObject';
-  } else if (acc.typeCounts.number === total && total > 0) {
-    detectedType = 'number';
-  } else if (acc.typeCounts.boolean === total && total > 0) {
-    detectedType = 'boolean';
-  } else if (acc.typeCounts.string > 0) {
-    if ((acc.conversationVotes || 0) > sampleSize * 0.3) {
-      detectedType = (acc.toolDefVotes || 0) > sampleSize * 0.3 ? 'toolList' : 'conversation';
-    } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize && !isLongString) {
-      detectedType = 'enum';
-    } else {
-      detectedType = 'string';
+  for (const rule of getTypeRules()) {
+    const result = rule.check(acc, sampleSize);
+    if (result) {
+      detectedType = result;
+      matchedRule = rule.id;
+      break;
     }
   }
 
@@ -390,6 +413,7 @@ function finalizeType(path, acc, sampleSize) {
 
   return {
     detectedType,
+    typeRule: matchedRule,
     isLongString,
     emptyRate,
     constantRate,
@@ -407,79 +431,96 @@ function buildTreeFromFlat(flatFields) {
   const rootMap = new Map();
 
   for (const field of flatFields) {
-    const segments = field.key.split('.');
-    if (segments.length === 1) {
+    // Use actual depth from walkValue, not naive dot-counting.
+    // A field with depth 0 is always a root node, even if its key contains dots.
+    if (field.depth === 0) {
       if (!rootMap.has(field.key)) {
-        rootMap.set(field.key, { ...field, children: field.depth === 0 ? [] : null });
+        rootMap.set(field.key, { ...field, children: [] });
       } else {
-        // Update root node with detection data (may have been created as parent placeholder)
         const node = rootMap.get(field.key);
         Object.assign(node, field);
-        if (field.depth === 0) node.children = [];
+        node.children = [];
       }
-    } else {
-      // Navigate/create the tree path
-      const rootKey = segments[0];
-      if (!rootMap.has(rootKey)) {
-        rootMap.set(rootKey, {
-          key: rootKey,
-          label: rootKey,
-          fullPath: rootKey,
-          depth: 0,
-          detectedType: 'nestedObject',
-          emptyRate: 0,
-          constantRate: 0,
-          uniqueCount: 0,
-          avgValueLength: 0,
-          isTimestamp: false,
-          isExpanded: false,
-          conversationPath: null,
-          children: [],
+      continue;
+    }
+
+    // For depth > 0, find the correct root key by checking actual top-level fields
+    const segments = field.key.split('.');
+    // Try to find the actual root: longest key among depth-0 fields that is a prefix
+    let rootKey = null;
+    for (const candidate of rootMap.keys()) {
+      if (field.key.startsWith(candidate + '.')) {
+        if (rootKey === null || candidate.length > rootKey.length) rootKey = candidate;
+      }
+    }
+    if (!rootKey) rootKey = segments[0];
+
+    if (!rootMap.has(rootKey)) {
+      rootMap.set(rootKey, {
+        key: rootKey,
+        label: rootKey,
+        fullPath: rootKey,
+        depth: 0,
+        detectedType: 'nestedObject',
+        typeRule: null,
+        emptyRate: 0,
+        constantRate: 0,
+        uniqueCount: 0,
+        avgValueLength: 0,
+        isTimestamp: false,
+        isExpanded: false,
+        conversationPath: null,
+        children: [],
+      });
+    }
+    let current = rootMap.get(rootKey);
+    if (!current.children) current.children = [];
+
+    // The sub-path after rootKey (e.g. "evaluator.extracted_answer")
+    const subPath = field.key.substring(rootKey.length + 1);
+    const subSegments = subPath.split('.');
+
+    for (let i = 0; i < subSegments.length; i++) {
+      const seg = subSegments[i];
+      const childPath = rootKey + '.' + subSegments.slice(0, i + 1).join('.');
+      const isLeaf = i === subSegments.length - 1;
+
+      let childNode = current.children?.find(c => c.key === seg);
+      if (!childNode) {
+        childNode = {
+          key: seg,
+          fullPath: childPath,
+          depth: i + 1,
+          detectedType: isLeaf ? field.detectedType : 'nestedObject',
+          typeRule: isLeaf ? field.typeRule : null,
+          emptyRate: isLeaf ? field.emptyRate : 0,
+          constantRate: isLeaf ? field.constantRate : 0,
+          uniqueCount: isLeaf ? field.uniqueCount : 0,
+          avgValueLength: isLeaf ? field.avgValueLength : 0,
+          isTimestamp: isLeaf ? field.isTimestamp : false,
+          isExpanded: field.isExpanded,
+          conversationPath: isLeaf ? field.conversationPath : null,
+          children: isLeaf ? null : [],
+        };
+        current.children.push(childNode);
+      } else if (isLeaf) {
+        // Update leaf node with actual detection data
+        Object.assign(childNode, {
+          detectedType: field.detectedType,
+          typeRule: field.typeRule,
+          emptyRate: field.emptyRate,
+          constantRate: field.constantRate,
+          uniqueCount: field.uniqueCount,
+          avgValueLength: field.avgValueLength,
+          isTimestamp: field.isTimestamp,
+          conversationPath: field.conversationPath,
         });
+        childNode.children = null;
+      } else if (!childNode.children) {
+        // Previously created as leaf, but now we need it as intermediate parent
+        childNode.children = [];
       }
-      let current = rootMap.get(rootKey);
-      // Ensure children array exists
-      if (!current.children) current.children = [];
-
-      for (let i = 1; i < segments.length; i++) {
-        const seg = segments[i];
-        const parentPath = segments.slice(0, i).join('.');
-        const childPath = segments.slice(0, i + 1).join('.');
-        const isLeaf = i === segments.length - 1;
-
-        let childNode = current.children?.find(c => c.key === seg);
-        if (!childNode) {
-          childNode = {
-            key: seg,
-            fullPath: childPath,
-            depth: i,
-            detectedType: isLeaf ? field.detectedType : 'nestedObject',
-            emptyRate: isLeaf ? field.emptyRate : 0,
-            constantRate: isLeaf ? field.constantRate : 0,
-            uniqueCount: isLeaf ? field.uniqueCount : 0,
-            avgValueLength: isLeaf ? field.avgValueLength : 0,
-            isTimestamp: isLeaf ? field.isTimestamp : false,
-            isExpanded: field.isExpanded,
-            conversationPath: isLeaf ? field.conversationPath : null,
-            children: isLeaf ? null : [],
-          };
-          current.children.push(childNode);
-        } else if (isLeaf) {
-          // Update leaf node with actual detection data
-          Object.assign(childNode, {
-            detectedType: field.detectedType,
-            emptyRate: field.emptyRate,
-            constantRate: field.constantRate,
-            uniqueCount: field.uniqueCount,
-            avgValueLength: field.avgValueLength,
-            isTimestamp: field.isTimestamp,
-            conversationPath: field.conversationPath,
-          });
-          childNode.children = null;
-        }
-        if (childNode.children) current = childNode;
-        else break;
-      }
+      current = childNode;
     }
   }
 
@@ -513,6 +554,10 @@ export function detectFieldTypes(rows, allKeys) {
       isoTimestampVotes: 0,
       nestedConversationPath: null,
       nestedToolDefPath: null,
+      conversationVotes: 0,
+      conversationArrayVotes: 0,
+      toolDefVotes: 0,
+      toolDefArrayVotes: 0,
     };
   }
 
@@ -559,6 +604,14 @@ export function detectFieldTypes(rows, allKeys) {
         // Nested objects from JSON expansion or native arrays
         if (Array.isArray(v)) {
           acc.typeCounts.array = (acc.typeCounts.array || 0) + 1;
+          // Detect native array types: multi-conversation, conversation-like, or tool definitions
+          if (isMultiConversationArray(v)) {
+            acc.multiConversationArrayVotes = (acc.multiConversationArrayVotes || 0) + 1;
+          } else if (isConversationLikeArray(v)) {
+            acc.conversationArrayVotes = (acc.conversationArrayVotes || 0) + 1;
+          } else if (isToolDefinitionsArray(v)) {
+            acc.toolDefArrayVotes = (acc.toolDefArrayVotes || 0) + 1;
+          }
         } else {
           acc.typeCounts.object = (acc.typeCounts.object || 0) + 1;
           // Scan nested object for conversation/tool patterns
@@ -582,6 +635,7 @@ export function detectFieldTypes(rows, allKeys) {
   for (const key of allKeys) {
     const acc = accumulators[key];
     let detectedType = 'string';
+    let typeRule = null;
     let isLongString = false;
 
     // Compute average string length first — needed for enum exclusion
@@ -590,24 +644,13 @@ export function detectFieldTypes(rows, allKeys) {
       isLongString = avgLen > PREVIEW_LENGTH_THRESHOLD;
     }
 
-    const total = (acc.typeCounts.number || 0) + (acc.typeCounts.string || 0) + (acc.typeCounts.boolean || 0) + (acc.typeCounts.object || 0) + (acc.typeCounts.array || 0);
-
-    if (acc.typeCounts.object === total && total > 0) {
-      detectedType = 'nestedObject';
-    } else if (acc.typeCounts.array === total && total > 0) {
-      detectedType = 'nestedObject';
-    } else if (acc.typeCounts.number === total && total > 0) {
-      detectedType = 'number';
-    } else if (acc.typeCounts.boolean === total && total > 0) {
-      detectedType = 'boolean';
-    } else if (acc.typeCounts.string > 0) {
-      // Check conversation / toolList pattern first (before enum check)
-      if ((acc.conversationVotes || 0) > sampleSize * 0.3) {
-        detectedType = (acc.toolDefVotes || 0) > sampleSize * 0.3 ? 'toolList' : 'conversation';
-      } else if (acc.stringValues.size <= ENUM_THRESHOLD && acc.stringValues.size <= sampleSize && !isLongString) {
-        detectedType = 'enum';
-      } else {
-        detectedType = 'string';
+    // Use type rule registry for detection
+    for (const rule of getTypeRules()) {
+      const result = rule.check(acc, sampleSize);
+      if (result) {
+        detectedType = result;
+        typeRule = rule.id;
+        break;
       }
     }
 
@@ -628,7 +671,7 @@ export function detectFieldTypes(rows, allKeys) {
       : 0;
 
     result[key] = {
-      detectedType, isLongString, emptyRate, constantRate,
+      detectedType, typeRule, isLongString, emptyRate, constantRate,
       uniqueCount: acc.uniqueValues.size,
       avgValueLength: acc.stringCount > 0 ? Math.round(acc.stringLengthSum / acc.stringCount) : 0,
       isTimestamp: acc.nonEmptyCount > 0 && (acc.isoTimestampVotes / acc.nonEmptyCount) >= 0.8,
@@ -926,9 +969,10 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
     breakdown.patternPenalty = priority;
 
     // Empty-rate additive penalty
-    // Nearly-all-empty fields should be hidden regardless of pattern priority
+    // Fully-empty fields get a very heavy penalty (stronger than any pattern bonus)
     const emptyRate = field.emptyRate || 0;
-    if (emptyRate >= 0.95) { priority -= 80; breakdown.emptyPenalty = 80; }
+    if (emptyRate >= 1.0) { priority -= 200; breakdown.emptyPenalty = 200; }
+    else if (emptyRate >= 0.95) { priority -= 80; breakdown.emptyPenalty = 80; }
     else if (emptyRate >= 0.80) { priority -= 20; breakdown.emptyPenalty = 20; }
 
     // Constant-value additive penalty (all rows have same value = low information)
@@ -1089,6 +1133,7 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       visible: field.visible,
       visibilityReason: field.visibilityReason,
       detectedType: field.detectedType,
+      typeRule: field.typeRule || null,
       emptyRate: field.emptyRate || 0,
       constantRate: field.constantRate || 0,
       uniqueCount: field.uniqueCount || 0,

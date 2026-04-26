@@ -27,6 +27,16 @@
           </el-button>
         </div>
       </div>
+      <!-- Multi-conversation tabs -->
+      <div v-if="conversationTabs.length > 1" class="conv-tabs">
+        <button
+          v-for="(tab, idx) in conversationTabs"
+          :key="idx"
+          class="conv-tab"
+          :class="{ 'conv-tab-active': activeConvIdx === idx }"
+          @click="activeConvIdx = idx"
+        >{{ tab }}</button>
+      </div>
     </template>
 
     <div v-if="toolBlocks.length || filteredBlocks.length" class="chat-scroll-wrapper">
@@ -100,7 +110,7 @@
         </div>
       </div>
     </div>
-    <div v-if="!filteredBlocks.length && !toolBlocks.length" class="chat-empty">{{ $t('detailDialog.noSolution') }}</div>
+    <div v-if="!filteredBlocks.length && !toolBlocks.length" class="chat-empty">{{ isToolList ? $t('detailDialog.noTools') : $t('detailDialog.noSolution') }}</div>
   </el-dialog>
 </template>
 
@@ -131,6 +141,7 @@ export default {
     visible: Boolean,
     text: { type: String, default: '' },
     messages: { type: Array, default: null },
+    conversations: { type: Array, default: null },
     tools: { type: Array, default: null },
     title: { type: String, default: '' },
     showFilter: { type: Boolean, default: true },
@@ -150,6 +161,25 @@ export default {
 
     // Tool blocks from tools prop (reconstructed tools array)
     const toolCollapseState = ref({});
+
+    // Multi-conversation support: active tab index
+    const activeConvIdx = ref(0);
+
+    const conversationTabs = computed(() => {
+      if (!Array.isArray(props.conversations) || props.conversations.length <= 1) return [];
+      return props.conversations.map((conv, idx) => {
+        const count = Array.isArray(conv) ? conv.length : 0;
+        return `${t('custom.conversationTab', { idx: idx + 1 })} (${count})`;
+      });
+    });
+
+    // Active messages — either from conversations tab or direct messages prop
+    const activeMessages = computed(() => {
+      if (Array.isArray(props.conversations) && props.conversations.length > 1) {
+        return props.conversations[activeConvIdx.value] || [];
+      }
+      return props.messages;
+    });
 
     const toolBlocks = computed(() => {
       if (!Array.isArray(props.tools) || props.tools.length === 0) return [];
@@ -360,8 +390,8 @@ export default {
      */
     const parsed = computed(() => {
       let blocks;
-      if (Array.isArray(props.messages) && props.messages.length > 0) {
-        blocks = parseFromMessages(props.messages);
+      if (Array.isArray(activeMessages.value) && activeMessages.value.length > 0) {
+        blocks = parseFromMessages(activeMessages.value);
       } else {
         blocks = parseFromText(props.text);
       }
@@ -428,10 +458,11 @@ export default {
 
     // Reset collapse state and filter when content changes (new dialog opened)
     watch(
-      () => [props.messages, props.text],
+      () => [props.messages, props.text, props.conversations],
       () => {
         collapseState.value = {};
         filterText.value = '';
+        activeConvIdx.value = 0;
         // Reset scroll to top when switching between conversations/tools
         nextTick(() => {
           if (chatContainerRef.value) chatContainerRef.value.scrollTop = 0;
@@ -470,8 +501,8 @@ export default {
 
     const copyContent = async () => {
       let content = props.text;
-      if (!content && Array.isArray(props.messages) && props.messages.length > 0) {
-        content = JSON.stringify(props.messages, null, 2);
+      if (!content && Array.isArray(activeMessages.value) && activeMessages.value.length > 0) {
+        content = JSON.stringify(activeMessages.value, null, 2);
       }
       if (!content) {
         ElMessage.warning(t('common.nothingToCopy'));
@@ -495,7 +526,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs };
   },
 };
 </script>
@@ -505,6 +536,39 @@ export default {
   font-size: 12px;
   opacity: 0.5;
   font-weight: 400;
+}
+
+/* Multi-conversation tabs */
+.conv-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding-bottom: 0;
+}
+
+.conv-tab {
+  padding: 5px 14px;
+  font-size: 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+  color: var(--el-text-color-secondary);
+  transition: all 0.15s;
+  border-bottom: 2px solid transparent;
+}
+
+.conv-tab:hover {
+  color: var(--el-text-color-primary);
+  background: var(--el-fill-color-light);
+}
+
+.conv-tab-active {
+  color: var(--el-color-primary);
+  background: var(--el-fill-color);
+  border-bottom-color: var(--el-color-primary);
+  font-weight: 500;
 }
 
 /* Unified scroll wrapper for tools + chat */
@@ -598,6 +662,7 @@ export default {
   opacity: 0.5;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   max-width: 200px;
   cursor: pointer;
   transition: opacity 0.15s;
