@@ -333,6 +333,7 @@ import { assignFieldVisibility, isMultiConversationArray } from '@/utils/customP
 import { createLogger } from '@/utils/pipelineLogger';
 import { runPipeline } from '@/utils/pipelineRunner';
 import { pipelineDebug, populatePipelineDebug, resetPipelineDebug } from '@/utils/pipelineDebugStore';
+import { formatNumber } from '@/utils/formatNumber';
 import '@/plugins/reconstructDotNotation';
 import '@/plugins/decodeNestedJson';
 import '@/plugins/dedupNestedFields';
@@ -585,12 +586,6 @@ export default {
 
     function isLongValue(value) {
       return typeof value === 'string' && value.length > 100;
-    }
-
-    function formatNumber(value) {
-      if (typeof value !== 'number') return value;
-      if (Number.isInteger(value)) return value.toLocaleString();
-      return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
     }
 
     /**
