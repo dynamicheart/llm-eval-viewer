@@ -124,6 +124,7 @@ const reconstructDotNotation = {
       actualTopKeys: [...actualTopKeys],
       detectedFieldsCount: newDetectedFields.length,
       rootGroups: {},
+      tagOverrides: [],
     };
 
     if (!hasFields) {
@@ -232,6 +233,12 @@ const reconstructDotNotation = {
         existingRoot.visible = true;
         existingRoot.previewable = true;
         existingRoot.isPluginField = true;
+        _pluginDebug.tagOverrides.push(
+          { key: rootKey, tag: 'previewable', from: existingRoot.previewable, to: true, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'searchable', from: existingRoot.searchable, to: false, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'filterable', from: existingRoot.filterable, to: false, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'sortable', from: existingRoot.sortable, to: false, reason: 'reconstructed_root' },
+        );
       } else {
         newDetectedFields.unshift({
           key: rootKey,
@@ -248,6 +255,12 @@ const reconstructDotNotation = {
           isExpanded: false,
           isPluginField: true,
         });
+        _pluginDebug.tagOverrides.push(
+          { key: rootKey, tag: 'previewable', from: null, to: true, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'searchable', from: null, to: false, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'filterable', from: null, to: false, reason: 'reconstructed_root' },
+          { key: rootKey, tag: 'sortable', from: null, to: false, reason: 'reconstructed_root' },
+        );
       }
 
       // 3b: Handle sub-fields
@@ -270,7 +283,7 @@ const reconstructDotNotation = {
       processedRoots.add(rootKey);
 
       // Step 4: Detect conversation/toolList sub-fields within reconstructed objects
-      detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFields);
+      detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFields, _pluginDebug.tagOverrides);
 
       logger.detail(`root '${rootKey}': special type detection done`);
       logger.stageEnd();
@@ -342,7 +355,7 @@ const reconstructDotNotation = {
  * Detect special sub-field types (conversation, toolList) within reconstructed objects.
  * Updates field types and stores structured data in _reconstructed_.
  */
-function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFields) {
+function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFields, tagOverrides) {
   const reconKey = `_reconstructed_${rootKey}`;
 
   for (const field of subFields) {
@@ -373,6 +386,10 @@ function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFi
         field.previewable = true;
         field.filterable = true;
         logger.detail(`  '${field.key}' → conversation (visible)`);
+        tagOverrides.push(
+          { key: field.key, tag: 'previewable', from: field.previewable, to: true, reason: 'reconstruct:conversation' },
+          { key: field.key, tag: 'filterable', from: field.filterable, to: true, reason: 'reconstruct:conversation' },
+        );
       }
       continue;
     }
@@ -387,6 +404,9 @@ function detectSpecialSubFields(processedRows, rootKey, newDetectedFields, subFi
           field.visible = true;
           field.previewable = true;
           logger.detail(`  '${field.key}' → toolList (visible)`);
+          tagOverrides.push(
+            { key: field.key, tag: 'previewable', from: field.previewable, to: true, reason: 'reconstruct:toolList' },
+          );
         }
         continue;
       }

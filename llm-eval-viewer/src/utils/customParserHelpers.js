@@ -1051,9 +1051,13 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       const hasNestedConv = !!field.conversationPath;
       field.visible = !isDuplicate && (field.detectedType === 'conversation' || field.detectedType === 'toolList' || hasNestedConv || isHighEnum || isHighNumber);
       field.searchable = field.detectedType === 'enum' || field.detectedType === 'string';
+      field.searchableReason = field.detectedType === 'enum' ? 'type=enum' : field.detectedType === 'string' ? 'type=string' : 'type\u2260enum\u0026\u0026type\u2260string';
       field.filterable = field.detectedType === 'enum';
+      field.filterableReason = field.detectedType === 'enum' ? 'type=enum' : 'type\u2260enum';
       field.previewable = field.detectedType === 'conversation' || field.detectedType === 'toolList' || hasNestedConv;
+      field.previewableReason = field.detectedType === 'conversation' ? 'type=conversation' : field.detectedType === 'toolList' ? 'type=toolList' : hasNestedConv ? 'hasConversationPath' : 'none';
       field.sortable = field.detectedType === 'number';
+      field.sortableReason = field.detectedType === 'number' ? 'type=number' : 'type\u2260number';
       if (field.visible) {
         visibleKeysLower.set(lastSegment, field.key);
         visibleCount++;
@@ -1067,9 +1071,13 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       field._duplicateOf = duplicateOf;
       field.visible = !isDuplicate && (field.conversationPath || priority > -30) && visibleCount < maxVisible;
       field.searchable = false;
+      field.searchableReason = 'non-expanded (disabled)';
       field.filterable = field.detectedType === 'enum';
+      field.filterableReason = field.detectedType === 'enum' ? 'type=enum' : 'type\u2260enum';
       field.previewable = !!field.isLongString || !!field.conversationPath;
+      field.previewableReason = field.isLongString ? 'isLongString' : field.conversationPath ? 'hasConversationPath' : 'none';
       field.sortable = true;
+      field.sortableReason = 'non-expanded (always)';
       if (field.visible) {
         visibleKeysLower.set(lastSegment, field.key);
         visibleCount++;
@@ -1139,6 +1147,14 @@ export function assignFieldVisibility(fields, maxVisible = 10) {
       uniqueCount: field.uniqueCount || 0,
       avgValueLength: field.avgValueLength || 0,
       duplicateOf: field._duplicateOf || null,
+      searchable: field.searchable,
+      searchableReason: field.searchableReason || null,
+      filterable: field.filterable,
+      filterableReason: field.filterableReason || null,
+      previewable: field.previewable,
+      previewableReason: field.previewableReason || null,
+      sortable: field.sortable,
+      sortableReason: field.sortableReason || null,
     };
   });
 

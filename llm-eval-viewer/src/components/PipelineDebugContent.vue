@@ -240,6 +240,65 @@
         </el-table>
       </el-collapse-item>
 
+      <!-- 6. Tag Assignment -->
+      <el-collapse-item name="tags">
+        <template #title>
+          <span class="collapse-title">
+            <el-icon><PriceTag /></el-icon> {{ $t('custom.pipelineDebugTags') }}
+            <el-tag size="small">{{ tagTreeData.length }} fields</el-tag>
+          </span>
+        </template>
+        <el-table :data="tagTreeData" border size="small" max-height="40vh" style="width:100%" :row-key="row => row.fullPath || row.key" :default-expanded-keys="treeRootKeys" :tree-props="{ children: 'children' }">
+          <el-table-column prop="key" label="Field" show-overflow-tooltip min-width="180">
+            <template #default="{ row }">{{ row.isGroupHeader ? row.key + ' (expanded)' : row.key }}</template>
+          </el-table-column>
+          <el-table-column label="Preview" width="160">
+            <template #default="{ row }">
+              <div v-if="row.previewable != null" class="tag-cell">
+                <el-icon :size="14" :color="row.previewable ? '#67c23a' : '#c0c4cc'"><CircleCheckFilled v-if="row.previewable" /><CircleCloseFilled v-else /></el-icon>
+                <span class="tag-reason">{{ translateTagReason(row.previewableReason) }}</span>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Search" width="160">
+            <template #default="{ row }">
+              <div v-if="row.searchable != null" class="tag-cell">
+                <el-icon :size="14" :color="row.searchable ? '#67c23a' : '#c0c4cc'"><CircleCheckFilled v-if="row.searchable" /><CircleCloseFilled v-else /></el-icon>
+                <span class="tag-reason">{{ translateTagReason(row.searchableReason) }}</span>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Filter" width="160">
+            <template #default="{ row }">
+              <div v-if="row.filterable != null" class="tag-cell">
+                <el-icon :size="14" :color="row.filterable ? '#67c23a' : '#c0c4cc'"><CircleCheckFilled v-if="row.filterable" /><CircleCloseFilled v-else /></el-icon>
+                <span class="tag-reason">{{ translateTagReason(row.filterableReason) }}</span>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Sort" width="160">
+            <template #default="{ row }">
+              <div v-if="row.sortable != null" class="tag-cell">
+                <el-icon :size="14" :color="row.sortable ? '#67c23a' : '#c0c4cc'"><CircleCheckFilled v-if="row.sortable" /><CircleCloseFilled v-else /></el-icon>
+                <span class="tag-reason">{{ translateTagReason(row.sortableReason) }}</span>
+              </div>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('custom.pipelineDebugTagSource')" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="row.tagSource" size="small" :type="row.tagSource === 'scoring' ? '' : 'warning'">
+                {{ row.tagSource === 'scoring' ? $t('custom.pipelineDebugTagSourceScoring') : $t('custom.pipelineDebugTagSourceReconstruct') }}
+              </el-tag>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-collapse-item>
+
       <el-collapse-item name="samples">
         <template #title>
           <span class="collapse-title"><el-icon><View /></el-icon> {{ $t('custom.pipelineDebugSamples') }}</span>
@@ -267,7 +326,7 @@ import { getRegisteredPlugins } from '@/plugins/pluginRegistry';
 import { getTypeRules } from '@/utils/typeRuleRegistry';
 import {
   CircleCheckFilled, CircleCloseFilled, WarningFilled, RemoveFilled,
-  Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid,
+  Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid, PriceTag,
 } from '@element-plus/icons-vue';
 
 export default {
@@ -275,7 +334,7 @@ export default {
   components: {
     JsonViewer,
     CircleCheckFilled, CircleCloseFilled, WarningFilled, RemoveFilled,
-    Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid,
+    Coin, Cpu, DocumentCopy, DataAnalysis, View, Grid, PriceTag,
   },
   props: {
     data: Object,
@@ -285,7 +344,7 @@ export default {
     const { t } = useI18n();
     const instance = getCurrentInstance();
     const allPlugins = computed(() => getRegisteredPlugins());
-    const activeSections = ref(['cache', 'pipeline', 'typeRules', 'types', 'scoring', 'samples']);
+    const activeSections = ref(['cache', 'pipeline', 'typeRules', 'types', 'scoring', 'tags', 'samples']);
     const sampleTab = ref('original');
     const pluginDebugExpanded = ref({});
 
@@ -553,7 +612,68 @@ export default {
       });
     }
 
-    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc, getTypeRuleName, getTypeRuleDesc, typeRuleList, ruleHitCounts, highlightedRule, scrollToRule, onScrollToRule };
+    // Build tag override map from reconstructDotNotation plugin debug
+    const tagOverrideMap = computed(() => {
+      const stages = props.data?.pipeline?.stages || [];
+      const map = new Map(); // key → { tag → { from, to, reason } }
+      for (const s of stages) {
+        if (!s.debug?.tagOverrides) continue;
+        for (const o of s.debug.tagOverrides) {
+          if (!map.has(o.key)) map.set(o.key, {});
+          map.get(o.key)[o.tag] = o;
+        }
+      }
+      return map;
+    });
+
+    const tagTreeData = computed(() => {
+      const meta = scoringFields.value;
+      if (!meta.length) return [];
+      const overrides = tagOverrideMap.value;
+
+      const enriched = buildEnrichedTree(meta, (a, b) => a.key.localeCompare(b.key));
+
+      // Merge override info into tree nodes
+      function mergeOverrides(nodes) {
+        for (const node of nodes) {
+          const key = node.fullPath || node.key;
+          const fieldOverrides = overrides.get(key);
+          if (fieldOverrides) {
+            node.tagSource = 'reconstruct';
+          }
+          if (node.children) mergeOverrides(node.children);
+        }
+      }
+      mergeOverrides(enriched);
+      return enriched;
+    });
+
+    const TAG_REASON_KEY_MAP = {
+      'type=enum': 'pipelineDebugTagReasonTypeEnum',
+      'type=string': 'pipelineDebugTagReasonTypeString',
+      'type=conversation': 'pipelineDebugTagReasonTypeConversation',
+      'type=toolList': 'pipelineDebugTagReasonTypeToolList',
+      'type=number': 'pipelineDebugTagReasonTypeNumber',
+      'type\u2260enum': 'pipelineDebugTagReasonTypeNotEnum',
+      'type\u2260enum\u0026\u0026type\u2260string': 'pipelineDebugTagReasonTypeNotEnumString',
+      'type\u2260number': 'pipelineDebugTagReasonTypeNotNumber',
+      'non-expanded (disabled)': 'pipelineDebugTagReasonNonExpanded',
+      'non-expanded (always)': 'pipelineDebugTagReasonNonExpandedAlways',
+      'hasConversationPath': 'pipelineDebugTagReasonHasConversationPath',
+      'isLongString': 'pipelineDebugTagReasonIsLongString',
+      'none': 'pipelineDebugTagReasonNone',
+      'reconstructed_root': 'pipelineDebugTagReasonReconstructRoot',
+      'reconstruct:conversation': 'pipelineDebugTagReasonReconstructConversation',
+      'reconstruct:toolList': 'pipelineDebugTagReasonReconstructToolList',
+    };
+
+    function translateTagReason(reason) {
+      if (!reason) return '-';
+      const key = TAG_REASON_KEY_MAP[reason];
+      return key ? t('custom.' + key) : reason;
+    }
+
+    return { activeSections, sampleTab, pluginDebugExpanded, togglePluginDebug, timelineStages, pipelineStageGroups, scoringFields, typeTreeData, scoringTreeData, treeRootKeys, tagTreeData, samplesOriginal, samplesAfterPlugins, pct, typeTagType, formatObj, getPluginName, getPluginDesc, getTypeRuleName, getTypeRuleDesc, typeRuleList, ruleHitCounts, highlightedRule, scrollToRule, onScrollToRule, translateTagReason };
   },
 };
 </script>
@@ -723,5 +843,19 @@ export default {
 .debug-link:hover {
   color: var(--el-color-primary-light-3);
   text-decoration-style: solid;
+}
+
+.tag-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-reason {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
