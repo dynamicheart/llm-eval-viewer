@@ -735,6 +735,7 @@ export const HIGH_PRIORITY_PATTERNS = [
 
   // --- Content ---
   /^(answer|reasoning)_?content$/i,    // AnswerContent, ReasoningContent
+  /^response_?format$/i,               // response_format, responseFormat
 
   // --- Evaluation result (English) ---
   /result/i,                         // result, model_output

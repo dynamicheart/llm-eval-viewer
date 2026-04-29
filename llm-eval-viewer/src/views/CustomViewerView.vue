@@ -110,13 +110,24 @@
           :filtered-value="activeFilters[col.key] || []"
           show-overflow-tooltip
         >
-          <template v-if="col.searchable" #header>
-            <TableHeaderSearch
-              :label="col.label"
-              v-model="keywordRefs[col.key]"
-              :placeholder="$t('custom.searchPrefix') + col.label"
-              @change="(v) => setKeywordFilter(col.key, v)"
-            />
+          <template #header>
+            <template v-if="col.searchable">
+              <TableHeaderSearch
+                :label="col.label"
+                v-model="keywordRefs[col.key]"
+                :placeholder="$t('custom.searchPrefix') + col.label"
+                @change="(v) => setKeywordFilter(col.key, v)"
+              />
+            </template>
+            <template v-else-if="col.key.includes('.')">
+              <span class="nested-key-header">
+                {{ col.label }}
+                <el-tooltip :content="col.key" placement="top" :show-after="300" :enterable="false">
+                  <span class="nested-key-icon">?</span>
+                </el-tooltip>
+              </span>
+            </template>
+            <span v-else>{{ col.label }}</span>
           </template>
 
           <template #default="{ row }">
@@ -1415,6 +1426,32 @@ export default {
 </script>
 
 <style scoped>
+.nested-key-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nested-key-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 50%;
+  background: var(--el-fill-color, #ebeef5);
+  color: var(--el-text-color-secondary, #909399);
+  cursor: pointer;
+  user-select: none;
+}
+
+.nested-key-icon:hover {
+  color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+
 .stats-controls {
   display: flex;
   align-items: center;
