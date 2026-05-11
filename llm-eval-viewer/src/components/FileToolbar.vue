@@ -18,7 +18,7 @@
         :accept="accept"
       >
         <el-button
-          :type="showDirPicker && browseMode === 'file' ? 'primary' : ''"
+          :type="showDirPicker && browseMode === 'file' && dataSource !== 'paste' ? 'primary' : ''"
         >
           {{ buttonText || $t('fileToolbar.selectJsonlFile') }}
         </el-button>
@@ -177,6 +177,7 @@ const props = defineProps({
   enableDirPicker: { type: Boolean, default: true },
   supportsDirPicker: { type: Boolean, default: false },
   browseMode: { type: String, default: 'file' },
+  dataSource: { type: String, default: '' },
   dirName: { type: String, default: '' },
   dirFileCount: { type: Number, default: 0 },
   recentDirs: { type: Array, default: () => [] },
@@ -219,6 +220,10 @@ const totalCacheSize = computed(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 10px;
+}
+
+.file-toolbar :deep(.el-upload) {
+  display: inline-flex;
 }
 
 .hint-text {

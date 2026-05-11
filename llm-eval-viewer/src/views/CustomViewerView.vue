@@ -23,6 +23,7 @@
       :enable-dir-picker="supportsDirectoryPicker"
       :supports-dir-picker="supportsDirectoryPicker"
       :browse-mode="browseMode"
+      :data-source="dataSource"
       :dir-name="dirName"
       :dir-file-count="dirFileCount"
       :recent-dirs="recentDirs"
@@ -37,7 +38,7 @@
       @restore-directory="onRestoreCustomDirectory"
       @remove-recent-dir="removeCachedDirHandle"
     >
-      <el-button @click="pasteDialogVisible = true">{{ $t('custom.pasteJson') }}</el-button>
+      <el-button :type="dataSource === 'paste' ? 'primary' : ''" @click="pasteDialogVisible = true">{{ $t('custom.pasteJson') }}</el-button>
     </FileToolbar>
 
     <div v-if="samplePromptVisible" class="sample-prompt">
@@ -400,6 +401,7 @@ export default {
     const pipelineDebugVisible = ref(false);
     const pasteDialogVisible = ref(false);
     const pasteText = ref('');
+    const dataSource = ref('');
 
     function onOpenDebugDialog() {
       pipelineDebugVisible.value = true;
@@ -1205,6 +1207,7 @@ export default {
       columnFilterMap.clear();
       currentParseFn = createWorkerParse(file.name);
       customDir.setBrowseMode('file');
+      dataSource.value = '';
       await fileHandler.handleFileSelect(file);
     }
 
@@ -1214,6 +1217,7 @@ export default {
       currentParseFn = createWorkerParse(item.name);
       await fileHandler.openRecentFile(item);
       customDir.setBrowseMode('file');
+      dataSource.value = '';
     }
 
     // ===== Directory browsing handlers =====
@@ -1363,6 +1367,7 @@ export default {
       expandInfo.value = [];
       schemaSnapshot.value = null;
       samplePromptVisible.value = false;
+      dataSource.value = 'paste';
       await fileHandler.loadSampleText(name, text);
     }
 
