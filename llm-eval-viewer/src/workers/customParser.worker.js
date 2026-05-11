@@ -15,6 +15,7 @@ import '@/plugins/formatParse';
 import '@/plugins/detectTypes';
 import '@/plugins/scoring';
 import '@/plugins/trajectoryParse';
+import '@/plugins/hyevalParse';
 
 // ===== Message handler =====
 

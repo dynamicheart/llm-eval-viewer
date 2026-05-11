@@ -369,6 +369,7 @@ import '@/plugins/formatParse';
 import '@/plugins/detectTypes';
 import '@/plugins/scoring';
 import '@/plugins/trajectoryParse';
+import '@/plugins/hyevalParse';
 import CustomWorker from '@/workers/customParser.worker.js?worker';
 
 export default {
@@ -1329,6 +1330,25 @@ export default {
       samplePromptVisible.value = false;
     }
 
+    function tryUnwrapDoubleEncoded(text) {
+      const trimmed = text.trim();
+      if (!trimmed.startsWith('"') || !trimmed.endsWith('"')) return null;
+      try {
+        const inner = JSON.parse(trimmed);
+        if (typeof inner === 'string') {
+          const innerTrimmed = inner.trim();
+          if ((innerTrimmed.startsWith('{') || innerTrimmed.startsWith('[')) &&
+              (innerTrimmed.endsWith('}') || innerTrimmed.endsWith(']'))) {
+            try {
+              JSON.parse(innerTrimmed);
+              return innerTrimmed;
+            } catch { return null; }
+          }
+        }
+        return null;
+      } catch { return null; }
+    }
+
     function validatePastedText(text) {
       const trimmed = text.trim();
       if (!trimmed) return false;
@@ -1352,14 +1372,20 @@ export default {
     }
 
     async function handlePastedText(text) {
-      if (!validatePastedText(text)) {
+      let processedText = text;
+      const unwrapped = tryUnwrapDoubleEncoded(text.trim());
+      if (unwrapped) {
+        processedText = unwrapped;
+        ElMessage.info(t('custom.pasteJsonUnwrapped'));
+      }
+      if (!validatePastedText(processedText)) {
         ElMessage.warning(t('custom.pasteJsonInvalid'));
         return;
       }
       const now = new Date();
       const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
       const name = `pasted-${ts}`;
-      currentFileId = `${name}-${text.length}-0`;
+      currentFileId = `${name}-${processedText.length}-0`;
       columnFilterMap.clear();
       currentParseFn = createWorkerParse(name);
       dataSource.value = 'paste';
@@ -1371,7 +1397,7 @@ export default {
       schemaSnapshot.value = null;
       samplePromptVisible.value = false;
       dataSource.value = 'paste';
-      await fileHandler.loadSampleText(name, text);
+      await fileHandler.loadSampleText(name, processedText);
     }
 
     function onPasteConfirm() {

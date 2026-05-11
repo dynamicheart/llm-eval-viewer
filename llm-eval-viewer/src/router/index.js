@@ -41,6 +41,13 @@ const routes = [
     component: CustomViewerView,
   },
 
+  // Hyeval (hidden)
+  {
+    path: '/hyeval',
+    name: 'Hyeval',
+    component: () => import('@/views/HevalView.vue'),
+  },
+
   // Legacy redirects (backward compatibility, to be removed in the future)
   { path: '/reviews', redirect: '/evalscope/reviews' },
   { path: '/predictions', redirect: '/evalscope/predictions' },

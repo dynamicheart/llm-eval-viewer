@@ -29,6 +29,7 @@ export default {
       reviews: 'Evalscope Review JSONL 查看器',
       predictions: 'Evalscope Predictions JSONL 查看器',
       custom: '自定义查看器 - JSON/CSV/TSV 可视化',
+      hyeval: 'Hyeval - 评测结果分析',
       default: 'Evalscope JSONL 查看器',
     },
     theme: {
@@ -195,6 +196,7 @@ export default {
     pasteJsonTitle: '粘贴 JSON 数据',
     pasteJsonPlaceholder: '在此粘贴 JSON、JSONL、CSV 等数据...',
     pasteJsonInvalid: '粘贴的内容不是有效的 JSON 或 JSONL 格式',
+    pasteJsonUnwrapped: '检测到双重编码的 JSON，已自动解码',
     fieldConfig: '字段配置',
     statsConfig: '统计配置',
     columnConfig: '列配置',

@@ -29,6 +29,7 @@ export default {
       reviews: 'Evalscope Review JSONL Viewer',
       predictions: 'Evalscope Predictions JSONL Viewer',
       custom: 'Custom Viewer - JSON/CSV/TSV Viewer',
+      hyeval: 'Hyeval - Evaluation Analysis',
       default: 'Evalscope JSONL Viewer',
     },
     theme: {
@@ -195,6 +196,7 @@ export default {
     pasteJsonTitle: 'Paste JSON Data',
     pasteJsonPlaceholder: 'Paste JSON, JSONL, CSV, or other data here...',
     pasteJsonInvalid: 'Pasted content is not valid JSON or JSONL',
+    pasteJsonUnwrapped: 'Double-encoded JSON detected and automatically unwrapped',
     fieldConfig: 'Field Config',
     statsConfig: 'Statistics Config',
     columnConfig: 'Column Config',

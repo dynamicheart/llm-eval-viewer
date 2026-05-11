@@ -102,7 +102,9 @@
                 ? $t('app.title.predictions')
                 : $route.path === '/custom'
                   ? $t('app.title.custom')
-                  : $t('app.title.default')
+                  : $route.path === '/hyeval'
+                    ? $t('app.title.hyeval')
+                    : $t('app.title.default')
         }}
       </h1>
     </header>

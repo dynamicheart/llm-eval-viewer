@@ -13,82 +13,51 @@ let toolCallCounter = 0;
 function extractTrajectoryRow(spans) {
   toolCallCounter = 0;
   const agentSpans = spans.filter(
-    s => s.type === 'START' && s.name && s.name.startsWith('agent.'),
+    s => s.type === 'START' && s.name && (s.name.startsWith('agent.') || s.name.endsWith('_agent') || s.name === 'search'),
   );
   if (agentSpans.length === 0) return null;
 
-  const agentSpan = agentSpans[0];
+  // Prefer the deepest agent span (the one with a parent_span_id)
+  const agentSpan = agentSpans.find(s => s.parent_span_id) || agentSpans[0];
   const attrs = agentSpan.attributes || {};
-  const agentInput = attrs.inputs?.agent_input || attrs.agent_input || {};
+  const agentInput = attrs.inputs?.agent_input || attrs.inputs?.task_input || attrs.inputs || {};
 
   const completionSpans = spans.filter(
     s => s.type === 'START' && s.name === 'openai_completion',
   );
 
-  const conversation = [];
-  const seenMsgKeys = new Set();
-  let pendingToolCallId = null;
-
-  for (const cs of completionSpans) {
-    const msgs = cs.attributes?.inputs?.messages;
-    if (!Array.isArray(msgs)) continue;
-    for (const msg of msgs) {
-      const key = `${msg.role}:${String(msg.content ?? '').slice(0, 80)}`;
-      if (seenMsgKeys.has(key)) continue;
-      seenMsgKeys.add(key);
-
-      const enriched = { role: msg.role, content: msg.content };
-
-      if (msg.role === 'assistant' && typeof msg.content === 'string') {
-        try {
-          const parsed = JSON.parse(msg.content);
-          if (Array.isArray(parsed.commands) && parsed.commands.length > 0) {
-            const toolCalls = parsed.commands
-              .filter(c => c.keystrokes)
-              .map((c, i) => {
-                const id = `call_${toolCallCounter++}`;
-                return {
-                  id,
-                  type: 'function',
-                  function: { name: 'terminal', arguments: c.keystrokes },
-                };
-              });
-            enriched.tool_calls = toolCalls;
-            pendingToolCallId = toolCalls.length === 1 ? toolCalls[0].id : null;
-          }
-          if (parsed.analysis || parsed.plan) {
-            const parts = [];
-            if (parsed.analysis) parts.push(parsed.analysis);
-            if (parsed.plan) parts.push(parsed.plan);
-            enriched.content = parts.join('\n\n');
-            if (parts.length === 2) {
-              enriched._sections = [
-                { label: 'Analysis', length: parts[0].length },
-                { label: 'Plan', length: parts[1].length },
-              ];
-            }
-          }
-        } catch { /* not JSON */ }
+  // Build span_id → UPDATE outputs map (assistant responses)
+  const outputsBySpanId = {};
+  for (const s of spans) {
+    if (s.type === 'UPDATE' && s.span_id) {
+      const outputs = s.attributes?.outputs;
+      if (outputs && outputs.choices) {
+        outputsBySpanId[s.span_id] = outputs.choices[0]?.message || null;
       }
-
-      // Convert terminal output user messages to tool results
-      if (msg.role === 'user' && typeof msg.content === 'string' && isTerminalOutput(msg.content)) {
-        enriched.role = 'tool';
-        enriched.tool_call_id = pendingToolCallId || '';
-        enriched.content = msg.content;
-        pendingToolCallId = null;
-      }
-
-      conversation.push(enriched);
     }
   }
 
+  // Split completions by parent: agent completions vs judge/eval completions
+  const agentSpanId = agentSpan.span_id;
+  const agentCompletions = [];
+  const judgeCompletions = [];
+  for (const cs of completionSpans) {
+    if (cs.parent_span_id === agentSpanId) {
+      agentCompletions.push(cs);
+    } else {
+      judgeCompletions.push(cs);
+    }
+  }
+
+  const conversation = buildConversation(agentCompletions, outputsBySpanId);
+  const judgeConversation = judgeCompletions.length > 0 ? buildConversation(judgeCompletions, outputsBySpanId) : null;
+
   // Model config from first completion span
   let modelConfig = {};
-  if (completionSpans.length > 0) {
-    const kwargs = completionSpans[0].attributes?.inputs?.kwargs || {};
+  if (agentCompletions.length > 0) {
+    const kwargs = agentCompletions[0].attributes?.inputs?.kwargs || {};
     modelConfig = {
-      model: completionSpans[0].attributes?.inputs?.model || agentInput.model_name || '',
+      model: agentCompletions[0].attributes?.inputs?.model || agentInput.model_name || '',
       temperature: kwargs.temperature,
       top_p: kwargs.top_p,
       top_k: kwargs.top_k,
@@ -108,7 +77,7 @@ function extractTrajectoryRow(spans) {
     }
   }
 
-  return {
+  const row = {
     task: agentInput.user_prompt || '',
     model_name: agentInput.model_name || modelConfig.model || '',
     temperature: modelConfig.temperature ?? null,
@@ -124,6 +93,113 @@ function extractTrajectoryRow(spans) {
     total_spans: spans.length,
     completion_count: completionSpans.length,
   };
+
+  if (judgeConversation) {
+    row.conversations = [conversation, judgeConversation];
+  }
+
+  return row;
+}
+
+function buildConversation(completionSpans, outputsBySpanId) {
+  const conversation = [];
+  const seenMsgKeys = new Set();
+  let pendingToolCallId = null;
+
+  for (let i = 0; i < completionSpans.length; i++) {
+    const cs = completionSpans[i];
+    const msgs = cs.attributes?.inputs?.messages;
+    if (!Array.isArray(msgs)) continue;
+
+    // Only process NEW messages not seen in previous spans
+    // The last completion contains ALL messages, so we process from the last one
+    // But we deduplicate with seenMsgKeys, so processing all is fine
+    for (const msg of msgs) {
+      appendMessage(msg, conversation, seenMsgKeys, pendingToolCallId);
+      pendingToolCallId = getPendingToolCallId(conversation);
+    }
+
+    // Append the assistant response from UPDATE outputs (for the LAST completion only,
+    // since intermediate outputs appear as input in subsequent completions)
+    if (i === completionSpans.length - 1) {
+      const output = outputsBySpanId[cs.span_id];
+      if (output) {
+        appendMessage(output, conversation, seenMsgKeys, pendingToolCallId);
+      }
+    }
+  }
+
+  return conversation;
+}
+
+function getPendingToolCallId(conversation) {
+  if (conversation.length === 0) return null;
+  const last = conversation[conversation.length - 1];
+  if (last.tool_calls && last.tool_calls.length === 1) {
+    return last.tool_calls[0].id;
+  }
+  return null;
+}
+
+function appendMessage(msg, conversation, seenMsgKeys, pendingToolCallId) {
+  const toolCalls = msg.tool_calls;
+  const reasoning = msg.reasoning_content;
+  const key = `${msg.role}:${String(msg.content ?? '').slice(0, 80)}:${toolCalls?.[0]?.id || ''}`;
+  if (seenMsgKeys.has(key)) return;
+  seenMsgKeys.add(key);
+
+  const enriched = { role: msg.role, content: msg.content };
+
+  if (msg.role === 'assistant') {
+    if (reasoning) {
+      enriched.reasoning_content = reasoning;
+    }
+
+    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      enriched.tool_calls = toolCalls;
+      if (!enriched.content) enriched.content = '';
+      pendingToolCallId = toolCalls.length === 1 ? toolCalls[0].id : null;
+    } else if (typeof msg.content === 'string') {
+      try {
+        const parsed = JSON.parse(msg.content);
+        if (Array.isArray(parsed.commands) && parsed.commands.length > 0) {
+          const synthCalls = parsed.commands
+            .filter(c => c.keystrokes)
+            .map((c) => {
+              const id = `call_${toolCallCounter++}`;
+              return {
+                id,
+                type: 'function',
+                function: { name: 'terminal', arguments: c.keystrokes },
+              };
+            });
+          enriched.tool_calls = synthCalls;
+        }
+        if (parsed.analysis || parsed.plan) {
+          const parts = [];
+          if (parsed.analysis) parts.push(parsed.analysis);
+          if (parsed.plan) parts.push(parsed.plan);
+          enriched.content = parts.join('\n\n');
+          if (parts.length === 2) {
+            enriched._sections = [
+              { label: 'Analysis', length: parts[0].length },
+              { label: 'Plan', length: parts[1].length },
+            ];
+          }
+        }
+      } catch { /* not JSON */ }
+    }
+  }
+
+  if (msg.role === 'tool') {
+    enriched.tool_call_id = msg.tool_call_id || pendingToolCallId || '';
+  } else if (msg.role === 'user' && typeof msg.content === 'string' && isTerminalOutput(msg.content)) {
+    enriched.role = 'tool';
+    enriched.tool_call_id = pendingToolCallId || '';
+    enriched.content = msg.content;
+  }
+
+  conversation.push(enriched);
 }
 
 const trajectoryParse = {
