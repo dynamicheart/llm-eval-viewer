@@ -9,7 +9,10 @@
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
-              {{ d.name }} <span class="recent-meta">{{ d.records }} records</span>
+              <div class="recent-item">
+                <span>{{ d.name }} <span class="recent-meta">{{ d.records }} records</span></span>
+                <el-icon class="recent-delete" @click.stop="removeRecentDir(d.name)"><Close /></el-icon>
+              </div>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -70,6 +73,12 @@
           <el-tag v-if="iterationStats.avg" size="small" type="info">avg: {{ iterationStats.avg }}</el-tag>
           <el-tag v-if="iterationStats.max" size="small" type="info">max: {{ iterationStats.max }}</el-tag>
           <el-tag v-if="iterationStats.min" size="small" type="info">min: {{ iterationStats.min }}</el-tag>
+        </div>
+        <div v-if="turnStats" class="stats-section">
+          <span class="stats-label">Turns:</span>
+          <el-tag size="small" type="info">avg: {{ turnStats.avg }}</el-tag>
+          <el-tag size="small" type="info">max: {{ turnStats.max }}</el-tag>
+          <el-tag size="small" type="info">min: {{ turnStats.min }}</el-tag>
         </div>
       </div>
       <div v-if="evalLoading" class="eval-progress">
@@ -144,6 +153,12 @@
           :filters="exitStatusFilters"
           :filter-multiple="true"
         />
+        <el-table-column v-if="Object.keys(msgCountMap).length" label="Turns" width="70">
+          <template #default="{ row }">
+            <span v-if="msgCountMap[String(row.question_id)]">{{ msgCountMap[String(row.question_id)] }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="trajectoryCount" label="Traj" width="50">
           <template #default="{ row }">
             <el-icon v-if="hasTrajectory(row)" color="var(--el-color-success)"><Check /></el-icon>
@@ -289,10 +304,10 @@ import trajectoryParse from '@/plugins/trajectoryParse';
 import ConversationDialog from '@/components/ConversationDialog.vue';
 import JsonViewer from '@/components/JsonViewer.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
-import { Check, ArrowDown } from '@element-plus/icons-vue';
+import { Check, ArrowDown, Close } from '@element-plus/icons-vue';
 
 export default {
-  components: { ConversationDialog, JsonViewer, TableHeaderSearch, Check, ArrowDown },
+  components: { ConversationDialog, JsonViewer, TableHeaderSearch, Check, ArrowDown, Close },
 
   data() {
     return {
@@ -311,6 +326,7 @@ export default {
       rawRows: [],
       judgeEval: null,
       judgeEvalMap: {},
+      msgCountMap: {},
       evalLoadProgress: 0,
       evalLoadTotal: 0,
       evalLoading: false,
@@ -415,6 +431,14 @@ export default {
       const start = (this.currentPage - 1) * this.pageSize;
       return this.sortedRows.slice(start, start + this.pageSize);
     },
+    turnStats() {
+      const vals = Object.values(this.msgCountMap).filter(v => v != null);
+      if (vals.length === 0) return null;
+      const sum = vals.reduce((a, b) => a + b, 0);
+      const max = Math.max(...vals);
+      const min = Math.min(...vals);
+      return { avg: (sum / vals.length).toFixed(1), max, min };
+    },
   },
 
   watch: {
@@ -434,9 +458,15 @@ export default {
       this.currentPage = 1;
     },
     onFilterChange(filters) {
+      const updated = { ...this.columnFilters };
       for (const [key, val] of Object.entries(filters)) {
-        this.columnFilters = { ...this.columnFilters, [key]: val };
+        if (val && val.length > 0) {
+          updated[key] = val;
+        } else {
+          delete updated[key];
+        }
       }
+      this.columnFilters = updated;
       this.currentPage = 1;
     },
     onRecentCommand(name) {
@@ -736,9 +766,12 @@ export default {
 
     async loadJudgeEvalsAsync() {
       const cacheKey = `hyeval_judge_${this.fileName}`;
+      const msgCacheKey = `hyeval_msgcount_${this.fileName}`;
       const cached = await this.getJudgeCache(cacheKey);
-      if (cached) {
+      const cachedMsg = await this.getJudgeCache(msgCacheKey);
+      if (cached && cachedMsg) {
         this.judgeEvalMap = cached;
+        this.msgCountMap = cachedMsg;
         return;
       }
 
@@ -749,6 +782,7 @@ export default {
       this.evalLoadTotal = entries.length;
       this.evalLoadProgress = 0;
       const map = {};
+      const msgMap = {};
 
       const BATCH_SIZE = 5;
       for (let i = 0; i < entries.length; i += BATCH_SIZE) {
@@ -759,17 +793,24 @@ export default {
             const text = await readTextWithDecompression(file);
             const result = trajectoryParse.process(text, {});
             if (result.rows.length > 0 && result.rows[0].conversations) {
-              const evalObj = this.extractJudgeEval(result.rows[0].conversations);
+              const convs = result.rows[0].conversations;
+              const evalObj = this.extractJudgeEval(convs);
               if (evalObj) map[qid] = evalObj;
+              const agentConv = convs[0];
+              if (Array.isArray(agentConv)) {
+                msgMap[qid] = agentConv.filter(m => m.role === 'assistant').length;
+              }
             }
           } catch (e) { /* skip failed */ }
         }));
         this.evalLoadProgress = Math.min(i + BATCH_SIZE, entries.length);
         this.judgeEvalMap = { ...map };
+        this.msgCountMap = { ...msgMap };
       }
 
       this.evalLoading = false;
       await this.setJudgeCache(cacheKey, map);
+      await this.setJudgeCache(msgCacheKey, msgMap);
     },
 
     async getJudgeCache(key) {
@@ -826,6 +867,23 @@ export default {
   color: var(--el-text-color-placeholder);
   font-size: 12px;
   margin-left: 8px;
+}
+
+.recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+.recent-delete {
+  color: var(--el-text-color-placeholder);
+  cursor: pointer;
+  font-size: 14px;
+}
+.recent-delete:hover {
+  color: var(--el-color-danger);
 }
 
 .stats {
