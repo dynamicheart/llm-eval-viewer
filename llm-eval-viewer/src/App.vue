@@ -19,6 +19,8 @@
         <el-menu-item index="/custom">
           <span class="nav-group-tag">Toolkit</span>Custom<span class="nav-beta-tag">Beta</span>
         </el-menu-item>
+        <el-menu-item v-if="debugMode" index="/meval">MEval</el-menu-item>
+        <el-menu-item v-if="debugMode" index="/hyeval">Hyeval</el-menu-item>
       </el-menu>
 
       <div class="nav-right">
@@ -205,7 +207,7 @@ export default {
       }
     }
 
-    return { showSidebar, sidebarWidth, customDir, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick };
+    return { showSidebar, sidebarWidth, customDir, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick, debugMode };
   },
   watch: {
     '$i18n.locale': {

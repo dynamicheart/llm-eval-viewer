@@ -37,6 +37,8 @@ function extractHyevalRow(obj) {
     test_results: taskOutput.test_results || null,
     task_dir: taskConfig.task_dir || null,
     trajectory_path: trajectoryInfo.trajectory_path || null,
+    trajectory_chat_path: trajectoryInfo.trajectory_chat_path || null,
+    masked_content_path: trajectoryInfo.masked_content_path || null,
     max_iterations: agentConfig.max_iterations ?? null,
   };
 }

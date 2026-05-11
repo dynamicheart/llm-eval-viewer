@@ -3,36 +3,36 @@
 <template>
   <div class="heval-view">
     <div class="heval-toolbar">
-      <el-button type="primary" @click="openDirectory">Select Directory</el-button>
-      <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
-        <el-button>Recent <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
-              <div class="recent-item">
-                <span>{{ d.name }} <span class="recent-meta">{{ d.records }} records</span></span>
-                <el-icon class="recent-delete" @click.stop="removeRecentDir(d.name)"><Close /></el-icon>
-              </div>
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+      <el-button type="primary" @click="openDirectory">{{ $t('hyeval.selectDirectory') }}</el-button>
       <el-upload
         :auto-upload="false"
         :on-change="handleFileChange"
         :show-file-list="false"
         accept=".jsonl,.jsonl.gz,.gz"
       >
-        <el-button>Or single .jsonl.gz</el-button>
+        <el-button>{{ $t('hyeval.orSingleFile') }}</el-button>
       </el-upload>
+      <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
+        <el-button>{{ $t('hyeval.recent') }} <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
+              <div class="recent-item">
+                <span>{{ d.name }} <span class="recent-meta">{{ d.records }} {{ $t('hyeval.records') }}</span></span>
+                <el-icon class="recent-delete" @click.stop="removeRecentDir(d.name)"><Close /></el-icon>
+              </div>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
       <span v-if="fileName" class="file-name">{{ fileName }}</span>
       <el-divider v-if="rows.length" direction="vertical" />
       <span v-if="rows.length" class="stats-text">
-        {{ rows.length }} records
-        <template v-if="sortedRows.length !== rows.length"> · {{ sortedRows.length }} shown</template>
-        · <span class="pass-text">{{ passCount }} pass ({{ ((passCount / rows.length) * 100).toFixed(1) }}%)</span>
-        · <span class="fail-text">{{ failCount }} fail ({{ ((failCount / rows.length) * 100).toFixed(1) }}%)</span>
-        <template v-if="trajectoryCount"> · {{ trajectoryCount }} trajectories</template>
+        {{ rows.length }} {{ $t('hyeval.records') }}
+        <template v-if="sortedRows.length !== rows.length"> · {{ sortedRows.length }} {{ $t('hyeval.shown') }}</template>
+        · <span class="pass-text">{{ passCount }} {{ $t('hyeval.pass') }} ({{ ((passCount / rows.length) * 100).toFixed(1) }}%)</span>
+        · <span class="fail-text">{{ failCount }} {{ $t('hyeval.fail') }} ({{ ((failCount / rows.length) * 100).toFixed(1) }}%)</span>
+        <template v-if="trajectoryCount"> · {{ trajectoryCount }} {{ $t('hyeval.trajectories') }}</template>
       </span>
       <div class="toolbar-right">
         <el-select
@@ -49,14 +49,14 @@
     </div>
 
     <div v-if="!rows.length" class="empty-state">
-      <p>Select a hyeval export directory to start analysis</p>
-      <p class="hint">Directory should contain a .jsonl.gz and a trajectory/ folder</p>
+      <p>{{ $t('hyeval.emptyPrompt') }}</p>
+      <p class="hint">{{ $t('hyeval.emptyHint') }}</p>
     </div>
 
     <template v-else>
       <div v-if="hasAgentData" class="stats-panel">
         <div class="stats-section">
-          <span class="stats-label">Exit Status:</span>
+          <span class="stats-label">{{ $t('hyeval.exitStatus') }}:</span>
           <el-tag
             v-for="(count, status) in exitStatusDist"
             :key="status"
@@ -68,21 +68,21 @@
           </el-tag>
         </div>
         <div v-if="iterationStats" class="stats-section">
-          <span class="stats-label">Iterations:</span>
+          <span class="stats-label">{{ $t('hyeval.iterations') }}:</span>
           <el-tag v-if="iterationStats.limit" size="small" type="danger">limit: {{ iterationStats.limit }}</el-tag>
           <el-tag v-if="iterationStats.avg" size="small" type="info">avg: {{ iterationStats.avg }}</el-tag>
           <el-tag v-if="iterationStats.max" size="small" type="info">max: {{ iterationStats.max }}</el-tag>
           <el-tag v-if="iterationStats.min" size="small" type="info">min: {{ iterationStats.min }}</el-tag>
         </div>
         <div v-if="turnStats" class="stats-section">
-          <span class="stats-label">Turns:</span>
+          <span class="stats-label">{{ $t('hyeval.turns') }}:</span>
           <el-tag size="small" type="info">avg: {{ turnStats.avg }}</el-tag>
           <el-tag size="small" type="info">max: {{ turnStats.max }}</el-tag>
           <el-tag size="small" type="info">min: {{ turnStats.min }}</el-tag>
         </div>
       </div>
       <div v-if="evalLoading" class="eval-progress">
-        <span class="eval-progress-text">Loading judge evaluations: {{ evalLoadProgress }}/{{ evalLoadTotal }}</span>
+        <span class="eval-progress-text">{{ $t('hyeval.loadingJudge', { progress: evalLoadProgress, total: evalLoadTotal }) }}</span>
         <el-progress :percentage="Math.round((evalLoadProgress / evalLoadTotal) * 100)" :stroke-width="6" />
       </div>
       <el-table
@@ -97,35 +97,35 @@
         style="width: 100%"
         :table-layout="'fixed'"
       >
-        <el-table-column prop="question_id" label="ID" width="120">
+        <el-table-column prop="question_id" :label="$t('hyeval.id')" width="120">
           <template #header>
-            <TableHeaderSearch label="ID" v-model="filters.questionId" placeholder="Search" />
+            <TableHeaderSearch :label="$t('hyeval.id')" v-model="filters.questionId" :placeholder="$t('hyeval.search')" />
           </template>
         </el-table-column>
-        <el-table-column label="Question" show-overflow-tooltip>
+        <el-table-column :label="$t('hyeval.question')" min-width="200" show-overflow-tooltip>
           <template #header>
-            <TableHeaderSearch label="Question" v-model="filters.questionText" placeholder="Search" />
+            <TableHeaderSearch :label="$t('hyeval.question')" v-model="filters.questionText" :placeholder="$t('hyeval.search')" />
           </template>
           <template #default="{ row }">
-            <span>{{ truncate(row.question, 80) }}</span>
+            <span>{{ truncate(row.question, 160) }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasRefAnswer" label="Ref Answer" width="150" show-overflow-tooltip>
+        <el-table-column v-if="hasRefAnswer" :label="$t('hyeval.refAnswer')" width="150" show-overflow-tooltip>
           <template #default="{ row }">
             <span v-if="row.ref_answer">{{ truncate(row.ref_answer, 40) }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasRefAnswer" label="Answer" width="180" show-overflow-tooltip>
+        <el-table-column v-if="hasRefAnswer" :label="$t('hyeval.answer')" width="180" show-overflow-tooltip>
           <template #header>
-            <TableHeaderSearch label="Answer" v-model="filters.answerText" placeholder="Search" />
+            <TableHeaderSearch :label="$t('hyeval.answer')" v-model="filters.answerText" :placeholder="$t('hyeval.search')" />
           </template>
           <template #default="{ row }">
             <span v-if="getJudgeAnswer(row)">{{ truncate(getJudgeAnswer(row), 50) }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="score" label="Score" width="90" column-key="score" :filters="scoreFilters" :filter-multiple="true">
+        <el-table-column prop="score" :label="$t('hyeval.score')" width="90" column-key="score" :filters="scoreFilters" :filter-multiple="true">
           <template #default="{ row }">
             <el-tag :type="row.score >= 1 ? 'info' : 'danger'" size="small">
               {{ row.score }}
@@ -133,7 +133,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="Status"
+          :label="$t('hyeval.status')"
           width="100"
           column-key="status"
           :filters="[{ text: 'PASS', value: 'pass' }, { text: 'FAIL', value: 'fail' }]"
@@ -147,21 +147,31 @@
         <el-table-column
           v-if="hasAgentData"
           prop="exit_status"
-          label="Exit"
+          :label="$t('hyeval.exit')"
           width="110"
           column-key="exit_status"
           :filters="exitStatusFilters"
           :filter-multiple="true"
         />
-        <el-table-column v-if="Object.keys(msgCountMap).length" label="Turns" width="70">
+        <el-table-column v-if="Object.keys(msgCountMap).length" :label="$t('hyeval.turns')" width="70">
           <template #default="{ row }">
             <span v-if="msgCountMap[String(row.question_id)]">{{ msgCountMap[String(row.question_id)] }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="trajectoryCount" label="Traj" width="50">
+        <el-table-column v-if="trajectoryCount" :label="$t('hyeval.traj')" width="50">
           <template #default="{ row }">
             <el-icon v-if="hasTrajectory(row)" color="var(--el-color-success)"><Check /></el-icon>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="hasTrajectoryPaths" label="Trajectory Info" width="200">
+          <template #default="{ row }">
+            <div v-if="row.trajectory_path || row.trajectory_chat_path || row.masked_content_path" class="traj-paths">
+              <span v-if="row.trajectory_path" class="path-link" @click.stop="copyPath(row.trajectory_path)">traj</span>
+              <span v-if="row.trajectory_chat_path" class="path-link" @click.stop="copyPath(row.trajectory_chat_path)">chat</span>
+              <span v-if="row.masked_content_path" class="path-link" @click.stop="copyPath(row.masked_content_path)">masked</span>
+            </div>
+            <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
       </el-table>
@@ -186,31 +196,31 @@
             </el-tag>
           </span>
           <div style="display: flex; gap: 8px">
-            <el-button size="small" @click.stop="showRawJson = true">Raw JSON</el-button>
-            <el-button size="small" @click.stop="selectedRow = null">Close</el-button>
+            <el-button size="small" @click.stop="showRawJson = true">{{ $t('hyeval.rawJson') }}</el-button>
+            <el-button size="small" @click.stop="selectedRow = null">{{ $t('hyeval.close') }}</el-button>
           </div>
         </div>
 
         <div class="detail-grid">
           <div class="detail-cell">
-            <div class="detail-label">Question</div>
+            <div class="detail-label">{{ $t('hyeval.question') }}</div>
             <div class="detail-content scrollable">{{ selectedRow.question }}</div>
           </div>
           <div class="detail-cell">
-            <div class="detail-label">Model Output</div>
+            <div class="detail-label">{{ $t('hyeval.modelOutput') }}</div>
             <div class="detail-content scrollable prediction">{{ selectedRow.final_answer || selectedRow.prediction || selectedRow.answer || '-' }}</div>
           </div>
           <div class="detail-cell">
             <div class="detail-label">
-              <template v-if="selectedRow.ref_answer">Reference Answer</template>
-              <template v-else-if="selectedRow.test_results">Test Results</template>
-              <template v-else>Info</template>
+              <template v-if="selectedRow.ref_answer">{{ $t('hyeval.referenceAnswer') }}</template>
+              <template v-else-if="selectedRow.test_results">{{ $t('hyeval.testResults') }}</template>
+              <template v-else>{{ $t('hyeval.info') }}</template>
             </div>
             <div class="detail-content scrollable">
               <template v-if="selectedRow.ref_answer">
                 <div class="ref-answer">{{ selectedRow.ref_answer }}</div>
                 <div v-if="getJudgeAnswer(selectedRow)" class="model-answer" :class="selectedRow.score >= 1 ? 'pass' : 'fail'">
-                  <span class="answer-label">Model Answer:</span> {{ getJudgeAnswer(selectedRow) }}
+                  <span class="answer-label">{{ $t('hyeval.modelAnswer') }}</span> {{ getJudgeAnswer(selectedRow) }}
                 </div>
               </template>
               <template v-if="selectedRow.test_results">
@@ -229,7 +239,7 @@
                 </div>
               </template>
               <template v-if="!selectedRow.ref_answer && !selectedRow.test_results">
-                <span class="text-muted">No reference answer or test results</span>
+                <span class="text-muted">{{ $t('hyeval.noRefAnswer') }}</span>
               </template>
             </div>
           </div>
@@ -244,28 +254,28 @@
                   accept=".jsonl.zst,.zst,.jsonl"
                   style="display: inline-block; margin-left: 8px"
                 >
-                  <el-button size="small">Load .jsonl.zst</el-button>
+                  <el-button size="small">{{ $t('hyeval.loadFile') }}</el-button>
                 </el-upload>
               </template>
             </div>
             <div class="detail-content scrollable">
-              <div v-if="loadingTrajectory" class="text-muted">Loading trajectory...</div>
+              <div v-if="loadingTrajectory" class="text-muted">{{ $t('hyeval.loadingTrajectory') }}</div>
               <div v-else-if="trajectoryMessages.length || trajectoryConversations.length" class="traj-info">
-                <span v-if="trajectoryConversations.length">{{ trajectoryConversations.length }} conversations</span>
-                <span v-else>{{ trajectoryMessages.length }} messages</span>
+                <span v-if="trajectoryConversations.length">{{ $t('hyeval.conversations', { count: trajectoryConversations.length }) }}</span>
+                <span v-else>{{ $t('hyeval.messages', { count: trajectoryMessages.length }) }}</span>
                 <el-button size="small" type="primary" plain @click="showTrajectory = true">
-                  View Conversation
+                  {{ $t('hyeval.viewConversation') }}
                 </el-button>
-                <el-button size="small" plain @click="showTrajRaw = true">Raw</el-button>
+                <el-button size="small" plain @click="showTrajRaw = true">{{ $t('hyeval.raw') }}</el-button>
               </div>
               <div v-else-if="hasTrajectory(selectedRow)">
                 <el-button size="small" type="primary" plain @click="loadTrajectoryForRow(selectedRow)">
-                  Load Trajectory
+                  {{ $t('hyeval.loadTrajectory') }}
                 </el-button>
               </div>
-              <span v-else class="text-muted">No trajectory available</span>
+              <span v-else class="text-muted">{{ $t('hyeval.noTrajectory') }}</span>
               <div v-if="judgeEval" class="judge-eval">
-                <div class="judge-eval-title">Judge Evaluation</div>
+                <div class="judge-eval-title">{{ $t('hyeval.judgeEvaluation') }}</div>
                 <div v-for="(val, key) in judgeEval" :key="key" class="judge-eval-item">
                   <span class="judge-eval-key">{{ key }}:</span>
                   <span class="judge-eval-val" :class="{ 'judge-fail': val === 0, 'judge-pass': val === 1 }">{{ val }}</span>
@@ -287,7 +297,7 @@
 
     <el-dialog
       v-model="showRawJson"
-      title="Raw JSON"
+      :title="$t('hyeval.rawJson')"
       width="60%"
       top="6vh"
     >
@@ -304,11 +314,11 @@
     >
       <template #header>
         <div style="display: flex; align-items: center;">
-          <span style="margin-right: auto;">Trajectory Raw</span>
+          <span style="margin-right: auto;">{{ $t('hyeval.trajectoryRaw') }}</span>
           <el-button size="small" style="margin-left: 8px;" @click="trajRawText = !trajRawText">
-            {{ trajRawText ? 'Tree' : 'Text' }}
+            {{ trajRawText ? $t('hyeval.tree') : $t('hyeval.text') }}
           </el-button>
-          <el-button size="small" style="margin-left: 8px;" @click="copyTrajRaw">Copy</el-button>
+          <el-button size="small" style="margin-left: 8px;" @click="copyTrajRaw">{{ $t('common.copy') }}</el-button>
         </div>
       </template>
       <div class="raw-json-content">
@@ -373,6 +383,7 @@ export default {
     hasRefAnswer() { return this.rows.some(r => r.ref_answer); },
     hasAnswer() { return this.rows.some(r => r.answer); },
     hasPrediction() { return this.rows.some(r => r.prediction); },
+    hasTrajectoryPaths() { return this.rows.some(r => r.trajectory_path || r.trajectory_chat_path || r.masked_content_path); },
     trajectoryCount() { return Object.keys(this.trajectoryIndex).length; },
     selectedRowRaw() {
       if (!this.selectedRow) return null;
@@ -571,7 +582,12 @@ export default {
 
     copyTrajRaw() {
       navigator.clipboard.writeText(this.trajectoryRawText).then(() => {
-        this.$message.success('Copied');
+        this.$message.success(this.$t('hyeval.copied'));
+      });
+    },
+    copyPath(path) {
+      navigator.clipboard.writeText(path).then(() => {
+        this.$message.success(this.$t('hyeval.copied'));
       });
     },
     async removeRecentDir(name) {
@@ -589,7 +605,7 @@ export default {
     async loadRecentDir(item) {
       const handle = await this.loadDirHandle(item.name);
       if (!handle) {
-        this.$message.warning('Directory handle expired, please re-select');
+        this.$message.warning(this.$t('hyeval.dirExpired'));
         this.removeRecentDir(item.name);
         return;
       }
@@ -671,7 +687,7 @@ export default {
       }
 
       if (!mainFile) {
-        this.$message.warning('未找到 .jsonl.gz 文件。请选择包含 hyeval 导出数据的目录（应含 .jsonl.gz 文件和 trajectory/ 子目录）');
+        this.$message.warning(this.$t('hyeval.noJsonlGz'));
         return;
       }
 
@@ -680,7 +696,7 @@ export default {
       const result = hyevalParse.process(text, {}, {});
 
       if (result.rows.length === 0) {
-        this.$message.warning('文件解析为空，可能不是 hyeval 导出格式');
+        this.$message.warning(this.$t('hyeval.parseEmpty'));
         return;
       }
 
@@ -693,7 +709,7 @@ export default {
       if (this.trajDirHandle) {
         await this.indexTrajectories();
       } else {
-        this.$message.info(`已加载 ${result.rows.length} 条记录。未找到 trajectory/ 目录，Trajectory 功能不可用`);
+        this.$message.info(this.$t('hyeval.loaded', { count: result.rows.length }));
       }
     },
 
@@ -1173,5 +1189,20 @@ export default {
   line-height: 1.5;
   margin: 0;
   user-select: text;
+}
+
+.traj-paths {
+  display: flex;
+  gap: 10px;
+}
+
+.path-link {
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.path-link:hover {
+  color: var(--el-color-primary-dark-2);
 }
 </style>
