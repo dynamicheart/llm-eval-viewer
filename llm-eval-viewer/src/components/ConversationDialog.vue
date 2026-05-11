@@ -22,7 +22,14 @@
             :placeholder="filterPlaceholder || $t('custom.filterConversation')"
             style="width: 200px"
           />
-          <el-button size="small" type="primary" plain @click="copyContent">
+          <el-button
+            size="small"
+            :type="codeWrap ? 'primary' : ''"
+            plain
+            :title="codeWrap ? 'Word Wrap: On' : 'Word Wrap: Off'"
+            @click="codeWrap = !codeWrap"
+          >Wrap</el-button>
+          <el-button size="small" type="primary" plain style="margin-left: 0" @click="copyContent">
             {{ $t('common.copy') }}
           </el-button>
         </div>
@@ -39,7 +46,7 @@
       </div>
     </template>
 
-    <div v-if="toolBlocks.length || filteredBlocks.length" class="chat-scroll-wrapper">
+    <div v-if="toolBlocks.length || filteredBlocks.length" class="chat-scroll-wrapper" :class="{ 'code-wrap': codeWrap }">
       <div v-if="toolBlocks.length" class="tools-section">
         <div class="tools-section-title">TOOLS ({{ toolBlocks.length }})</div>
         <div
@@ -178,6 +185,9 @@ export default {
     const renderedHtmlMap = ref({});
     // Per-section rendered HTML, keyed by "blockIdx-sectionIdx"
     const sectionHtmlMap = ref({});
+
+    // Code wrap toggle (default: on)
+    const codeWrap = ref(true);
 
     // Tool blocks from tools prop (reconstructed tools array)
     const toolCollapseState = ref({});
@@ -631,7 +641,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml, codeWrap };
   },
 };
 </script>
@@ -932,9 +942,14 @@ export default {
   background: rgba(0, 0, 0, 0.04);
   overflow-x: auto;
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.3;
   max-height: 300px;
   overflow-y: auto;
+}
+
+.code-wrap .tool-code {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* Dark mode */
