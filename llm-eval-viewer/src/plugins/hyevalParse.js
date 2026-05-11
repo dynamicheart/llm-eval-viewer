@@ -9,6 +9,7 @@ function extractHyevalRow(obj) {
   const runOutput = trialDetails.run_output_data || {};
   const taskOutput = runOutput.task_output || {};
   const agentOutput = runOutput.agent_output || {};
+  const agentConfig = runInput.agent_config || {};
   const taskConfig = runInput.task_config || {};
   const messages = payload.messages || [];
   const trajectoryInfo = trialDetails.trajectory_info || {};
@@ -32,9 +33,11 @@ function extractHyevalRow(obj) {
     agent_name: runInput.agent_name || null,
     exit_status: agentOutput.exit_status || null,
     n_iterations: agentOutput.n_iterations ?? null,
+    final_answer: agentOutput.final_answer || null,
     test_results: taskOutput.test_results || null,
     task_dir: taskConfig.task_dir || null,
     trajectory_path: trajectoryInfo.trajectory_path || null,
+    max_iterations: agentConfig.max_iterations ?? null,
   };
 }
 

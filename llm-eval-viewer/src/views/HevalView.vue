@@ -4,6 +4,16 @@
   <div class="heval-view">
     <div class="heval-toolbar">
       <el-button type="primary" @click="openDirectory">Select Directory</el-button>
+      <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
+        <el-button>Recent <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
+              {{ d.name }} <span class="recent-meta">{{ d.records }} records</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
       <el-upload
         :auto-upload="false"
         :on-change="handleFileChange"
@@ -13,50 +23,24 @@
         <el-button>Or single .jsonl.gz</el-button>
       </el-upload>
       <span v-if="fileName" class="file-name">{{ fileName }}</span>
-      <div v-if="rows.length" class="stats">
-        <el-tag type="info">Total: {{ rows.length }}</el-tag>
-        <el-tag type="success">Pass: {{ passCount }}</el-tag>
-        <el-tag type="danger">Fail: {{ failCount }}</el-tag>
-        <el-tag v-if="trajectoryCount" type="warning">
-          Trajectories: {{ trajectoryCount }}
-        </el-tag>
-      </div>
+      <el-divider v-if="rows.length" direction="vertical" />
+      <span v-if="rows.length" class="stats-text">
+        {{ rows.length }} records
+        <template v-if="sortedRows.length !== rows.length"> · {{ sortedRows.length }} shown</template>
+        · <span class="pass-text">{{ passCount }} pass ({{ ((passCount / rows.length) * 100).toFixed(1) }}%)</span>
+        · <span class="fail-text">{{ failCount }} fail ({{ ((failCount / rows.length) * 100).toFixed(1) }}%)</span>
+        <template v-if="trajectoryCount"> · {{ trajectoryCount }} trajectories</template>
+      </span>
       <div class="toolbar-right">
-        <el-input
-          v-model="filters.questionId"
-          clearable
-          placeholder="Search ID"
-          size="small"
-          style="width: 130px"
-        />
         <el-select
           v-if="filterOptions.agents.length > 1"
           v-model="filters.agent"
           clearable
           placeholder="Agent"
           size="small"
-          style="width: 140px"
+          style="width: 130px"
         >
           <el-option v-for="a in filterOptions.agents" :key="a" :label="a" :value="a" />
-        </el-select>
-        <el-select
-          v-if="filterOptions.exitStatuses.length > 1"
-          v-model="filters.exitStatus"
-          clearable
-          placeholder="Status"
-          size="small"
-          style="width: 140px"
-        >
-          <el-option v-for="s in filterOptions.exitStatuses" :key="s" :label="s" :value="s" />
-        </el-select>
-        <el-select
-          v-model="filters.scoreFilter"
-          size="small"
-          style="width: 120px"
-        >
-          <el-option label="All" value="all" />
-          <el-option label="Wrong" value="wrong" />
-          <el-option label="Correct" value="correct" />
         </el-select>
       </div>
     </div>
@@ -73,7 +57,7 @@
           <el-tag
             v-for="(count, status) in exitStatusDist"
             :key="status"
-            :type="status === 'max_iterations' ? 'danger' : status === 'finished' ? '' : 'warning'"
+            :type="status === 'success' || status === 'finished' ? 'success' : status === 'max_iterations' ? 'warning' : 'danger'"
             size="small"
             class="stats-dist-tag"
           >
@@ -82,23 +66,37 @@
         </div>
         <div v-if="iterationStats" class="stats-section">
           <span class="stats-label">Iterations:</span>
-          <el-tag size="small" type="info">avg: {{ iterationStats.avg }}</el-tag>
-          <el-tag size="small" type="info">max: {{ iterationStats.max }}</el-tag>
-          <el-tag size="small" type="info">min: {{ iterationStats.min }}</el-tag>
+          <el-tag v-if="iterationStats.limit" size="small" type="danger">limit: {{ iterationStats.limit }}</el-tag>
+          <el-tag v-if="iterationStats.avg" size="small" type="info">avg: {{ iterationStats.avg }}</el-tag>
+          <el-tag v-if="iterationStats.max" size="small" type="info">max: {{ iterationStats.max }}</el-tag>
+          <el-tag v-if="iterationStats.min" size="small" type="info">min: {{ iterationStats.min }}</el-tag>
         </div>
       </div>
+      <div v-if="evalLoading" class="eval-progress">
+        <span class="eval-progress-text">Loading judge evaluations: {{ evalLoadProgress }}/{{ evalLoadTotal }}</span>
+        <el-progress :percentage="Math.round((evalLoadProgress / evalLoadTotal) * 100)" :stroke-width="6" />
+      </div>
       <el-table
-        :data="filteredRows"
+        :data="paginatedRows"
         stripe
         highlight-current-row
         @row-click="selectRow"
         :row-class-name="rowClassName"
+        @sort-change="onSortChange"
+        @filter-change="onFilterChange"
         max-height="45vh"
         style="width: 100%"
         :table-layout="'fixed'"
       >
-        <el-table-column prop="question_id" label="ID" width="100" />
+        <el-table-column prop="question_id" label="ID" width="120">
+          <template #header>
+            <TableHeaderSearch label="ID" v-model="filters.questionId" placeholder="Search" />
+          </template>
+        </el-table-column>
         <el-table-column label="Question" show-overflow-tooltip>
+          <template #header>
+            <TableHeaderSearch label="Question" v-model="filters.questionText" placeholder="Search" />
+          </template>
           <template #default="{ row }">
             <span>{{ truncate(row.question, 80) }}</span>
           </template>
@@ -109,32 +107,60 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasAnswer" label="Answer" width="150" show-overflow-tooltip>
+        <el-table-column v-if="hasRefAnswer" label="Answer" width="180" show-overflow-tooltip>
+          <template #header>
+            <TableHeaderSearch label="Answer" v-model="filters.answerText" placeholder="Search" />
+          </template>
           <template #default="{ row }">
-            <span v-if="row.answer">{{ truncate(row.answer, 40) }}</span>
+            <span v-if="getJudgeAnswer(row)">{{ truncate(getJudgeAnswer(row), 50) }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="score" label="Score" width="90" sortable>
+        <el-table-column prop="score" label="Score" width="90" column-key="score" :filters="scoreFilters" :filter-multiple="true">
           <template #default="{ row }">
-            <el-tag :type="row.score >= 1 ? '' : 'danger'" size="small">
+            <el-tag :type="row.score >= 1 ? 'info' : 'danger'" size="small">
               {{ row.score }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="Status" width="80">
+        <el-table-column
+          label="Status"
+          width="100"
+          column-key="status"
+          :filters="[{ text: 'PASS', value: 'pass' }, { text: 'FAIL', value: 'fail' }]"
+          :filter-multiple="false"
+        >
           <template #default="{ row }">
             <el-tag v-if="row.score < 1" type="danger" size="small">FAIL</el-tag>
             <span v-else class="text-muted">PASS</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="hasAgentData" prop="exit_status" label="Exit" width="90" />
+        <el-table-column
+          v-if="hasAgentData"
+          prop="exit_status"
+          label="Exit"
+          width="110"
+          column-key="exit_status"
+          :filters="exitStatusFilters"
+          :filter-multiple="true"
+        />
         <el-table-column v-if="trajectoryCount" label="Traj" width="50">
           <template #default="{ row }">
             <el-icon v-if="hasTrajectory(row)" color="var(--el-color-success)"><Check /></el-icon>
           </template>
         </el-table-column>
       </el-table>
+      <el-pagination
+        v-if="sortedRows.length > pageSize"
+        :current-page="currentPage"
+        :page-size="pageSize"
+        :page-sizes="[50, 100, 200]"
+        :total="sortedRows.length"
+        layout="total, sizes, prev, pager, next"
+        class="heval-pagination"
+        @current-change="currentPage = $event"
+        @size-change="v => { pageSize = v; currentPage = 1; }"
+      />
 
       <div v-if="selectedRow" class="detail-panel">
         <div class="detail-header">
@@ -144,7 +170,10 @@
               Score: {{ selectedRow.score }}
             </el-tag>
           </span>
-          <el-button size="small" @click.stop="selectedRow = null">Close</el-button>
+          <div style="display: flex; gap: 8px">
+            <el-button size="small" @click.stop="showRawJson = true">Raw JSON</el-button>
+            <el-button size="small" @click.stop="selectedRow = null">Close</el-button>
+          </div>
         </div>
 
         <div class="detail-grid">
@@ -153,8 +182,8 @@
             <div class="detail-content scrollable">{{ selectedRow.question }}</div>
           </div>
           <div class="detail-cell">
-            <div class="detail-label">Model Output (prediction)</div>
-            <div class="detail-content scrollable prediction">{{ selectedRow.prediction || selectedRow.answer || '-' }}</div>
+            <div class="detail-label">Model Output</div>
+            <div class="detail-content scrollable prediction">{{ selectedRow.final_answer || selectedRow.prediction || selectedRow.answer || '-' }}</div>
           </div>
           <div class="detail-cell">
             <div class="detail-label">
@@ -165,6 +194,9 @@
             <div class="detail-content scrollable">
               <template v-if="selectedRow.ref_answer">
                 <div class="ref-answer">{{ selectedRow.ref_answer }}</div>
+                <div v-if="getJudgeAnswer(selectedRow)" class="model-answer" :class="selectedRow.score >= 1 ? 'pass' : 'fail'">
+                  <span class="answer-label">Model Answer:</span> {{ getJudgeAnswer(selectedRow) }}
+                </div>
               </template>
               <template v-if="selectedRow.test_results">
                 <div class="test-results">
@@ -216,6 +248,13 @@
                 </el-button>
               </div>
               <span v-else class="text-muted">No trajectory available</span>
+              <div v-if="judgeEval" class="judge-eval">
+                <div class="judge-eval-title">Judge Evaluation</div>
+                <div v-for="(val, key) in judgeEval" :key="key" class="judge-eval-item">
+                  <span class="judge-eval-key">{{ key }}:</span>
+                  <span class="judge-eval-val" :class="{ 'judge-fail': val === 0, 'judge-pass': val === 1 }">{{ val }}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -229,6 +268,17 @@
       :conversations="trajectoryConversations"
       :show-filter="true"
     />
+
+    <el-dialog
+      v-model="showRawJson"
+      title="Raw JSON"
+      width="60%"
+      top="6vh"
+    >
+      <div class="raw-json-content">
+        <JsonViewer :data="selectedRowRaw" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -237,17 +287,19 @@ import { readTextWithDecompression, isCompressedFile, decompressBuffer } from '@
 import hyevalParse from '@/plugins/hyevalParse';
 import trajectoryParse from '@/plugins/trajectoryParse';
 import ConversationDialog from '@/components/ConversationDialog.vue';
-import { Check } from '@element-plus/icons-vue';
+import JsonViewer from '@/components/JsonViewer.vue';
+import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
+import { Check, ArrowDown } from '@element-plus/icons-vue';
 
 export default {
-  components: { ConversationDialog, Check },
+  components: { ConversationDialog, JsonViewer, TableHeaderSearch, Check, ArrowDown },
 
   data() {
     return {
       fileName: '',
       rows: [],
       selectedRow: null,
-      filters: { agent: '', scoreFilter: 'all', exitStatus: '', questionId: '' },
+      filters: { agent: '', questionId: '', questionText: '', answerText: '' },
       trajectoryMessages: [],
       trajectoryConversations: [],
       showTrajectory: false,
@@ -255,6 +307,18 @@ export default {
       trajectoryIndex: {},
       dirHandle: null,
       trajDirHandle: null,
+      showRawJson: false,
+      rawRows: [],
+      judgeEval: null,
+      judgeEvalMap: {},
+      evalLoadProgress: 0,
+      evalLoadTotal: 0,
+      evalLoading: false,
+      sortState: { prop: null, order: null },
+      columnFilters: {},
+      currentPage: 1,
+      pageSize: 50,
+      recentDirs: JSON.parse(localStorage.getItem('hyeval_recent_dirs') || '[]'),
     };
   },
 
@@ -266,6 +330,11 @@ export default {
     hasAnswer() { return this.rows.some(r => r.answer); },
     hasPrediction() { return this.rows.some(r => r.prediction); },
     trajectoryCount() { return Object.keys(this.trajectoryIndex).length; },
+    selectedRowRaw() {
+      if (!this.selectedRow) return null;
+      const raw = this.rawRows.find(r => r.questionId === this.selectedRow.question_id);
+      return raw || this.selectedRow;
+    },
     exitStatusDist() {
       const dist = {};
       for (const r of this.rows) {
@@ -276,12 +345,18 @@ export default {
     },
     iterationStats() {
       const vals = this.rows.map(r => r.n_iterations).filter(v => v != null);
-      if (vals.length === 0) return null;
+      const configLimit = this.rows.find(r => r.max_iterations != null);
+      const limit = configLimit ? configLimit.max_iterations : null;
+      if (vals.length === 0 && !limit) return null;
+      if (vals.length === 0) return { avg: null, max: null, min: null, limit };
       const sum = vals.reduce((a, b) => a + b, 0);
+      const maxVal = vals.reduce((a, b) => a > b ? a : b, vals[0]);
+      const minVal = vals.reduce((a, b) => a < b ? a : b, vals[0]);
       return {
         avg: (sum / vals.length).toFixed(1),
-        max: Math.max(...vals),
-        min: Math.min(...vals),
+        max: maxVal,
+        min: minVal,
+        limit,
       };
     },
     filterOptions() {
@@ -292,12 +367,60 @@ export default {
     filteredRows() {
       return this.rows.filter(r => {
         if (this.filters.questionId && !String(r.question_id).includes(this.filters.questionId)) return false;
+        if (this.filters.questionText && !(r.question || '').toLowerCase().includes(this.filters.questionText.toLowerCase())) return false;
+        if (this.filters.answerText) {
+          const answer = String(this.getJudgeAnswer(r) || '');
+          if (!answer.toLowerCase().includes(this.filters.answerText.toLowerCase())) return false;
+        }
         if (this.filters.agent && r.agent_name !== this.filters.agent) return false;
-        if (this.filters.exitStatus && r.exit_status !== this.filters.exitStatus) return false;
-        if (this.filters.scoreFilter === 'wrong' && r.score >= 1) return false;
-        if (this.filters.scoreFilter === 'correct' && r.score < 1) return false;
+        const statusFilter = this.columnFilters.status;
+        if (statusFilter && statusFilter.length) {
+          const isPass = r.score >= 1;
+          if (!statusFilter.includes(isPass ? 'pass' : 'fail')) return false;
+        }
+        const exitFilter = this.columnFilters.exit_status;
+        if (exitFilter && exitFilter.length) {
+          if (!exitFilter.includes(r.exit_status)) return false;
+        }
+        const scoreFilter = this.columnFilters.score;
+        if (scoreFilter && scoreFilter.length) {
+          if (!scoreFilter.includes(r.score)) return false;
+        }
         return true;
       });
+    },
+    exitStatusFilters() {
+      const statuses = [...new Set(this.rows.map(r => r.exit_status).filter(Boolean))];
+      return statuses.map(s => ({ text: s, value: s }));
+    },
+    scoreFilters() {
+      const scores = [...new Set(this.rows.map(r => r.score))].sort((a, b) => a - b);
+      return scores.map(s => ({ text: String(s), value: s }));
+    },
+    sortedRows() {
+      const rows = this.filteredRows;
+      const { prop, order } = this.sortState;
+      if (!prop || !order) return rows;
+      const sorted = [...rows];
+      const dir = order === 'ascending' ? 1 : -1;
+      sorted.sort((a, b) => {
+        const va = a[prop] ?? '';
+        const vb = b[prop] ?? '';
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+        return String(va).localeCompare(String(vb)) * dir;
+      });
+      return sorted;
+    },
+    paginatedRows() {
+      const start = (this.currentPage - 1) * this.pageSize;
+      return this.sortedRows.slice(start, start + this.pageSize);
+    },
+  },
+
+  watch: {
+    'filters': {
+      deep: true,
+      handler() { this.currentPage = 1; },
     },
   },
 
@@ -306,8 +429,24 @@ export default {
   },
 
   methods: {
+    onSortChange({ prop, order }) {
+      this.sortState = { prop, order };
+      this.currentPage = 1;
+    },
+    onFilterChange(filters) {
+      for (const [key, val] of Object.entries(filters)) {
+        this.columnFilters = { ...this.columnFilters, [key]: val };
+      }
+      this.currentPage = 1;
+    },
+    onRecentCommand(name) {
+      const item = this.recentDirs.find(d => d.name === name);
+      if (item) this.loadRecentDir(item);
+    },
     async tryRestoreDirectory() {
-      const handle = await this.getStoredDirHandle();
+      if (this.recentDirs.length === 0) return;
+      const last = this.recentDirs[0];
+      const handle = await this.loadDirHandle(last.name);
       if (!handle) return;
       try {
         const permission = await handle.queryPermission({ mode: 'read' });
@@ -323,33 +462,71 @@ export default {
             await this.loadDirectory(handle);
           }
         }
-      } catch { /* permission denied or handle invalid */ }
+      } catch (e) { /* permission denied or handle invalid */ }
+    },
+
+    updateRecentDirs(name, recordCount) {
+      const MAX = 10;
+      const list = this.recentDirs.filter(d => d.name !== name);
+      list.unshift({ name, time: Date.now(), records: recordCount || 0 });
+      if (list.length > MAX) list.length = MAX;
+      this.recentDirs = list;
+      localStorage.setItem('hyeval_recent_dirs', JSON.stringify(list));
+    },
+
+    async removeRecentDir(name) {
+      this.recentDirs = this.recentDirs.filter(d => d.name !== name);
+      localStorage.setItem('hyeval_recent_dirs', JSON.stringify(this.recentDirs));
+      try {
+        const db = await this.openDB();
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').delete(`dir_${name}`);
+        await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
+        db.close();
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadRecentDir(item) {
+      const handle = await this.loadDirHandle(item.name);
+      if (!handle) {
+        this.$message.warning('Directory handle expired, please re-select');
+        this.removeRecentDir(item.name);
+        return;
+      }
+      try {
+        const permission = await handle.requestPermission({ mode: 'read' });
+        if (permission !== 'granted') return;
+        this.dirHandle = handle;
+        this.fileName = handle.name;
+        await this.loadDirectory(handle);
+      } catch (e) {
+        this.$message.error('Failed to access directory');
+      }
     },
 
     async storeDirHandle(handle) {
       const db = await this.openDB();
       const tx = db.transaction('handles', 'readwrite');
-      tx.objectStore('handles').put(handle, 'hyeval_dir');
+      tx.objectStore('handles').put(handle, `dir_${handle.name}`);
       await new Promise((resolve, reject) => {
         tx.oncomplete = resolve;
         tx.onerror = reject;
       });
       db.close();
-      localStorage.setItem('hyeval_dir_handle', '1');
     },
 
-    async getStoredDirHandle() {
+    async loadDirHandle(name) {
       try {
         const db = await this.openDB();
         const tx = db.transaction('handles', 'readonly');
         const handle = await new Promise((resolve, reject) => {
-          const req = tx.objectStore('handles').get('hyeval_dir');
+          const req = tx.objectStore('handles').get(`dir_${name}`);
           req.onsuccess = () => resolve(req.result);
           req.onerror = reject;
         });
         db.close();
         return handle || null;
-      } catch { return null; }
+      } catch (e) { return null; }
     },
 
     openDB() {
@@ -408,8 +585,10 @@ export default {
       }
 
       this.rows = result.rows;
+      this.rawRows = this.parseRawRows(text);
       this.selectedRow = null;
       this.trajectoryMessages = [];
+      this.updateRecentDirs(dirHandle.name, result.rows.length);
 
       if (this.trajDirHandle) {
         await this.indexTrajectories();
@@ -428,6 +607,7 @@ export default {
         }
       }
       this.trajectoryIndex = index;
+      this.loadJudgeEvalsAsync();
     },
 
     hasTrajectory(row) {
@@ -440,6 +620,7 @@ export default {
       if (!fileHandle) return;
 
       this.loadingTrajectory = true;
+      this.judgeEval = null;
       try {
         const file = await fileHandle.getFile();
         const text = await readTextWithDecompression(file);
@@ -449,6 +630,7 @@ export default {
           if (traj.conversations) {
             this.trajectoryConversations = traj.conversations;
             this.trajectoryMessages = [];
+            this.judgeEval = this.extractJudgeEval(traj.conversations);
           } else if (traj.conversation) {
             this.trajectoryMessages = traj.conversation;
             this.trajectoryConversations = [];
@@ -471,12 +653,14 @@ export default {
       const text = await readTextWithDecompression(file);
       const result = hyevalParse.process(text, {}, {});
       this.rows = result.rows;
+      this.rawRows = this.parseRawRows(text);
     },
 
     selectRow(row) {
       this.selectedRow = row;
       this.trajectoryMessages = [];
       this.trajectoryConversations = [];
+      this.judgeEval = null;
     },
 
     rowClassName({ row }) {
@@ -514,6 +698,106 @@ export default {
       if (!str) return '';
       return str.length > len ? str.slice(0, len) + '...' : str;
     },
+
+    parseRawRows(text) {
+      const rows = [];
+      for (const line of text.split('\n')) {
+        if (!line.trim()) continue;
+        try { rows.push(JSON.parse(line)); } catch (e) { /* skip */ }
+      }
+      return rows;
+    },
+
+    extractJudgeEval(conversations) {
+      if (!Array.isArray(conversations) || conversations.length < 2) return null;
+      const judgeConv = conversations[1];
+      if (!Array.isArray(judgeConv)) return null;
+      for (let i = judgeConv.length - 1; i >= 0; i--) {
+        const msg = judgeConv[i];
+        if (msg.role !== 'assistant' || !msg.content) continue;
+        try {
+          const parsed = JSON.parse(msg.content.trim());
+          if (typeof parsed === 'object' && parsed !== null) return parsed;
+        } catch (e) {
+          const match = msg.content.match(/\{[^{}]*\}/);
+          if (match) {
+            try { return JSON.parse(match[0]); } catch (e) { /* skip */ }
+          }
+        }
+      }
+      return null;
+    },
+
+    getJudgeAnswer(row) {
+      const evalObj = this.judgeEvalMap[String(row.question_id)];
+      if (!evalObj) return null;
+      return evalObj['模型回复的答案总结'] || evalObj['answer'] || evalObj['model_answer'] || null;
+    },
+
+    async loadJudgeEvalsAsync() {
+      const cacheKey = `hyeval_judge_${this.fileName}`;
+      const cached = await this.getJudgeCache(cacheKey);
+      if (cached) {
+        this.judgeEvalMap = cached;
+        return;
+      }
+
+      const entries = Object.entries(this.trajectoryIndex);
+      if (entries.length === 0) return;
+
+      this.evalLoading = true;
+      this.evalLoadTotal = entries.length;
+      this.evalLoadProgress = 0;
+      const map = {};
+
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        const batch = entries.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async ([qid, fileHandle]) => {
+          try {
+            const file = await fileHandle.getFile();
+            const text = await readTextWithDecompression(file);
+            const result = trajectoryParse.process(text, {});
+            if (result.rows.length > 0 && result.rows[0].conversations) {
+              const evalObj = this.extractJudgeEval(result.rows[0].conversations);
+              if (evalObj) map[qid] = evalObj;
+            }
+          } catch (e) { /* skip failed */ }
+        }));
+        this.evalLoadProgress = Math.min(i + BATCH_SIZE, entries.length);
+        this.judgeEvalMap = { ...map };
+      }
+
+      this.evalLoading = false;
+      await this.setJudgeCache(cacheKey, map);
+    },
+
+    async getJudgeCache(key) {
+      try {
+        const db = await this.openDB();
+        const tx = db.transaction('handles', 'readonly');
+        const val = await new Promise((resolve, reject) => {
+          const req = tx.objectStore('handles').get(key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = reject;
+        });
+        db.close();
+        return val || null;
+      } catch (e) { return null; }
+    },
+
+    async setJudgeCache(key, data) {
+      try {
+        const db = await this.openDB();
+        const tx = db.transaction('handles', 'readwrite');
+        tx.objectStore('handles').put(data, key);
+        await new Promise((resolve, reject) => {
+          tx.oncomplete = resolve;
+          tx.onerror = reject;
+        });
+        db.close();
+      } catch (e) { /* ignore */ }
+    },
   },
 };
 </script>
@@ -521,8 +805,6 @@ export default {
 <style scoped>
 .heval-view {
   padding: 16px 24px;
-  max-width: 1600px;
-  margin: 0 auto;
   overflow-x: hidden;
 }
 
@@ -535,19 +817,42 @@ export default {
 }
 
 .file-name {
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-primary);
   font-size: 13px;
+  font-weight: 600;
+}
+
+.recent-meta {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  margin-left: 8px;
 }
 
 .stats {
   display: flex;
   gap: 6px;
+  margin-left: auto;
+}
+
+.stats-text {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+.pass-text { color: var(--el-color-success); }
+.fail-text { color: var(--el-color-danger); }
+
+.heval-pagination {
+  margin-top: 10px;
+  justify-content: flex-end;
 }
 
 .toolbar-right {
   margin-left: auto;
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
 .empty-state {
@@ -583,6 +888,17 @@ export default {
 
 .stats-dist-tag {
   cursor: default;
+}
+
+.eval-progress {
+  margin-bottom: 10px;
+}
+
+.eval-progress-text {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+  display: block;
 }
 
 .cell-truncate {
@@ -662,6 +978,22 @@ export default {
   margin-bottom: 8px;
 }
 
+.model-answer {
+  padding: 8px;
+  border-radius: 4px;
+}
+.model-answer.pass {
+  background: var(--el-color-success-light-9);
+}
+.model-answer.fail {
+  background: var(--el-color-danger-light-9);
+}
+.model-answer .answer-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 .test-results { display: flex; flex-direction: column; gap: 6px; }
 .test-item { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
 .test-name { font-size: 12px; font-family: monospace; }
@@ -669,7 +1001,40 @@ export default {
 
 .traj-info { display: flex; align-items: center; gap: 12px; }
 
+.judge-eval {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.judge-eval-title {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 6px;
+}
+
+.judge-eval-item {
+  margin-bottom: 3px;
+}
+
+.judge-eval-key {
+  color: var(--el-text-color-secondary);
+  margin-right: 6px;
+}
+
+.judge-eval-val.judge-fail { color: var(--el-color-danger); font-weight: 600; }
+.judge-eval-val.judge-pass { color: var(--el-color-success); font-weight: 600; }
+
 :deep(.selected-row) {
   background-color: var(--el-color-primary-light-9) !important;
+}
+
+.raw-json-content {
+  max-height: 70vh;
+  overflow: auto;
 }
 </style>
