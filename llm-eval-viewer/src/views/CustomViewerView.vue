@@ -24,6 +24,7 @@
       :supports-dir-picker="supportsDirectoryPicker"
       :browse-mode="browseMode"
       :data-source="dataSource"
+      :show-paste="true"
       :dir-name="dirName"
       :dir-file-count="dirFileCount"
       :recent-dirs="recentDirs"
@@ -37,9 +38,8 @@
       @open-directory="onOpenCustomDirectory"
       @restore-directory="onRestoreCustomDirectory"
       @remove-recent-dir="removeCachedDirHandle"
-    >
-      <el-button :type="dataSource === 'paste' ? 'primary' : ''" @click="pasteDialogVisible = true">{{ $t('custom.pasteJson') }}</el-button>
-    </FileToolbar>
+      @paste="pasteDialogVisible = true"
+    />
 
     <div v-if="samplePromptVisible" class="sample-prompt">
       <span>{{ $t('sample.prompt') }}</span>
@@ -401,7 +401,7 @@ export default {
     const pipelineDebugVisible = ref(false);
     const pasteDialogVisible = ref(false);
     const pasteText = ref('');
-    const dataSource = ref('');
+    const dataSource = ref(localStorage.getItem('custom_viewer_cache')?.startsWith('pasted-json') ? 'paste' : '');
 
     function onOpenDebugDialog() {
       pipelineDebugVisible.value = true;
@@ -1360,6 +1360,7 @@ export default {
       currentFileId = `${name}-${text.length}-0`;
       columnFilterMap.clear();
       currentParseFn = createWorkerParse(name);
+      dataSource.value = 'paste';
       customDir.setBrowseMode('file');
       clearSelectedFile();
       tableData.value = [];
@@ -1416,6 +1417,7 @@ export default {
       pasteDialogVisible,
       pasteText,
       onPasteConfirm,
+      dataSource,
       loadSample,
       dismissSample,
       // Field config

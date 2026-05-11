@@ -45,8 +45,14 @@
         </span>
       </el-tooltip>
 
-      <!-- Extra actions slot (e.g. paste button) -->
-      <slot />
+      <!-- Paste JSON button -->
+      <el-button
+        v-if="showPaste"
+        :type="dataSource === 'paste' ? 'primary' : ''"
+        @click="emits('paste')"
+      >
+        {{ $t('custom.pasteJson') }}
+      </el-button>
 
       <!-- Recent records (files + directories combined) -->
       <el-dropdown popper-class="recent-dropdown" trigger="click">
@@ -178,6 +184,7 @@ const props = defineProps({
   supportsDirPicker: { type: Boolean, default: false },
   browseMode: { type: String, default: 'file' },
   dataSource: { type: String, default: '' },
+  showPaste: { type: Boolean, default: false },
   dirName: { type: String, default: '' },
   dirFileCount: { type: Number, default: 0 },
   recentDirs: { type: Array, default: () => [] },
@@ -197,6 +204,7 @@ const emits = defineEmits([
   'open-directory',
   'restore-directory',
   'remove-recent-dir',
+  'paste',
 ]);
 
 function handleFileChange(uploadFile) {
@@ -218,12 +226,17 @@ const totalCacheSize = computed(() => {
 .file-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
 .file-toolbar :deep(.el-upload) {
   display: inline-flex;
+  margin: 0;
+}
+
+.file-toolbar :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .hint-text {
