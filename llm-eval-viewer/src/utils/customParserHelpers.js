@@ -740,6 +740,10 @@ export const HIGH_PRIORITY_PATTERNS = [
   // --- Evaluation result (English) ---
   /result/i,                         // result, model_output
   /^model_?output$/i,                 // model_output (evalscope)
+  /^answer$/i,                        // answer (ground truth / reference)
+  /^prediction$/i,                    // prediction (model prediction)
+  /^score$/i,                         // score
+  /^trajectory$/i,                    // trajectory (agent trace)
 
   // --- Evaluation result (Chinese) ---
   /结果/i,                           // 标注结果, 评分结果, 推理结果

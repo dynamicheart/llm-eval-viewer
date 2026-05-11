@@ -39,6 +39,7 @@ const STAGES = ['parse', 'transform', 'analyze', 'post'];
  * @param {string[]} [options.enabledPluginIds] - Optional plugins to run
  * @param {Function} [options.progressCallback] - Progress reporting callback(percent)
  * @param {boolean} [options.skipPost=false] - Skip post stage (for plugin-only re-runs)
+ * @param {string} [options.fileName] - File name (passed to parse plugins for detection)
  * @returns {{ rows: Array, fieldMeta: Object, debug: Array, detectedFormat: string, timings: Object }}
  */
 export function runPipeline(input, options = {}) {
@@ -50,6 +51,7 @@ export function runPipeline(input, options = {}) {
     enabledPluginIds = [],
     progressCallback,
     skipPost = false,
+    fileName,
   } = options;
 
   const debug = [];
@@ -74,6 +76,7 @@ export function runPipeline(input, options = {}) {
      * @returns {Array}
      */
     parallel: (arr, fn) => arr.map(fn),
+    fileName: fileName || null,
   };
 
   // ===== Stage 1: parse =====
@@ -94,8 +97,29 @@ export function runPipeline(input, options = {}) {
     const tParse = performance.now();
 
     const parsePlugins = getPluginsByStage('parse');
+    let matchedByDetector = false;
     for (const plugin of parsePlugins) {
       const pt = performance.now();
+
+      // Detect-and-gate: detect-based plugins must match before processing
+      if (typeof plugin.detect === 'function') {
+        if (matchedByDetector) {
+          debug.push({ stage: 'parse', id: plugin.id, required: plugin.required, skipped: true, summary: 'already matched', elapsedMs: Math.round(performance.now() - pt), debug: null });
+          continue;
+        }
+        try {
+          if (!plugin.detect(input, context)) {
+            debug.push({ stage: 'parse', id: plugin.id, required: plugin.required, skipped: true, summary: 'detection: no match', elapsedMs: Math.round(performance.now() - pt), debug: null });
+            continue;
+          }
+        } catch (err) {
+          logger.detail(`detect error in ${plugin.id}: ${err.message}`);
+          debug.push({ stage: 'parse', id: plugin.id, required: plugin.required, skipped: true, summary: `detection error: ${err.message}`, elapsedMs: Math.round(performance.now() - pt), debug: null });
+          continue;
+        }
+        matchedByDetector = true;
+      }
+
       // Parse plugins receive input text, not rows
       const pluginResult = plugin.process(input, fieldMeta, context);
       const elapsed = performance.now() - pt;
@@ -114,6 +138,9 @@ export function runPipeline(input, options = {}) {
         elapsedMs: Math.round(elapsed),
         debug: pluginResult._pluginDebug || null,
       });
+
+      // Detector matched and produced rows — stop (non-detect fallback still runs)
+      if (rows.length > 0 && matchedByDetector) break;
     }
 
     timings.parse = performance.now() - tParse;

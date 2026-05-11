@@ -9,6 +9,7 @@ import { normalizeLatex, renderMathMarkdown } from '@/utils/renderMathMarkdown';
 import { saveParsedData, getParsedData } from '@/utils/fileDB';
 import i18n from '@/i18n';
 import { isDebugLogging } from '@/composables/useDebugMode';
+import { readTextWithDecompression } from '@/utils/decompressFile';
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
 import javascript from 'highlight.js/lib/languages/javascript';
@@ -281,7 +282,7 @@ export function useFileHandler(options) {
       background: 'rgba(0, 0, 0, 0.4)',
     });
     try {
-      const text = await file.text();
+      const text = await readTextWithDecompression(file);
 
       if (validateContent) {
         const warning = validateContent(text);

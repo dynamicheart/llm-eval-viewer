@@ -99,12 +99,30 @@
           <!-- Normal message: render as markdown -->
           <template v-else>
             <div v-show="!isCollapsed(idx, msg)" class="chat-text-wrapper">
-              <div
-                v-if="renderedHtmlMap[idx]"
-                class="chat-text markdown-body"
-                v-html="renderedHtmlMap[idx]"
-              ></div>
-              <div v-else class="chat-text">{{ msg.content }}</div>
+              <template v-if="getSectionParts(msg)">
+                <div
+                  v-for="(part, pidx) in getSectionParts(msg)"
+                  :key="pidx"
+                  class="chat-section"
+                >
+                  <div v-if="part.label" class="section-label">
+                    <span class="section-dot" :style="{ background: part.color }"></span>
+                    <span class="section-label-text" :style="{ color: part.color }">{{ part.label }}</span>
+                  </div>
+                  <div
+                    class="chat-text markdown-body"
+                    v-html="sectionHtmlMap[idx + '-' + (part.label || 'rest')] || escapeHtml(part.text)"
+                  ></div>
+                </div>
+              </template>
+              <template v-else>
+                <div
+                  v-if="renderedHtmlMap[idx]"
+                  class="chat-text markdown-body"
+                  v-html="renderedHtmlMap[idx]"
+                ></div>
+                <div v-else class="chat-text">{{ msg.content }}</div>
+              </template>
             </div>
           </template>
         </div>
@@ -158,6 +176,8 @@ export default {
     const collapseState = ref({});
     // Rendered HTML is also a separate reactive ref keyed by block index.
     const renderedHtmlMap = ref({});
+    // Per-section rendered HTML, keyed by "blockIdx-sectionIdx"
+    const sectionHtmlMap = ref({});
 
     // Tool blocks from tools prop (reconstructed tools array)
     const toolCollapseState = ref({});
@@ -241,6 +261,7 @@ export default {
               fnName: null,
               content,
               isToolBlock: false,
+              sections: msg._sections || null,
             });
           }
           for (const tc of msg.tool_calls) {
@@ -300,6 +321,7 @@ export default {
           fnName: null,
           content,
           isToolBlock: false,
+          sections: msg._sections || null,
         });
       }
       return blocks;
@@ -452,6 +474,38 @@ export default {
       const msg = filteredBlocks.value[idx];
       const current = isCollapsed(idx, msg);
       collapseState.value = { ...collapseState.value, [idx]: !current };
+      // Lazy-render markdown when expanding a long message
+      if (current && msg && msg.content && !renderedHtmlMap.value[idx]) {
+        renderMessageHtml(idx, msg);
+      }
+      if (current && msg && msg.sections) {
+        renderSectionsHtml(idx, msg);
+      }
+    }
+
+    async function renderMessageHtml(idx, msg) {
+      if (!['assistant', 'ai', 'bot'].includes(msg.role)) return;
+      try {
+        const html = await renderMathMarkdown(msg.content);
+        renderedHtmlMap.value = { ...renderedHtmlMap.value, [idx]: html };
+      } catch { /* keep plain text */ }
+    }
+
+    async function renderSectionsHtml(idx, msg) {
+      const parts = getSectionParts(msg);
+      if (!parts) return;
+      const newMap = { ...sectionHtmlMap.value };
+      for (let pidx = 0; pidx < parts.length; pidx++) {
+        const key = `${idx}-${parts[pidx].label}`;
+        if (newMap[key]) continue;
+        if (!['assistant', 'ai', 'bot'].includes(msg.role)) continue;
+        try {
+          newMap[key] = await renderMathMarkdown(parts[pidx].text);
+        } catch {
+          newMap[key] = parts[pidx].text;
+        }
+      }
+      sectionHtmlMap.value = newMap;
     }
 
     const chatContainerRef = ref(null);
@@ -463,6 +517,7 @@ export default {
         collapseState.value = {};
         filterText.value = '';
         activeConvIdx.value = 0;
+        sectionHtmlMap.value = {};
         // Reset scroll to top when switching between conversations/tools
         nextTick(() => {
           if (chatContainerRef.value) chatContainerRef.value.scrollTop = 0;
@@ -471,14 +526,34 @@ export default {
     );
 
     // Render markdown for non-tool assistant messages into a separate reactive map.
+    // Skip long collapsed messages (>500 chars) to avoid unnecessary work — they'll
+    // render on-demand when expanded.
     watch(
       () => parsed.value,
       async (blocks) => {
         const newHtmlMap = {};
+        const newSectionMap = {};
         for (let i = 0; i < blocks.length; i++) {
           const b = blocks[i];
           if (b.isToolBlock) continue;
           if (['assistant', 'ai', 'bot'].includes(b.role) && b.content) {
+            // For messages with sections, render each section part separately
+            if (b.sections && b.sections.length > 0) {
+              if (b.content.length > 2000 && isCollapsed(i, b)) continue;
+              const parts = getSectionParts(b);
+              if (parts) {
+                for (let pidx = 0; pidx < parts.length; pidx++) {
+                  const key = `${i}-${parts[pidx].label}`;
+                  try {
+                    newSectionMap[key] = await renderMathMarkdown(parts[pidx].text);
+                  } catch {
+                    // fallback to plain text
+                  }
+                }
+              }
+              continue;
+            }
+            if (b.content.length > 2000 && isCollapsed(i, b)) continue;
             try {
               newHtmlMap[i] = await renderMathMarkdown(b.content);
             } catch {
@@ -487,6 +562,7 @@ export default {
           }
         }
         renderedHtmlMap.value = newHtmlMap;
+        sectionHtmlMap.value = newSectionMap;
       },
       { immediate: true },
     );
@@ -497,6 +573,35 @@ export default {
       } catch {
         return text;
       }
+    }
+
+    const SECTION_DOT_COLORS = {
+      Analysis: '#6366f1',
+      Plan: '#10b981',
+    };
+
+    function escapeHtml(text) {
+      const el = document.createElement('span');
+      el.textContent = text;
+      return el.innerHTML;
+    }
+
+    function getSectionParts(msg) {
+      if (!msg.sections || !Array.isArray(msg.sections) || msg.sections.length === 0) return null;
+      const parts = [];
+      let offset = 0;
+      for (const sec of msg.sections) {
+        const label = sec.label;
+        const color = SECTION_DOT_COLORS[label] || '#6b7280';
+        const text = msg.content.slice(offset, offset + sec.length);
+        parts.push({ label, color, text });
+        offset += sec.length;
+      }
+      // Any remaining content after the last section
+      if (offset < msg.content.length) {
+        parts.push({ label: null, color: null, text: msg.content.slice(offset) });
+      }
+      return parts;
     }
 
     const copyContent = async () => {
@@ -526,7 +631,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml };
   },
 };
 </script>
@@ -683,6 +788,42 @@ export default {
 /* Markdown body within chat */
 .chat-text.markdown-body {
   white-space: normal;
+}
+
+/* Section dividers with colored dots */
+.chat-section {
+  margin-bottom: 4px;
+}
+
+.chat-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  margin-top: 8px;
+}
+
+.section-label:first-child {
+  margin-top: 0;
+}
+
+.section-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.section-label-text {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
 .chat-text.markdown-body :deep(pre) {

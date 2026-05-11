@@ -26,7 +26,7 @@
       :dir-name="dirName"
       :dir-file-count="dirFileCount"
       :recent-dirs="recentDirs"
-      accept=".json,.jsonl,.ndjson,.log,.txt,.csv,.tsv"
+      accept=".json,.jsonl,.ndjson,.log,.txt,.csv,.tsv,.jsonl.gz,.jsonl.zst,.json.gz,.json.zst,.gz,.zst"
       :button-text="$t('fileToolbar.selectFile')"
       @handle-file-select="onHandleFileSelect"
       @open-recent-file="onOpenRecentFile"
@@ -36,13 +36,29 @@
       @open-directory="onOpenCustomDirectory"
       @restore-directory="onRestoreCustomDirectory"
       @remove-recent-dir="removeCachedDirHandle"
-    />
+    >
+      <el-button @click="pasteDialogVisible = true">{{ $t('custom.pasteJson') }}</el-button>
+    </FileToolbar>
 
     <div v-if="samplePromptVisible" class="sample-prompt">
       <span>{{ $t('sample.prompt') }}</span>
       <el-button type="primary" size="small" @click="loadSample">{{ $t('sample.loadSample') }}</el-button>
       <el-button size="small" text @click="dismissSample">{{ $t('sample.dismiss') }}</el-button>
     </div>
+
+    <!-- Paste JSON dialog -->
+    <el-dialog v-model="pasteDialogVisible" :title="$t('custom.pasteJsonTitle')" width="600px" :close-on-click-modal="false">
+      <el-input
+        v-model="pasteText"
+        type="textarea"
+        :autosize="{ minRows: 8, maxRows: 20 }"
+        :placeholder="$t('custom.pasteJsonPlaceholder')"
+      />
+      <template #footer>
+        <el-button @click="pasteDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :disabled="!pasteText.trim()" @click="onPasteConfirm">{{ $t('common.view') }}</el-button>
+      </template>
+    </el-dialog>
 
     <template v-if="tableData.length">
       <!-- Stats controls -->
@@ -351,6 +367,7 @@ import '@/plugins/dedupNestedFields';
 import '@/plugins/formatParse';
 import '@/plugins/detectTypes';
 import '@/plugins/scoring';
+import '@/plugins/trajectoryParse';
 import CustomWorker from '@/workers/customParser.worker.js?worker';
 
 export default {
@@ -381,6 +398,8 @@ export default {
     const conversationIsToolList = ref(false);
     const samplePromptVisible = ref(false);
     const pipelineDebugVisible = ref(false);
+    const pasteDialogVisible = ref(false);
+    const pasteText = ref('');
 
     function onOpenDebugDialog() {
       pipelineDebugVisible.value = true;
@@ -998,7 +1017,7 @@ export default {
 
     const parseCustom = (text, onProgress) => currentParseFn(text, onProgress);
 
-    function createWorkerParse() {
+    function createWorkerParse(fileName) {
       return (text, onProgress) => {
         return new Promise((resolve) => {
           const tCreate = performance.now();
@@ -1008,6 +1027,7 @@ export default {
           worker.postMessage({
             text,
             expandNestedJsonStrings: true,
+            fileName: fileName || null,
           });
           const tPosted = performance.now();
 
@@ -1183,7 +1203,7 @@ export default {
     async function onHandleFileSelect(file) {
       currentFileId = `${file.name}-${file.size}-${file.lastModified}`;
       columnFilterMap.clear();
-      currentParseFn = createWorkerParse();
+      currentParseFn = createWorkerParse(file.name);
       customDir.setBrowseMode('file');
       await fileHandler.handleFileSelect(file);
     }
@@ -1191,7 +1211,7 @@ export default {
     async function onOpenRecentFile(item) {
       currentFileId = item.id;
       columnFilterMap.clear();
-      currentParseFn = createWorkerParse();
+      currentParseFn = createWorkerParse(item.name);
       await fileHandler.openRecentFile(item);
       customDir.setBrowseMode('file');
     }
@@ -1221,7 +1241,7 @@ export default {
 
     async function onSelectDirFile(node) {
       columnFilterMap.clear();
-      currentParseFn = createWorkerParse();
+      currentParseFn = createWorkerParse(node.relativePath);
       const text = await customDir.readFileNode(node);
       const fileId = `dir_${node.relativePath}`;
       currentFileId = fileId;
@@ -1294,7 +1314,7 @@ export default {
       // Must match the ID format used by loadSampleText: `${name}-${text.length}-0`
       currentFileId = `${sampleName}-${SAMPLE_CUSTOM_TEXT.length}-0`;
       columnFilterMap.clear();
-      currentParseFn = createWorkerParse();
+      currentParseFn = createWorkerParse(sampleName);
       await fileHandler.loadSampleText(sampleName, SAMPLE_CUSTOM_TEXT);
       localStorage.setItem(ONBOARDED_KEY, '1');
       samplePromptVisible.value = false;
@@ -1303,6 +1323,55 @@ export default {
     function dismissSample() {
       localStorage.setItem(ONBOARDED_KEY, '1');
       samplePromptVisible.value = false;
+    }
+
+    function validatePastedText(text) {
+      const trimmed = text.trim();
+      if (!trimmed) return false;
+      // JSON array or object
+      if ((trimmed.startsWith('{') || trimmed.startsWith('[')) || trimmed.startsWith('[')) {
+        try {
+          if (trimmed.startsWith('[')) {
+            JSON.parse(trimmed);
+            return true;
+          }
+          JSON.parse(trimmed);
+          return true;
+        } catch { /* not valid single JSON, try JSONL below */ }
+      }
+      // JSONL: every non-empty line must be valid JSON
+      const lines = trimmed.split('\n').filter(l => l.trim());
+      if (lines.length === 0) return false;
+      return lines.every(l => {
+        try { JSON.parse(l); return true; } catch { return false; }
+      });
+    }
+
+    async function handlePastedText(text) {
+      if (!validatePastedText(text)) {
+        ElMessage.warning(t('custom.pasteJsonInvalid'));
+        return;
+      }
+      const name = 'pasted-json';
+      currentFileId = `${name}-${text.length}-0`;
+      columnFilterMap.clear();
+      currentParseFn = createWorkerParse(name);
+      customDir.setBrowseMode('file');
+      clearSelectedFile();
+      tableData.value = [];
+      reset();
+      expandInfo.value = [];
+      schemaSnapshot.value = null;
+      samplePromptVisible.value = false;
+      await fileHandler.loadSampleText(name, text);
+    }
+
+    function onPasteConfirm() {
+      const text = pasteText.value.trim();
+      if (!text) return;
+      pasteDialogVisible.value = false;
+      handlePastedText(text);
+      pasteText.value = '';
     }
 
     onMounted(async () => {
@@ -1339,6 +1408,9 @@ export default {
       expandInfo,
       // Sample prompt
       samplePromptVisible,
+      pasteDialogVisible,
+      pasteText,
+      onPasteConfirm,
       loadSample,
       dismissSample,
       // Field config

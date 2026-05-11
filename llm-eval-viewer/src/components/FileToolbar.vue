@@ -45,6 +45,9 @@
         </span>
       </el-tooltip>
 
+      <!-- Extra actions slot (e.g. paste button) -->
+      <slot />
+
       <!-- Recent records (files + directories combined) -->
       <el-dropdown popper-class="recent-dropdown" trigger="click">
         <el-button size="small" plain>

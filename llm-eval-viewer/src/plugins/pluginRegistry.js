@@ -17,8 +17,14 @@
  *   required: boolean,        // default false — hidden from UI
  *   execution: 'once' | 'rerunnable',  // default 'rerunnable'
  *   order: number,            // within stage, default 0
- *   process(rows, fieldMeta, context?) => { rows, fieldMeta, pluginDebug? }
+ *   detect?(text: string, context: Object): boolean,  // parse-stage only
+ *   process(rows|text, fieldMeta, context?) => { rows, fieldMeta, pluginDebug? }
  * }
+ *
+ * Parse-stage detect:
+ *   Optional. If present, pipeline calls detect() before process().
+ *   First plugin whose detect() returns true (sorted by order) wins.
+ *   Plugins without detect() always run as fallback (e.g. formatParse).
  */
 
 import { createLogger } from '@/utils/pipelineLogger';

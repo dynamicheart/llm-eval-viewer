@@ -190,7 +190,11 @@ export default {
 
   // === Custom Viewer ===
   custom: {
-    hintText: 'Upload any JSON, NDJSON, CSV, or TSV file to visualize',
+    hintText: 'Upload any JSON, NDJSON, CSV, or TSV file to visualize, or paste JSON directly',
+    pasteJson: 'Paste JSON',
+    pasteJsonTitle: 'Paste JSON Data',
+    pasteJsonPlaceholder: 'Paste JSON, JSONL, CSV, or other data here...',
+    pasteJsonInvalid: 'Pasted content is not valid JSON or JSONL',
     fieldConfig: 'Field Config',
     statsConfig: 'Statistics Config',
     columnConfig: 'Column Config',
@@ -203,6 +207,8 @@ export default {
     pluginDecodeDesc: 'Parse JSON string fields into nested objects, preserving original structure. Format conversation/tool arrays as text.',
     pluginFormatParseName: 'Format Parser',
     pluginFormatParseDesc: 'Parse input text into records (JSON, JSONL, CSV, TSV)',
+    pluginTrajectoryParseName: 'Trajectory Parser',
+    pluginTrajectoryParseDesc: 'Parse OpenTelemetry trace trajectories into conversation records',
     pluginDetectTypesName: 'Type Detector',
     pluginDetectTypesDesc: 'Detect field types by sampling (string, number, enum, nestedObject, etc.)',
     pluginDedupNestedName: 'Nested Field Dedup',

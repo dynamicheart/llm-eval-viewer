@@ -16,6 +16,8 @@
     "@element-plus/icons-vue": "^2.3.2",
     "chart.js": "^4.5.1",
     "element-plus": "^2.11.2",
+    "fflate": "^0.8.2",
+    "fzstd": "^0.1.1",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.27",
     "markdown-it": "^14.1.0",

@@ -28,6 +28,7 @@ import '@/plugins/scoring';
 import '@/plugins/decodeNestedJson';
 import '@/plugins/reconstructDotNotation';
 import '@/plugins/dedupNestedFields';
+import '@/plugins/trajectoryParse';
 
 describe('runPipeline', () => {
   const jsonInput = JSON.stringify([
@@ -197,5 +198,48 @@ describe('runPipeline', () => {
     const result = runPipeline(data, {});
     expect(result.rows).toHaveLength(100);
     expect(result.rows[99].id).toBe(99);
+  });
+
+  describe('parse detect-and-gate', () => {
+    it('detect-based plugin overrides formatParse when matched', () => {
+      // Minimal valid trajectory with an agent span
+      const text = JSON.stringify({ type: 'START', span_id: 's1', trace_id: 't1', name: 'task.x', attributes: { inputs: {} }, events: [], status: {} })
+        + '\n' + JSON.stringify({ type: 'START', span_id: 'a1', trace_id: 't1', parent_span_id: 's1', name: 'agent.test', attributes: { inputs: { agent_input: { user_prompt: 'do it' } } }, events: [], status: {} })
+        + '\n' + JSON.stringify({ type: 'END', span_id: 's1', trace_id: 't1', attributes: {}, events: [], status: {} });
+      const result = runPipeline(text, {});
+      expect(result.detectedFormat).toBe('otel-trajectory');
+      const trajDebug = result.debug.find(d => d.id === 'trajectoryParse');
+      expect(trajDebug).toBeDefined();
+      expect(trajDebug.skipped).toBeFalsy();
+    });
+
+    it('falls through to formatParse when detect returns false', () => {
+      const text = '{"a":1}\n{"a":2}';
+      const result = runPipeline(text, {});
+      expect(result.detectedFormat).toBe('jsonl');
+      expect(result.rows).toHaveLength(2);
+    });
+
+    it('fileName is passed through context', () => {
+      let capturedFileName = null;
+      const spyPlugin = {
+        id: '_test_fileName_spy',
+        stage: 'parse',
+        order: -100,
+        detect: () => true,
+        process(_text, _fm, ctx) {
+          capturedFileName = ctx.fileName;
+          return { rows: [{ spy: true }], fieldMeta: {}, _pluginDebug: { summary: 'spy' } };
+        },
+      };
+      pluginRegistry.push(spyPlugin);
+      try {
+        runPipeline('anything', { fileName: 'test.jsonl.zst' });
+        expect(capturedFileName).toBe('test.jsonl.zst');
+      } finally {
+        const idx = pluginRegistry.findIndex(p => p.id === '_test_fileName_spy');
+        if (idx >= 0) pluginRegistry.splice(idx, 1);
+      }
+    });
   });
 });

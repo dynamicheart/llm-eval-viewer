@@ -14,11 +14,12 @@ import { runPipeline } from '@/utils/pipelineRunner';
 import '@/plugins/formatParse';
 import '@/plugins/detectTypes';
 import '@/plugins/scoring';
+import '@/plugins/trajectoryParse';
 
 // ===== Message handler =====
 
 self.onmessage = (e) => {
-  const { text, expandNestedJsonStrings = true } = e.data;
+  const { text, expandNestedJsonStrings = true, fileName } = e.data;
 
   const result = runPipeline(text, {
     expandNestedJsonStrings,
@@ -26,6 +27,7 @@ self.onmessage = (e) => {
     progressCallback: (percent) => {
       self.postMessage({ type: 'progress', percent });
     },
+    fileName,
   });
 
   self.postMessage({

@@ -18,11 +18,13 @@
 import { ref, shallowRef, computed } from 'vue';
 import { ElMessage } from 'element-plus';
 import i18n from '@/i18n';
+import { isCompressedFile, decompressBuffer } from '@/utils/decompressFile';
 
 const t = (key, named) => i18n.global.t(key, named || {});
 
 // ===== Supported extensions =====
-const SUPPORTED_EXTENSIONS = new Set(['.json', '.jsonl', '.csv', '.ndjson', '.tsv']);
+const SUPPORTED_EXTENSIONS = new Set(['.json', '.jsonl', '.csv', '.ndjson', '.tsv', '.gz', '.zst']);
+const COMPRESSED_EXTENSIONS = new Set(['.gz', '.zst']);
 
 // ===== Singleton module-level state =====
 const dirTree = ref([]);
@@ -150,9 +152,20 @@ async function removeCachedHandle(name) {
  */
 function isSupportedFile(name) {
   if (name.startsWith('.')) return false;
-  const dotIdx = name.lastIndexOf('.');
+  const lower = name.toLowerCase();
+  // Check compound compressed extensions (e.g. .jsonl.gz, .jsonl.zst)
+  for (const compExt of COMPRESSED_EXTENSIONS) {
+    if (lower.endsWith(compExt)) {
+      // Strip compressed suffix, check inner extension
+      const inner = lower.slice(0, -compExt.length);
+      const dotIdx = inner.lastIndexOf('.');
+      if (dotIdx >= 0 && SUPPORTED_EXTENSIONS.has(inner.substring(dotIdx))) return true;
+      return false;
+    }
+  }
+  const dotIdx = lower.lastIndexOf('.');
   if (dotIdx < 0) return false;
-  return SUPPORTED_EXTENSIONS.has(name.substring(dotIdx).toLowerCase());
+  return SUPPORTED_EXTENSIONS.has(lower.substring(dotIdx));
 }
 
 /**
@@ -351,7 +364,10 @@ export function useCustomDirBrowser() {
    */
   async function readFileNode(node) {
     const file = await node.handle.getFile();
-    return file.text();
+    const ext = isCompressedFile(file.name);
+    if (!ext) return file.text();
+    const buffer = await file.arrayBuffer();
+    return decompressBuffer(buffer, ext);
   }
 
   /**

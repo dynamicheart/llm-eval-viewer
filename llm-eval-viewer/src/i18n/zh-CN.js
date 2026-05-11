@@ -190,7 +190,11 @@ export default {
 
   // === Custom Viewer ===
   custom: {
-    hintText: '上传任意 JSON、NDJSON、CSV 或 TSV 文件进行可视化',
+    hintText: '上传任意 JSON、NDJSON、CSV 或 TSV 文件进行可视化，或直接粘贴 JSON 内容',
+    pasteJson: '粘贴 JSON',
+    pasteJsonTitle: '粘贴 JSON 数据',
+    pasteJsonPlaceholder: '在此粘贴 JSON、JSONL、CSV 等数据...',
+    pasteJsonInvalid: '粘贴的内容不是有效的 JSON 或 JSONL 格式',
     fieldConfig: '字段配置',
     statsConfig: '统计配置',
     columnConfig: '列配置',
@@ -203,6 +207,8 @@ export default {
     pluginDecodeDesc: '检测并解码双重/多重编码的JSON字符串（如嵌套转义的JSON）为结构化数据',
     pluginFormatParseName: '格式解析器',
     pluginFormatParseDesc: '将输入文本解析为记录（JSON、JSONL、CSV、TSV）',
+    pluginTrajectoryParseName: '轨迹解析器',
+    pluginTrajectoryParseDesc: '将 OpenTelemetry 跟踪轨迹解析为对话记录',
     pluginDetectTypesName: '类型检测',
     pluginDetectTypesDesc: '通过采样检测字段类型（字符串、数字、枚举、对话等）',
     pluginDedupNestedName: '嵌套字段去重',
