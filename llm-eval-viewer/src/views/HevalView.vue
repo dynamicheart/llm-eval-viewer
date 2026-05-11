@@ -256,6 +256,7 @@
                 <el-button size="small" type="primary" plain @click="showTrajectory = true">
                   View Conversation
                 </el-button>
+                <el-button size="small" plain @click="showTrajRaw = true">Raw</el-button>
               </div>
               <div v-else-if="hasTrajectory(selectedRow)">
                 <el-button size="small" type="primary" plain @click="loadTrajectoryForRow(selectedRow)">
@@ -294,6 +295,27 @@
         <JsonViewer :data="selectedRowRaw" />
       </div>
     </el-dialog>
+
+    <el-dialog
+      v-model="showTrajRaw"
+      title="Trajectory Raw"
+      width="70%"
+      top="4vh"
+    >
+      <template #header>
+        <div style="display: flex; align-items: center;">
+          <span style="margin-right: auto;">Trajectory Raw</span>
+          <el-button size="small" style="margin-left: 8px;" @click="trajRawText = !trajRawText">
+            {{ trajRawText ? 'Tree' : 'Text' }}
+          </el-button>
+          <el-button size="small" style="margin-left: 8px;" @click="copyTrajRaw">Copy</el-button>
+        </div>
+      </template>
+      <div class="raw-json-content">
+        <pre v-if="trajRawText" class="raw-text-pre"><code v-html="trajRawHighlighted"></code></pre>
+        <JsonViewer v-else :data="trajectoryRaw" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -305,6 +327,10 @@ import ConversationDialog from '@/components/ConversationDialog.vue';
 import JsonViewer from '@/components/JsonViewer.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import { Check, ArrowDown, Close } from '@element-plus/icons-vue';
+import hljs from 'highlight.js/lib/core';
+import jsonLang from 'highlight.js/lib/languages/json';
+
+hljs.registerLanguage('json', jsonLang);
 
 export default {
   components: { ConversationDialog, JsonViewer, TableHeaderSearch, Check, ArrowDown, Close },
@@ -323,6 +349,8 @@ export default {
       dirHandle: null,
       trajDirHandle: null,
       showRawJson: false,
+      showTrajRaw: false,
+      trajRawText: false,
       rawRows: [],
       judgeEval: null,
       judgeEvalMap: {},
@@ -348,8 +376,45 @@ export default {
     trajectoryCount() { return Object.keys(this.trajectoryIndex).length; },
     selectedRowRaw() {
       if (!this.selectedRow) return null;
-      const raw = this.rawRows.find(r => r.questionId === this.selectedRow.question_id);
+      const qid = String(this.selectedRow.question_id);
+      const raw = this.rawRows.find(r => String(r.questionId) === qid);
       return raw || this.selectedRow;
+    },
+    trajectoryRaw() {
+      if (this.trajectoryConversations.length) {
+        const obj = {};
+        this.trajectoryConversations.forEach((conv, i) => {
+          const msgs = {};
+          if (Array.isArray(conv)) {
+            conv.forEach((msg, j) => {
+              msgs[`[${j}] ${msg.role || 'unknown'}`] = msg;
+            });
+          }
+          obj[`Conversation ${i}`] = msgs;
+        });
+        return obj;
+      }
+      if (this.trajectoryMessages.length) {
+        const msgs = {};
+        this.trajectoryMessages.forEach((msg, j) => {
+          msgs[`[${j}] ${msg.role || 'unknown'}`] = msg;
+        });
+        return msgs;
+      }
+      return null;
+    },
+    trajectoryRawText() {
+      const data = this.trajectoryConversations.length
+        ? this.trajectoryConversations
+        : this.trajectoryMessages;
+      return JSON.stringify(data, null, 2);
+    },
+    trajRawHighlighted() {
+      try {
+        return hljs.highlight(this.trajectoryRawText, { language: 'json' }).value;
+      } catch {
+        return this.trajectoryRawText;
+      }
     },
     exitStatusDist() {
       const dist = {};
@@ -504,6 +569,11 @@ export default {
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(list));
     },
 
+    copyTrajRaw() {
+      navigator.clipboard.writeText(this.trajectoryRawText).then(() => {
+        this.$message.success('Copied');
+      });
+    },
     async removeRecentDir(name) {
       this.recentDirs = this.recentDirs.filter(d => d.name !== name);
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(this.recentDirs));
@@ -1094,5 +1164,14 @@ export default {
 .raw-json-content {
   max-height: 70vh;
   overflow: auto;
+}
+
+.raw-text-pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  user-select: text;
 }
 </style>
