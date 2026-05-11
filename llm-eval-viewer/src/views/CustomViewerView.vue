@@ -401,7 +401,7 @@ export default {
     const pipelineDebugVisible = ref(false);
     const pasteDialogVisible = ref(false);
     const pasteText = ref('');
-    const dataSource = ref(localStorage.getItem('custom_viewer_cache')?.startsWith('pasted-json') ? 'paste' : '');
+    const dataSource = ref(localStorage.getItem('custom_viewer_cache')?.startsWith('pasted-') ? 'paste' : '');
 
     function onOpenDebugDialog() {
       pipelineDebugVisible.value = true;
@@ -1356,7 +1356,9 @@ export default {
         ElMessage.warning(t('custom.pasteJsonInvalid'));
         return;
       }
-      const name = 'pasted-json';
+      const now = new Date();
+      const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const name = `pasted-${ts}`;
       currentFileId = `${name}-${text.length}-0`;
       columnFilterMap.clear();
       currentParseFn = createWorkerParse(name);
