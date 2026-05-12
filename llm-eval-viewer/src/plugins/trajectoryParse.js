@@ -50,7 +50,10 @@ function extractTrajectoryRow(spans) {
   }
 
   const conversation = buildConversation(agentCompletions, outputsBySpanId);
+  const rawCalls = buildRawCalls(agentCompletions, outputsBySpanId);
+  const spanTree = buildSpanTree(spans, outputsBySpanId);
   const judgeConversation = judgeCompletions.length > 0 ? buildConversation(judgeCompletions, outputsBySpanId) : null;
+  const judgeRawCalls = judgeCompletions.length > 0 ? buildRawCalls(judgeCompletions, outputsBySpanId) : [];
 
   // Model config from first completion span
   let modelConfig = {};
@@ -89,6 +92,8 @@ function extractTrajectoryRow(spans) {
     score,
     test_results: typeof testResults === 'object' ? JSON.stringify(testResults, null, 2) : testResults,
     conversation,
+    rawCalls,
+    spanTree,
     trace_id: spans[0]?.trace_id || '',
     total_spans: spans.length,
     completion_count: completionSpans.length,
@@ -96,40 +101,157 @@ function extractTrajectoryRow(spans) {
 
   if (judgeConversation) {
     row.conversations = [conversation, judgeConversation];
+    row.rawCallsList = [rawCalls, judgeRawCalls];
   }
 
   return row;
 }
 
 function buildConversation(completionSpans, outputsBySpanId) {
+  if (completionSpans.length === 0) return [];
+
+  // Simplified: take last completion's full input + its output
+  const last = completionSpans[completionSpans.length - 1];
+  const msgs = last.attributes?.inputs?.messages;
+  if (!Array.isArray(msgs)) return [];
+
   const conversation = [];
   const seenMsgKeys = new Set();
   let pendingToolCallId = null;
 
-  for (let i = 0; i < completionSpans.length; i++) {
-    const cs = completionSpans[i];
-    const msgs = cs.attributes?.inputs?.messages;
-    if (!Array.isArray(msgs)) continue;
+  for (const msg of msgs) {
+    appendMessage(msg, conversation, seenMsgKeys, pendingToolCallId);
+    pendingToolCallId = getPendingToolCallId(conversation);
+  }
 
-    // Only process NEW messages not seen in previous spans
-    // The last completion contains ALL messages, so we process from the last one
-    // But we deduplicate with seenMsgKeys, so processing all is fine
-    for (const msg of msgs) {
-      appendMessage(msg, conversation, seenMsgKeys, pendingToolCallId);
-      pendingToolCallId = getPendingToolCallId(conversation);
-    }
+  const output = outputsBySpanId[last.span_id];
+  if (output) {
+    appendMessage(output, conversation, seenMsgKeys, pendingToolCallId);
+  }
 
-    // Append the assistant response from UPDATE outputs (for the LAST completion only,
-    // since intermediate outputs appear as input in subsequent completions)
-    if (i === completionSpans.length - 1) {
-      const output = outputsBySpanId[cs.span_id];
-      if (output) {
-        appendMessage(output, conversation, seenMsgKeys, pendingToolCallId);
+  // Dedup warning: check if earlier completions had messages not in the last one
+  if (completionSpans.length > 1) {
+    const firstMsgs = completionSpans[0].attributes?.inputs?.messages;
+    if (Array.isArray(firstMsgs)) {
+      const lastKeys = new Set(msgs.map(m =>
+        `${m.role}:${String(m.content ?? '').slice(0, 80)}`,
+      ));
+      const missing = firstMsgs.filter(m =>
+        !lastKeys.has(`${m.role}:${String(m.content ?? '').slice(0, 80)}`),
+      );
+      if (missing.length > 0) {
+        logger.detail(`dedup warning: ${missing.length} msgs in first completion not found in last (possible context truncation)`);
       }
     }
   }
 
   return conversation;
+}
+
+function buildRawCalls(completionSpans, outputsBySpanId) {
+  const calls = [];
+  for (let i = 0; i < completionSpans.length; i++) {
+    const cs = completionSpans[i];
+    const msgs = cs.attributes?.inputs?.messages;
+    const output = outputsBySpanId[cs.span_id] || null;
+
+    // Extract only new messages (after the last assistant in input)
+    let newMsgs = [];
+    if (Array.isArray(msgs)) {
+      let lastAsstIdx = -1;
+      for (let j = msgs.length - 1; j >= 0; j--) {
+        if (msgs[j].role === 'assistant') { lastAsstIdx = j; break; }
+      }
+      newMsgs = msgs.slice(lastAsstIdx + 1);
+    }
+
+    const hasOutput = output && (output.content || output.tool_calls);
+    calls.push({
+      index: i + 1,
+      input: newMsgs,
+      output: output ? {
+        role: 'assistant',
+        content: output.content ?? null,
+        reasoning_content: output.reasoning_content ?? null,
+        tool_calls: output.tool_calls ?? null,
+      } : null,
+      empty: !hasOutput,
+    });
+  }
+  return calls;
+}
+
+function buildSpanTree(spans, outputsBySpanId) {
+  const startSpans = spans.filter(s => s.type === 'START' && s.name);
+  const nodeMap = {};
+
+  // First pass: create all nodes
+  for (const s of startSpans) {
+    const node = { name: s.name, span_id: s.span_id, parent_span_id: s.parent_span_id, children: [] };
+
+    if (s.name === 'openai_completion') {
+      const output = outputsBySpanId[s.span_id];
+      if (output) {
+        if (output.tool_calls && output.tool_calls.length > 0) {
+          node.result = output.tool_calls.map(tc => tc.function?.name || 'tool_call').join(', ');
+          node.type = 'tool_call';
+        } else if (output.content) {
+          node.result = output.content.length > 60 ? output.content.slice(0, 60) + '...' : output.content;
+          node.type = 'content';
+        } else {
+          node.result = null;
+          node.type = 'empty';
+        }
+      } else {
+        node.result = null;
+        node.type = 'empty';
+      }
+
+      // Input preview
+      const msgs = s.attributes?.inputs?.messages;
+      if (Array.isArray(msgs)) {
+        node.inputCount = msgs.length;
+        let lastAsstIdx = -1;
+        for (let j = msgs.length - 1; j >= 0; j--) {
+          if (msgs[j].role === 'assistant') { lastAsstIdx = j; break; }
+        }
+        const newMsgs = msgs.slice(lastAsstIdx + 1);
+        node.inputPreview = newMsgs.slice(0, 3).map(m => ({
+          role: m.role,
+          text: typeof m.content === 'string' ? (m.content.length > 100 ? m.content.slice(0, 100) + '...' : m.content) : '',
+        }));
+      }
+
+      // Output preview
+      if (output) {
+        const parts = [];
+        if (output.reasoning_content) parts.push(`[reasoning: ${output.reasoning_content.length} chars]`);
+        if (output.content) parts.push(output.content.length > 120 ? output.content.slice(0, 120) + '...' : output.content);
+        if (output.tool_calls) {
+          for (const tc of output.tool_calls) {
+            const args = tc.function?.arguments || '';
+            parts.push(`${tc.function?.name}(${args.length > 80 ? args.slice(0, 80) + '...' : args})`);
+          }
+        }
+        node.outputPreview = parts.join('\n') || null;
+      }
+    }
+
+    nodeMap[s.span_id] = node;
+  }
+
+  // Second pass: link children to parents
+  const roots = [];
+  for (const node of Object.values(nodeMap)) {
+    const parent = node.parent_span_id ? nodeMap[node.parent_span_id] : null;
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
 }
 
 function getPendingToolCallId(conversation) {
@@ -233,6 +355,8 @@ const trajectoryParse = {
 
     const row = extractTrajectoryRow(spans);
     if (!row) return { rows: [], fieldMeta };
+
+    row.rawSpans = spans;
 
     logger.detail(`parsed trajectory: ${row.total_spans} spans, ${row.conversation?.length || 0} msgs`);
 

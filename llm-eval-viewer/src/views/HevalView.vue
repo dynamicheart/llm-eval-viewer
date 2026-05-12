@@ -266,7 +266,6 @@
                 <el-button size="small" type="primary" plain @click="showTrajectory = true">
                   {{ $t('hyeval.viewConversation') }}
                 </el-button>
-                <el-button size="small" plain @click="showTrajRaw = true">{{ $t('hyeval.raw') }}</el-button>
               </div>
               <div v-else-if="hasTrajectory(selectedRow)">
                 <el-button size="small" type="primary" plain @click="loadTrajectoryForRow(selectedRow)">
@@ -292,6 +291,9 @@
       @update:visible="showTrajectory = $event"
       :messages="trajectoryMessages"
       :conversations="trajectoryConversations"
+      :raw-calls="trajectoryRawCalls"
+      :raw-spans="trajectoryRawSpans"
+      :span-tree="trajectorySpanTree"
       :show-filter="true"
     />
 
@@ -303,27 +305,6 @@
     >
       <div class="raw-json-content">
         <JsonViewer :data="selectedRowRaw" />
-      </div>
-    </el-dialog>
-
-    <el-dialog
-      v-model="showTrajRaw"
-      title="Trajectory Raw"
-      width="70%"
-      top="4vh"
-    >
-      <template #header>
-        <div style="display: flex; align-items: center;">
-          <span style="margin-right: auto;">{{ $t('hyeval.trajectoryRaw') }}</span>
-          <el-button size="small" style="margin-left: 8px;" @click="trajRawText = !trajRawText">
-            {{ trajRawText ? $t('hyeval.tree') : $t('hyeval.text') }}
-          </el-button>
-          <el-button size="small" style="margin-left: 8px;" @click="copyTrajRaw">{{ $t('common.copy') }}</el-button>
-        </div>
-      </template>
-      <div class="raw-json-content">
-        <pre v-if="trajRawText" class="raw-text-pre"><code v-html="trajRawHighlighted"></code></pre>
-        <JsonViewer v-else :data="trajectoryRaw" />
       </div>
     </el-dialog>
   </div>
@@ -353,14 +334,15 @@ export default {
       filters: { agent: '', questionId: '', questionText: '', answerText: '' },
       trajectoryMessages: [],
       trajectoryConversations: [],
+      trajectoryRawCalls: [],
+      trajectoryRawSpans: [],
+      trajectorySpanTree: [],
       showTrajectory: false,
       loadingTrajectory: false,
       trajectoryIndex: {},
       dirHandle: null,
       trajDirHandle: null,
       showRawJson: false,
-      showTrajRaw: false,
-      trajRawText: false,
       rawRows: [],
       judgeEval: null,
       judgeEvalMap: {},
@@ -390,42 +372,6 @@ export default {
       const qid = String(this.selectedRow.question_id);
       const raw = this.rawRows.find(r => String(r.questionId) === qid);
       return raw || this.selectedRow;
-    },
-    trajectoryRaw() {
-      if (this.trajectoryConversations.length) {
-        const obj = {};
-        this.trajectoryConversations.forEach((conv, i) => {
-          const msgs = {};
-          if (Array.isArray(conv)) {
-            conv.forEach((msg, j) => {
-              msgs[`[${j}] ${msg.role || 'unknown'}`] = msg;
-            });
-          }
-          obj[`Conversation ${i}`] = msgs;
-        });
-        return obj;
-      }
-      if (this.trajectoryMessages.length) {
-        const msgs = {};
-        this.trajectoryMessages.forEach((msg, j) => {
-          msgs[`[${j}] ${msg.role || 'unknown'}`] = msg;
-        });
-        return msgs;
-      }
-      return null;
-    },
-    trajectoryRawText() {
-      const data = this.trajectoryConversations.length
-        ? this.trajectoryConversations
-        : this.trajectoryMessages;
-      return JSON.stringify(data, null, 2);
-    },
-    trajRawHighlighted() {
-      try {
-        return hljs.highlight(this.trajectoryRawText, { language: 'json' }).value;
-      } catch {
-        return this.trajectoryRawText;
-      }
     },
     exitStatusDist() {
       const dist = {};
@@ -580,11 +526,6 @@ export default {
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(list));
     },
 
-    copyTrajRaw() {
-      navigator.clipboard.writeText(this.trajectoryRawText).then(() => {
-        this.$message.success(this.$t('hyeval.copied'));
-      });
-    },
     copyPath(path) {
       navigator.clipboard.writeText(path).then(() => {
         this.$message.success(this.$t('hyeval.copied'));
@@ -751,6 +692,9 @@ export default {
             this.trajectoryMessages = traj.conversation;
             this.trajectoryConversations = [];
           }
+          this.trajectoryRawCalls = traj.rawCallsList || [traj.rawCalls || []];
+          this.trajectoryRawSpans = traj.rawSpans || [];
+          this.trajectorySpanTree = traj.spanTree || [];
         }
       } catch (e) {
         console.error('Failed to load trajectory:', e);
