@@ -509,5 +509,6 @@ export default {
     scanning: 'Scanning...',
     noValidSubDirs: 'No valid subdirectories found (must contain .jsonl.gz files)',
     subDirCount: '{count} subdirectories',
+    toolCount: 'Tool Count',
   },
 };

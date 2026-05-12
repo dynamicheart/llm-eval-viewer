@@ -88,9 +88,15 @@
         </div>
         <div v-if="turnStats" class="stats-section">
           <span class="stats-label">{{ $t('hyeval.turns') }}:</span>
-          <el-tag size="small" type="info">avg: {{ turnStats.avg }}</el-tag>
+          <el-tag size="small" type="info">avg: {{ turnStats.effAvg }}/{{ turnStats.avg }}</el-tag>
           <el-tag size="small" type="info">max: {{ turnStats.max }}</el-tag>
           <el-tag size="small" type="info">min: {{ turnStats.min }}</el-tag>
+        </div>
+        <div v-if="toolCallStats" class="stats-section">
+          <span class="stats-label">{{ $t('hyeval.toolCount') }}:</span>
+          <el-tag size="small" type="info">avg: {{ toolCallStats.avg }}</el-tag>
+          <el-tag size="small" type="info">max: {{ toolCallStats.max }}</el-tag>
+          <el-tag size="small" type="info">min: {{ toolCallStats.min }}</el-tag>
         </div>
         <div v-if="diagStats" class="stats-section">
           <span class="stats-label">Diag:</span>
@@ -170,9 +176,20 @@
           :filters="exitStatusFilters"
           :filter-multiple="true"
         />
-        <el-table-column v-if="Object.keys(msgCountMap).length" :label="$t('hyeval.turns')" width="70">
+        <el-table-column v-if="Object.keys(msgCountMap).length" :label="$t('hyeval.turns')" width="80">
           <template #default="{ row }">
-            <span v-if="msgCountMap[String(row.question_id)]">{{ msgCountMap[String(row.question_id)] }}</span>
+            <template v-if="msgCountMap[String(row.question_id)]">
+              <span v-if="msgCountMap[String(row.question_id)].effective !== msgCountMap[String(row.question_id)].total">
+                {{ msgCountMap[String(row.question_id)].effective }}/{{ msgCountMap[String(row.question_id)].total }}
+              </span>
+              <span v-else>{{ msgCountMap[String(row.question_id)].total }}</span>
+            </template>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="Object.keys(toolCallMap).length" :label="$t('hyeval.toolCount')" width="90">
+          <template #default="{ row }">
+            <span v-if="toolCallMap[String(row.question_id)] != null">{{ toolCallMap[String(row.question_id)] }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
@@ -349,6 +366,8 @@ import jsonLang from 'highlight.js/lib/languages/json';
 
 hljs.registerLanguage('json', jsonLang);
 
+const CACHE_VERSION = 3;
+
 export default {
   components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, Check, ArrowDown, Close, FolderOpened },
 
@@ -374,6 +393,7 @@ export default {
       judgeEvalMap: {},
       msgCountMap: {},
       diagMap: {},
+      toolCallMap: {},
       evalLoadProgress: 0,
       evalLoadTotal: 0,
       evalLoading: false,
@@ -387,6 +407,7 @@ export default {
       browseMode: localStorage.getItem('hyeval_browse_mode') || 'file',
       currentSubDir: localStorage.getItem('hyeval_current_subdir') || '',
       sidebarWidth: 0,
+      loadGeneration: 0,
     };
   },
 
@@ -489,10 +510,24 @@ export default {
     turnStats() {
       const vals = Object.values(this.msgCountMap).filter(v => v != null);
       if (vals.length === 0) return null;
+      const totals = vals.map(v => typeof v === 'object' ? v.total : v);
+      const effectives = vals.map(v => typeof v === 'object' ? v.effective : v);
+      const sum = totals.reduce((a, b) => a + b, 0);
+      const effSum = effectives.reduce((a, b) => a + b, 0);
+      return {
+        avg: (sum / vals.length).toFixed(1),
+        max: Math.max(...totals),
+        min: Math.min(...totals),
+        effAvg: (effSum / vals.length).toFixed(1),
+      };
+    },
+    toolCallStats() {
+      const vals = Object.values(this.toolCallMap).filter(v => v != null);
+      if (vals.length === 0) return null;
       const sum = vals.reduce((a, b) => a + b, 0);
       const max = Math.max(...vals);
       const min = Math.min(...vals);
-      return { avg: (sum / vals.length).toFixed(1), max, min };
+      return { avg: (sum / vals.length).toFixed(1), max, min, total: sum };
     },
     diagStats() {
       const entries = Object.values(this.diagMap);
@@ -505,7 +540,10 @@ export default {
           totals[reason] = (totals[reason] || 0) + count;
         }
       }
-      const totalTurns = Object.values(this.msgCountMap).reduce((a, b) => a + (b || 0), 0);
+      const totalTurns = Object.values(this.msgCountMap).reduce((a, b) => {
+        const v = typeof b === 'object' ? b.total : (b || 0);
+        return a + v;
+      }, 0);
       return { totals, affected: affectedCount, total: Object.keys(this.trajectoryIndex).length, totalTurns };
     },
   },
@@ -701,6 +739,7 @@ export default {
       this.judgeEvalMap = {};
       this.msgCountMap = {};
       this.diagMap = {};
+      this.toolCallMap = {};
       this.selectedRow = null;
       this.trajectoryMessages = [];
       this.trajectoryConversations = [];
@@ -772,10 +811,19 @@ export default {
     },
 
     async onSelectSubDir(node) {
+      this.loadGeneration++;
       this.currentSubDir = node.id;
       localStorage.setItem('hyeval_current_subdir', node.id);
       this.dirHandle = node.handle;
       this.fileName = node.label;
+      this.rows = [];
+      this.rawRows = [];
+      this.judgeEvalMap = {};
+      this.msgCountMap = {};
+      this.diagMap = {};
+      this.toolCallMap = {};
+      this.trajectoryIndex = {};
+      this.selectedRow = null;
       await this.loadDirectory(node.handle);
     },
 
@@ -806,18 +854,20 @@ export default {
     },
 
     async loadDirectory(dirHandle) {
+      const gen = this.loadGeneration;
       let mainFile = null;
-      this.trajDirHandle = null;
-      this.trajectoryIndex = new Map();
+      let trajDir = null;
 
       for await (const entry of dirHandle.values()) {
+        if (gen !== this.loadGeneration) return;
         if (entry.kind === 'file' && entry.name.endsWith('.jsonl.gz')) {
           mainFile = entry;
         }
         if (entry.kind === 'directory' && entry.name === 'trajectory') {
-          this.trajDirHandle = entry;
+          trajDir = entry;
         }
       }
+      if (gen !== this.loadGeneration) return;
 
       if (!mainFile) {
         this.$message.warning(this.$t('hyeval.noJsonlGz'));
@@ -826,6 +876,8 @@ export default {
 
       const file = await mainFile.getFile();
       const text = await readTextWithDecompression(file);
+      if (gen !== this.loadGeneration) return;
+
       const result = hyevalParse.process(text, {}, {});
 
       if (result.rows.length === 0) {
@@ -833,28 +885,35 @@ export default {
         return;
       }
 
+      this.trajDirHandle = trajDir;
+      this.trajectoryIndex = {};
       this.rows = result.rows;
       this.rawRows = this.parseRawRows(text);
       this.selectedRow = null;
       this.trajectoryMessages = [];
-      this.updateRecentDirs(dirHandle.name, result.rows.length);
+      if (this.browseMode !== 'directory') {
+        this.updateRecentDirs(dirHandle.name, result.rows.length);
+      }
 
       if (this.trajDirHandle) {
-        await this.indexTrajectories();
+        await this.indexTrajectories(gen);
       } else {
         this.$message.info(this.$t('hyeval.loaded', { count: result.rows.length }));
       }
     },
 
-    async indexTrajectories() {
+    async indexTrajectories(gen) {
+      if (gen == null) gen = this.loadGeneration;
       const index = {};
       for await (const entry of this.trajDirHandle.values()) {
+        if (gen !== this.loadGeneration) return;
         if (entry.kind !== 'file') continue;
         const match = entry.name.match(/_(\d+)_[0-9a-f-]+\.jsonl\.zst$/);
         if (match) {
           index[match[1]] = entry;
         }
       }
+      if (gen !== this.loadGeneration) return;
       this.trajectoryIndex = index;
       this.loadJudgeEvalsAsync();
     },
@@ -987,16 +1046,28 @@ export default {
     },
 
     async loadJudgeEvalsAsync() {
-      const cacheKey = `hyeval_judge_${this.fileName}`;
-      const msgCacheKey = `hyeval_msgcount_${this.fileName}`;
-      const diagCacheKey = `hyeval_diag2_${this.fileName}`;
-      const cached = await this.getJudgeCache(cacheKey);
-      const cachedMsg = await this.getJudgeCache(msgCacheKey);
-      const cachedDiag = await this.getJudgeCache(diagCacheKey);
-      if (cached && cachedMsg) {
+      const gen = this.loadGeneration;
+      const fn = this.fileName;
+      const cacheKey = `hyeval_v${CACHE_VERSION}_judge_${fn}`;
+      const msgCacheKey = `hyeval_v${CACHE_VERSION}_msgcount_${fn}`;
+      const diagCacheKey = `hyeval_v${CACHE_VERSION}_diag_${fn}`;
+      const toolCacheKey = `hyeval_v${CACHE_VERSION}_toolcalls_${fn}`;
+
+      // Try versioned cache first, fallback to legacy keys
+      let cached = await this.getJudgeCache(cacheKey);
+      let cachedMsg = await this.getJudgeCache(msgCacheKey);
+      let cachedDiag = await this.getJudgeCache(diagCacheKey);
+      let cachedTool = await this.getJudgeCache(toolCacheKey);
+      if (!cached) cached = await this.getJudgeCache(`hyeval_judge_${fn}`);
+      if (!cachedMsg) cachedMsg = await this.getJudgeCache(`hyeval_msgcount_${fn}`);
+      if (!cachedDiag) cachedDiag = await this.getJudgeCache(`hyeval_diag2_${fn}`);
+
+      if (gen !== this.loadGeneration) return;
+      if (cached && cachedMsg && cachedDiag && cachedTool) {
         this.judgeEvalMap = cached;
         this.msgCountMap = cachedMsg;
-        if (cachedDiag) this.diagMap = cachedDiag;
+        this.diagMap = cachedDiag;
+        this.toolCallMap = cachedTool;
         return;
       }
 
@@ -1009,9 +1080,11 @@ export default {
       const map = {};
       const msgMap = {};
       const diagMapLocal = {};
+      const toolMap = {};
 
       const BATCH_SIZE = 5;
       for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        if (gen !== this.loadGeneration) { this.evalLoading = false; return; }
         const batch = entries.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async ([qid, fileHandle]) => {
           try {
@@ -1020,29 +1093,44 @@ export default {
             const result = trajectoryParse.process(text, {});
             if (result.rows.length > 0) {
               const traj = result.rows[0];
+              const agentConv = traj.conversations ? traj.conversations[0] : traj.conversation;
               if (traj.conversations) {
-                const convs = traj.conversations;
-                const evalObj = this.extractJudgeEval(convs);
+                const evalObj = this.extractJudgeEval(traj.conversations);
                 if (evalObj) map[qid] = evalObj;
-                const agentConv = convs[0];
-                if (Array.isArray(agentConv)) {
-                  msgMap[qid] = agentConv.filter(m => m.role === 'assistant').length;
-                }
+              }
+              const rawCalls = traj.rawCallsList ? traj.rawCallsList[0] : (traj.rawCalls || []);
+              if (rawCalls.length > 0) {
+                const total = rawCalls.length;
+                const effective = rawCalls.filter(c => {
+                  const reason = c.native_finish_reason || c.finish_reason;
+                  return !reason || reason === 'stop' || reason === 'tool_calls';
+                }).length;
+                msgMap[qid] = { effective, total };
+              } else if (Array.isArray(agentConv)) {
+                const total = agentConv.filter(m => m.role === 'assistant').length;
+                msgMap[qid] = { effective: total, total };
+              }
+              if (traj.rawSpans) {
+                const toolSpans = traj.rawSpans.filter(s => s.type === 'START' && s.attributes && s.attributes.type === 'tool');
+                toolMap[qid] = toolSpans.length;
               }
               if (traj.diagnostics) diagMapLocal[qid] = traj.diagnostics;
             }
           } catch (e) { /* skip failed */ }
         }));
+        if (gen !== this.loadGeneration) { this.evalLoading = false; return; }
         this.evalLoadProgress = Math.min(i + BATCH_SIZE, entries.length);
         this.judgeEvalMap = { ...map };
         this.msgCountMap = { ...msgMap };
         this.diagMap = { ...diagMapLocal };
+        this.toolCallMap = { ...toolMap };
       }
 
       this.evalLoading = false;
       await this.setJudgeCache(cacheKey, map);
       await this.setJudgeCache(msgCacheKey, msgMap);
       await this.setJudgeCache(diagCacheKey, diagMapLocal);
+      await this.setJudgeCache(toolCacheKey, toolMap);
     },
 
     async getJudgeCache(key) {
