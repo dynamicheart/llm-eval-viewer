@@ -106,6 +106,21 @@ function extractTrajectoryRow(spans) {
     completion_count: completionSpans.length,
   };
 
+  // Diagnostics: collect non-standard finish reasons + server errors
+  const diag = {};
+  for (const c of rawCalls) {
+    const reason = c.native_finish_reason || c.finish_reason || 'no_response';
+    if (reason !== 'stop' && reason !== 'tool_calls') {
+      diag[reason] = (diag[reason] || 0) + 1;
+    }
+  }
+  for (const s of spans) {
+    if (s.type === 'UPDATE' && s.status?.code === 'ERROR') {
+      diag['server_error'] = (diag['server_error'] || 0) + 1;
+    }
+  }
+  if (Object.keys(diag).length) row.diagnostics = diag;
+
   if (judgeConversation) {
     row.conversations = [conversation, judgeConversation];
     row.rawCallsList = [rawCalls, judgeRawCalls];

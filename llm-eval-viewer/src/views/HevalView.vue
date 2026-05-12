@@ -159,6 +159,13 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
+        <el-table-column v-if="Object.keys(diagMap).length" label="Diag" width="180">
+          <template #default="{ row }">
+            <template v-if="diagMap[String(row.question_id)]">
+              <span v-for="(count, reason) in diagMap[String(row.question_id)]" :key="reason" class="diag-tag" :class="'diag-' + reason">{{ reason }}: {{ count }}</span>
+            </template>
+          </template>
+        </el-table-column>
         <el-table-column v-if="trajectoryCount" :label="$t('hyeval.traj')" width="50">
           <template #default="{ row }">
             <el-icon v-if="hasTrajectory(row)" color="var(--el-color-success)"><Check /></el-icon>
@@ -347,6 +354,7 @@ export default {
       judgeEval: null,
       judgeEvalMap: {},
       msgCountMap: {},
+      diagMap: {},
       evalLoadProgress: 0,
       evalLoadTotal: 0,
       evalLoading: false,
@@ -537,7 +545,11 @@ export default {
       try {
         const db = await this.openDB();
         const tx = db.transaction('handles', 'readwrite');
-        tx.objectStore('handles').delete(`dir_${name}`);
+        const store = tx.objectStore('handles');
+        store.delete(`dir_${name}`);
+        store.delete(`hyeval_judge_${name}`);
+        store.delete(`hyeval_msgcount_${name}`);
+        store.delete(`hyeval_diag_${name}`);
         await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
         db.close();
       } catch (e) { /* ignore */ }
@@ -797,11 +809,14 @@ export default {
     async loadJudgeEvalsAsync() {
       const cacheKey = `hyeval_judge_${this.fileName}`;
       const msgCacheKey = `hyeval_msgcount_${this.fileName}`;
+      const diagCacheKey = `hyeval_diag_${this.fileName}`;
       const cached = await this.getJudgeCache(cacheKey);
       const cachedMsg = await this.getJudgeCache(msgCacheKey);
+      const cachedDiag = await this.getJudgeCache(diagCacheKey);
       if (cached && cachedMsg) {
         this.judgeEvalMap = cached;
         this.msgCountMap = cachedMsg;
+        if (cachedDiag) this.diagMap = cachedDiag;
         return;
       }
 
@@ -813,6 +828,7 @@ export default {
       this.evalLoadProgress = 0;
       const map = {};
       const msgMap = {};
+      const diagMapLocal = {};
 
       const BATCH_SIZE = 5;
       for (let i = 0; i < entries.length; i += BATCH_SIZE) {
@@ -822,25 +838,31 @@ export default {
             const file = await fileHandle.getFile();
             const text = await readTextWithDecompression(file);
             const result = trajectoryParse.process(text, {});
-            if (result.rows.length > 0 && result.rows[0].conversations) {
-              const convs = result.rows[0].conversations;
-              const evalObj = this.extractJudgeEval(convs);
-              if (evalObj) map[qid] = evalObj;
-              const agentConv = convs[0];
-              if (Array.isArray(agentConv)) {
-                msgMap[qid] = agentConv.filter(m => m.role === 'assistant').length;
+            if (result.rows.length > 0) {
+              const traj = result.rows[0];
+              if (traj.conversations) {
+                const convs = traj.conversations;
+                const evalObj = this.extractJudgeEval(convs);
+                if (evalObj) map[qid] = evalObj;
+                const agentConv = convs[0];
+                if (Array.isArray(agentConv)) {
+                  msgMap[qid] = agentConv.filter(m => m.role === 'assistant').length;
+                }
               }
+              if (traj.diagnostics) diagMapLocal[qid] = traj.diagnostics;
             }
           } catch (e) { /* skip failed */ }
         }));
         this.evalLoadProgress = Math.min(i + BATCH_SIZE, entries.length);
         this.judgeEvalMap = { ...map };
         this.msgCountMap = { ...msgMap };
+        this.diagMap = { ...diagMapLocal };
       }
 
       this.evalLoading = false;
       await this.setJudgeCache(cacheKey, map);
       await this.setJudgeCache(msgCacheKey, msgMap);
+      await this.setJudgeCache(diagCacheKey, diagMapLocal);
     },
 
     async getJudgeCache(key) {
@@ -892,6 +914,17 @@ export default {
   font-size: 13px;
   font-weight: 600;
 }
+
+.diag-tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin: 1px 2px;
+  font-weight: 500;
+}
+.diag-abort, .diag-server_error { background: rgba(245, 108, 108, 0.12); color: #e45656; }
+.diag-kvcache_no_enough, .diag-length, .diag-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 
 .recent-meta {
   color: var(--el-text-color-placeholder);
