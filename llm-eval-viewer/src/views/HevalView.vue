@@ -673,6 +673,18 @@ export default {
       try {
         const permission = await handle.requestPermission({ mode: 'read' });
         if (permission !== 'granted') return;
+        this.rows = [];
+        this.rawRows = [];
+        this.judgeEvalMap = {};
+        this.msgCountMap = {};
+        this.diagMap = {};
+        this.toolCallMap = {};
+        this.trajectoryIndex = {};
+        this.selectedRow = null;
+        this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
+        this.columnFilters = {};
+        this.sortState = { prop: null, order: null };
+        this.currentPage = 1;
         if (item.mode === 'directory') {
           this.parentDirHandle = handle;
           await this.scanSubDirs(handle);
@@ -766,6 +778,19 @@ export default {
       try {
         const handle = await window.showDirectoryPicker({ mode: 'read' });
         this.parentDirHandle = handle;
+        this.fileName = '';
+        this.rows = [];
+        this.rawRows = [];
+        this.judgeEvalMap = {};
+        this.msgCountMap = {};
+        this.diagMap = {};
+        this.toolCallMap = {};
+        this.trajectoryIndex = {};
+        this.selectedRow = null;
+        this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
+        this.columnFilters = {};
+        this.sortState = { prop: null, order: null };
+        this.currentPage = 1;
         await this.scanSubDirs(handle);
       } catch (e) {
         if (e.name !== 'AbortError') console.error(e);
@@ -821,6 +846,10 @@ export default {
       this.toolCallMap = {};
       this.trajectoryIndex = {};
       this.selectedRow = null;
+      this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
+      this.columnFilters = {};
+      this.sortState = { prop: null, order: null };
+      this.currentPage = 1;
       await this.loadDirectory(node.handle);
     },
 
@@ -842,6 +871,18 @@ export default {
         this.browseMode = 'file';
         this.subDirs = [];
         this.currentSubDir = '';
+        this.rows = [];
+        this.rawRows = [];
+        this.judgeEvalMap = {};
+        this.msgCountMap = {};
+        this.diagMap = {};
+        this.toolCallMap = {};
+        this.trajectoryIndex = {};
+        this.selectedRow = null;
+        this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
+        this.columnFilters = {};
+        this.sortState = { prop: null, order: null };
+        this.currentPage = 1;
         localStorage.setItem('hyeval_browse_mode', 'file');
         await this.storeDirHandle(dirHandle);
         await this.loadDirectory(dirHandle);
