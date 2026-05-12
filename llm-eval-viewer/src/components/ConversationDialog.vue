@@ -85,6 +85,8 @@
               <span class="jsonl-row-id">{{ span.span_id?.slice(0, 8) }}</span>
               <span v-if="span.parent_span_id" class="jsonl-row-parent">← {{ span.parent_span_id?.slice(0, 8) }}</span>
               <span v-if="spanCallIndexMap[span.span_id]" class="jsonl-call-idx">#{{ spanCallIndexMap[span.span_id] }}</span>
+              <span v-if="spanDuration(span)" class="raw-call-duration" :class="spanDurationClass(span)">{{ formatCallDuration(spanDuration(span)) }}</span>
+              <span v-if="spanDurationClass(span) === 'duration-critical'" class="raw-call-slow-tag">SLOW</span>
               <!-- Type tags on UPDATE spans (where the output lives) -->
               <span v-if="isSpanEmpty(span) === true" class="jsonl-empty-tag">EMPTY</span>
               <span v-else-if="isSpanEmpty(span) === 'reasoning'" class="jsonl-empty-tag jsonl-reasoning-tag">REASONING ONLY</span>
@@ -151,6 +153,7 @@
               :key="'tl-' + call.index"
               class="timeline-bar"
               :class="timelineBarClass(call)"
+              :style="timelineBarStyle(call)"
               :title="timelineTooltip(call)"
             ></div>
           </div>
@@ -209,6 +212,8 @@
         </div>
         <div class="raw-calls-summary">
           {{ $t('custom.rawApiCalls', { count: activeRawCalls.length }) }}
+          <span v-if="outlierCount.llm > 0" class="finish-stat-item finish-slow">LLM slow: {{ outlierCount.llm }}</span>
+          <span v-if="outlierCount.tool > 0" class="finish-stat-item finish-slow-tool">Tool slow: {{ outlierCount.tool }}</span>
           <span v-if="finishReasonStats" class="finish-reason-stats">
             <span v-for="(count, reason) in finishReasonStats" :key="reason" class="finish-stat-item" :class="'finish-' + reason">{{ reason }}: {{ count }} ({{ Math.round(count / activeRawCalls.length * 100) }}%)</span>
           </span>
@@ -221,6 +226,10 @@
         >
           <div class="raw-call-header">
             <span class="raw-call-num">#{{ call.index }}</span>
+            <span v-if="call.gap_ms != null && call.gap_ms > 0" class="raw-call-gap" :class="callGapClass(call)" title="Tool/env time">⚙{{ formatCallDuration(call.gap_ms) }}</span>
+            <span v-if="call.duration_ms != null" class="raw-call-duration" :class="callDurationClass(call)" title="LLM time">{{ formatCallDuration(call.duration_ms) }}</span>
+            <span v-if="callDurationClass(call) === 'duration-critical'" class="raw-call-slow-tag">LLM</span>
+            <span v-if="callGapClass(call) === 'duration-critical'" class="raw-call-slow-tag slow-tool">TOOL</span>
             <span v-if="(call.native_finish_reason || call.finish_reason) && (call.native_finish_reason || call.finish_reason) !== 'stop' && (call.native_finish_reason || call.finish_reason) !== 'tool_calls'" class="jsonl-finish-reason" :class="'finish-' + (call.native_finish_reason || call.finish_reason)">{{ call.native_finish_reason || call.finish_reason }}</span>
             <span v-else-if="!call.native_finish_reason && !call.finish_reason" class="jsonl-finish-reason finish-no_response">no_response</span>
             <span v-if="call.empty" class="jsonl-empty-tag">EMPTY</span>
@@ -480,18 +489,85 @@ export default {
     });
 
     function timelineBarClass(call) {
-      if (call.empty) return 'tl-empty';
-      if (call.output?.tool_calls) return 'tl-tool';
-      return 'tl-content';
+      const base = call.empty ? 'tl-empty' : (call.output?.tool_calls ? 'tl-tool' : 'tl-content');
+      if (call.duration_ms && call.duration_ms > durationOutlierThreshold.value) return base + ' tl-outlier';
+      return base;
     }
 
     function timelineTooltip(call) {
       const parts = [`#${call.index}`];
+      if (call.duration_ms != null) parts.push(formatCallDuration(call.duration_ms));
       if (call.empty) { parts.push('EMPTY'); }
       else if (call.output?.tool_calls) { parts.push(call.output.tool_calls[0]?.function?.name || 'tool_call'); }
       else { parts.push('content'); }
       return parts.join(' ');
     }
+
+    const avgDuration = computed(() => {
+      const durations = activeRawCalls.value.map(c => c.duration_ms).filter(d => d != null && d > 0);
+      if (durations.length === 0) return 0;
+      return durations.reduce((a, b) => a + b, 0) / durations.length;
+    });
+
+    const durationOutlierThreshold = computed(() => {
+      const durations = activeRawCalls.value.map(c => c.duration_ms).filter(d => d != null && d > 0);
+      if (durations.length < 4) return Infinity;
+      const sorted = [...durations].sort((a, b) => a - b);
+      const q1 = sorted[Math.floor(sorted.length * 0.25)];
+      const q3 = sorted[Math.floor(sorted.length * 0.75)];
+      const iqr = q3 - q1;
+      return q3 + 1.5 * iqr;
+    });
+
+    const gapOutlierThreshold = computed(() => {
+      const gaps = activeRawCalls.value.map(c => c.gap_ms).filter(d => d != null && d > 0);
+      if (gaps.length < 4) return Infinity;
+      const sorted = [...gaps].sort((a, b) => a - b);
+      const q1 = sorted[Math.floor(sorted.length * 0.25)];
+      const q3 = sorted[Math.floor(sorted.length * 0.75)];
+      return q3 + 1.5 * (q3 - q1);
+    });
+
+    const maxDuration = computed(() => {
+      const durations = activeRawCalls.value.map(c => c.duration_ms).filter(d => d != null);
+      return durations.length > 0 ? Math.max(...durations) : 0;
+    });
+
+    function timelineBarStyle(call) {
+      if (!maxDuration.value || call.duration_ms == null) return {};
+      const minW = 4;
+      const maxW = 32;
+      const ratio = call.duration_ms / maxDuration.value;
+      const w = Math.max(minW, Math.round(ratio * maxW));
+      return { width: w + 'px' };
+    }
+
+    function formatCallDuration(ms) {
+      if (ms < 1000) return ms + 'ms';
+      if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+      return Math.round(ms / 60000) + 'm';
+    }
+
+    function callDurationClass(call) {
+      if (!call.duration_ms) return '';
+      if (call.duration_ms > durationOutlierThreshold.value) return 'duration-critical';
+      if (avgDuration.value && call.duration_ms > avgDuration.value * 2) return 'duration-slow';
+      return '';
+    }
+
+    function callGapClass(call) {
+      if (!call.gap_ms) return '';
+      if (call.gap_ms > gapOutlierThreshold.value) return 'duration-critical';
+      return '';
+    }
+
+    const outlierCount = computed(() => {
+      const llmSlow = durationOutlierThreshold.value === Infinity ? 0
+        : activeRawCalls.value.filter(c => c.duration_ms && c.duration_ms > durationOutlierThreshold.value).length;
+      const toolSlow = gapOutlierThreshold.value === Infinity ? 0
+        : activeRawCalls.value.filter(c => c.gap_ms && c.gap_ms > gapOutlierThreshold.value).length;
+      return { llm: llmSlow, tool: toolSlow };
+    });
 
     // Flatten span tree for rendering
     const flatSpanTree = computed(() => {
@@ -533,6 +609,42 @@ export default {
       walk(props.spanTree, 0);
       return map;
     });
+
+    const spanDurationMap = computed(() => {
+      const timeMap = {};
+      for (const s of props.rawSpans) {
+        const t = s.time_unix_nano;
+        if (t == null || !s.span_id) continue;
+        if (s.type === 'START') timeMap[s.span_id] = { start: t, end: t };
+        else if (s.type === 'END' && timeMap[s.span_id]) timeMap[s.span_id].end = t;
+      }
+      const result = {};
+      for (const [id, { start, end }] of Object.entries(timeMap)) {
+        if (end > start) result[id] = Math.round((end - start) / 1e6);
+      }
+      return result;
+    });
+
+    const spanDurationOutlier = computed(() => {
+      const durations = Object.values(spanDurationMap.value).filter(d => d > 0);
+      if (durations.length < 4) return Infinity;
+      const sorted = [...durations].sort((a, b) => a - b);
+      const q3 = sorted[Math.floor(sorted.length * 0.75)];
+      const q1 = sorted[Math.floor(sorted.length * 0.25)];
+      return q3 + 1.5 * (q3 - q1);
+    });
+
+    function spanDuration(span) {
+      if (span.type !== 'START' || !span.span_id) return null;
+      return spanDurationMap.value[span.span_id] || null;
+    }
+
+    function spanDurationClass(span) {
+      const d = spanDuration(span);
+      if (!d) return '';
+      if (d > spanDurationOutlier.value) return 'duration-critical';
+      return '';
+    }
 
     // Collapsible spans: which span_ids have children, and which are collapsed
     const spanHasChildren = computed(() => {
@@ -1108,7 +1220,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml, codeWrap, viewMode, messagesJson, rawCallsTab, activeRawCalls, finishReasonStats, spanCallIndexMap, showPipeline, showTimeline, showSpanTree, flatSpanTree, spanDepthMap, spanHasChildren, spanTypeMap, collapsedSpanIds, toggleSpanCollapse, isSpanHidden, isSpanEmpty, spanOutputType, spanFinishReason, pipelineStats, timelineBarClass, timelineTooltip, expandedSpanIdx, expandedJsonlIdx };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml, codeWrap, viewMode, messagesJson, rawCallsTab, activeRawCalls, finishReasonStats, outlierCount, spanCallIndexMap, showPipeline, showTimeline, showSpanTree, flatSpanTree, spanDepthMap, spanDuration, spanDurationClass, spanHasChildren, spanTypeMap, collapsedSpanIds, toggleSpanCollapse, isSpanHidden, isSpanEmpty, spanOutputType, spanFinishReason, pipelineStats, timelineBarClass, timelineBarStyle, timelineTooltip, formatCallDuration, callDurationClass, callGapClass, expandedSpanIdx, expandedJsonlIdx };
   },
 };
 </script>
@@ -1263,6 +1375,8 @@ export default {
 .finish-stat-item.finish-kvcache_no_enough { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .finish-stat-item.finish-length { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .finish-stat-item.finish-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+.finish-stat-item.finish-slow { background: rgba(245, 108, 108, 0.12); color: #e45656; font-weight: 600; }
+.finish-stat-item.finish-slow-tool { background: rgba(230, 162, 60, 0.12); color: #c48a20; font-weight: 600; }
 
 .fn-name {
   font-size: 11px;
@@ -1562,6 +1676,55 @@ html.dark .raw-call-card {
   font-weight: 700;
   font-family: monospace;
   color: var(--el-text-color-primary);
+}
+
+.raw-call-duration {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--el-text-color-secondary);
+  background: var(--el-fill-color, #f0f2f5);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.raw-call-duration.duration-slow {
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.1);
+}
+
+.raw-call-duration.duration-critical {
+  color: #f56c6c;
+  background: rgba(245, 108, 108, 0.1);
+  font-weight: 600;
+}
+
+.raw-call-slow-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #f56c6c;
+  background: rgba(245, 108, 108, 0.12);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.raw-call-slow-tag.slow-tool {
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.12);
+}
+
+.raw-call-gap {
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--el-text-color-disabled);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.raw-call-gap.duration-critical {
+  color: #e6a23c;
+  background: rgba(230, 162, 60, 0.1);
+  font-weight: 600;
 }
 
 .raw-call-result {
@@ -1907,6 +2070,7 @@ html.dark .raw-timeline {
 .tl-tool { background: #409eff; }
 .tl-content { background: #67c23a; }
 .tl-empty { background: #f56c6c; }
+.tl-outlier { box-shadow: 0 0 0 2px #f56c6c; }
 
 .timeline-legend {
   display: flex;

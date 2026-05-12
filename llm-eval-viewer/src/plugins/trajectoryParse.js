@@ -26,6 +26,22 @@ function extractTrajectoryRow(spans) {
     s => s.type === 'START' && s.name === 'openai_completion',
   );
 
+  // Build timing map: span_id → { start, end } (nanoseconds)
+  const timeBySpanId = {};
+  let timeMin = Infinity;
+  let timeMax = -Infinity;
+  for (const s of spans) {
+    const t = s.time_unix_nano;
+    if (t == null) continue;
+    if (t < timeMin) timeMin = t;
+    if (t > timeMax) timeMax = t;
+    if (s.type === 'START') {
+      timeBySpanId[s.span_id] = { start: t, end: t };
+    } else if (s.type === 'END' && timeBySpanId[s.span_id]) {
+      timeBySpanId[s.span_id].end = t;
+    }
+  }
+
   // Build span_id → UPDATE outputs map (assistant responses)
   const outputsBySpanId = {};
   const errorSpanIds = new Set();
@@ -61,10 +77,10 @@ function extractTrajectoryRow(spans) {
   }
 
   const conversation = buildConversation(agentCompletions, outputsBySpanId);
-  const rawCalls = buildRawCalls(agentCompletions, outputsBySpanId, errorSpanIds);
+  const rawCalls = buildRawCalls(agentCompletions, outputsBySpanId, errorSpanIds, timeBySpanId);
   const spanTree = buildSpanTree(spans, outputsBySpanId);
   const judgeConversation = judgeCompletions.length > 0 ? buildConversation(judgeCompletions, outputsBySpanId) : null;
-  const judgeRawCalls = judgeCompletions.length > 0 ? buildRawCalls(judgeCompletions, outputsBySpanId, errorSpanIds) : [];
+  const judgeRawCalls = judgeCompletions.length > 0 ? buildRawCalls(judgeCompletions, outputsBySpanId, errorSpanIds, timeBySpanId) : [];
 
   // Model config from first completion span
   let modelConfig = {};
@@ -91,6 +107,18 @@ function extractTrajectoryRow(spans) {
     }
   }
 
+  // Compute timing summary
+  let timing = null;
+  if (timeMin !== Infinity && timeMax !== -Infinity) {
+    const wallMs = Math.round((timeMax - timeMin) / 1e6);
+    let llmTotalMs = 0;
+    for (const cs of agentCompletions) {
+      const t = timeBySpanId[cs.span_id];
+      if (t) llmTotalMs += Math.round((t.end - t.start) / 1e6);
+    }
+    timing = { wall_ms: wallMs, llm_total_ms: llmTotalMs, non_llm_ms: wallMs - llmTotalMs };
+  }
+
   const row = {
     task: agentInput.user_prompt || '',
     model_name: agentInput.model_name || modelConfig.model || '',
@@ -105,6 +133,7 @@ function extractTrajectoryRow(spans) {
     conversation,
     rawCalls,
     spanTree,
+    timing,
     trace_id: spans[0]?.trace_id || '',
     total_spans: spans.length,
     completion_count: completionSpans.length,
@@ -177,8 +206,9 @@ function buildConversation(completionSpans, outputsBySpanId) {
   return conversation;
 }
 
-function buildRawCalls(completionSpans, outputsBySpanId, errorSpanIds) {
+function buildRawCalls(completionSpans, outputsBySpanId, errorSpanIds, timeBySpanId) {
   const calls = [];
+  let prevEnd = null;
   for (let i = 0; i < completionSpans.length; i++) {
     const cs = completionSpans[i];
     const msgs = cs.attributes?.inputs?.messages;
@@ -196,10 +226,17 @@ function buildRawCalls(completionSpans, outputsBySpanId, errorSpanIds) {
       newMsgs = msgs.slice(lastAsstIdx + 1);
     }
 
+    const t = timeBySpanId ? timeBySpanId[cs.span_id] : null;
+    const durationMs = t ? Math.round((t.end - t.start) / 1e6) : null;
+    const gapMs = (prevEnd != null && t) ? Math.round((t.start - prevEnd) / 1e6) : null;
+    if (t) prevEnd = t.end;
+
     const hasOutput = output && (output.content || output.tool_calls);
     calls.push({
       index: i + 1,
       span_id: cs.span_id,
+      duration_ms: durationMs,
+      gap_ms: gapMs,
       input: newMsgs,
       output: output ? {
         role: 'assistant',

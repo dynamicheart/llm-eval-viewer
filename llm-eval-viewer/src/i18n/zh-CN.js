@@ -101,6 +101,7 @@ export default {
   // === Dir Browser ===
   dirBrowser: {
     title: '目录浏览',
+    loadAll: '批量加载所有子目录',
     noData: '暂无目录数据',
     browserNotSupported: '当前浏览器不支持 File System Access API，请使用 Chrome/Edge',
     noCachedDir: '未找到缓存的目录',
@@ -510,5 +511,6 @@ export default {
     subDirCount: '{count} 个子目录',
     loaded: '已加载 {count}',
     toolCount: '工具调用数',
+    duration: '耗时',
   },
 };

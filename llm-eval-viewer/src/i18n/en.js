@@ -101,6 +101,7 @@ export default {
   // === Dir Browser ===
   dirBrowser: {
     title: 'Directory Browser',
+    loadAll: 'Load all subdirectories',
     noData: 'No directory data',
     browserNotSupported: 'Current browser does not support File System Access API, please use Chrome/Edge',
     noCachedDir: 'No cached directory found',
@@ -511,5 +512,6 @@ export default {
     subDirCount: '{count} subdirectories',
     loaded: '{count} loaded',
     toolCount: 'Tool Count',
+    duration: 'Duration',
   },
 };

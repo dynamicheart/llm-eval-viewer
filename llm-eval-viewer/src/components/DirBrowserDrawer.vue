@@ -19,9 +19,19 @@
             <el-icon class="sidebar-hint-icon"><QuestionFilled /></el-icon>
           </el-tooltip>
         </div>
-        <div class="toggle-btn-inside" @click="toggleCollapse">
-          <el-icon :size="14"><ArrowLeft /></el-icon>
+        <div style="display: flex; align-items: center; gap: 4px;">
+          <div v-if="showLoadAll" class="action-btn" :class="{ 'is-loading': batchLoading }" @click="$emit('load-all')">
+            <el-tooltip :content="$t('dirBrowser.loadAll')" placement="bottom" :show-after="300">
+              <el-icon :size="14"><Loading v-if="batchLoading" /><RefreshRight v-else /></el-icon>
+            </el-tooltip>
+          </div>
+          <div class="toggle-btn-inside" @click="toggleCollapse">
+            <el-icon :size="14"><ArrowLeft /></el-icon>
+          </div>
         </div>
+      </div>
+      <div v-if="batchProgress" class="batch-progress">
+        <span class="batch-progress-text">{{ batchProgress.name }} ({{ batchProgress.current }}/{{ batchProgress.total }})</span>
       </div>
       <div class="dir-sidebar-body">
         <el-tree
@@ -57,7 +67,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-import { Folder, Document, ArrowLeft, ArrowRight, QuestionFilled, Check } from '@element-plus/icons-vue';
+import { Folder, Document, ArrowLeft, ArrowRight, QuestionFilled, Check, RefreshRight, Loading } from '@element-plus/icons-vue';
 
 const STORAGE_KEY = 'dir_sidebar_width';
 const COLLAPSED_KEY = 'dir_sidebar_collapsed';
@@ -71,9 +81,12 @@ defineProps({
   currentNodeKey: { type: String, default: '' },
   hint: { type: String, default: '' },
   loadedKeys: { type: Set, default: () => new Set() },
+  showLoadAll: { type: Boolean, default: false },
+  batchLoading: { type: Boolean, default: false },
+  batchProgress: { type: Object, default: null },
 });
 
-const emit = defineEmits(['select-run', 'resize']);
+const emit = defineEmits(['select-run', 'resize', 'load-all']);
 const treeRef = ref(null);
 
 const sidebarWidth = ref(DEFAULT_WIDTH);
@@ -192,6 +205,43 @@ function handleNodeClick(data) {
 .toggle-btn-inside:hover {
   background: var(--ev-bg-toggle-hover);
   color: var(--ev-color-primary);
+}
+
+.action-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--ev-text-secondary);
+}
+
+.action-btn:hover {
+  background: var(--ev-bg-toggle-hover);
+  color: var(--ev-color-primary);
+}
+
+.action-btn.is-loading {
+  cursor: default;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.batch-progress {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--ev-color-primary);
+  background: var(--ev-bg-banner-start, rgba(64, 158, 255, 0.05));
+  border-bottom: 1px solid var(--ev-border-lighter);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dir-sidebar-body {

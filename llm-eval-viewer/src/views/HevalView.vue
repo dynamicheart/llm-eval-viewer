@@ -7,8 +7,12 @@
       :dir-tree="subDirs"
       :current-node-key="currentSubDir"
       :loaded-keys="loadedSubDirs"
+      :show-load-all="showSidebar && subDirs.length > 0 && (!subDirs[0].children || loadedSubDirs.size < subDirs[0].children.length)"
+      :batch-loading="batchLoading"
+      :batch-progress="batchProgress"
       @select-run="onSelectSubDir"
       @resize="w => sidebarWidth = w"
+      @load-all="batchLoadAll"
     />
     <div class="heval-toolbar">
       <el-button :type="browseMode !== 'directory' ? 'primary' : ''" @click="openDirectory">{{ $t('hyeval.selectDirectory') }}</el-button>
@@ -191,6 +195,12 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
+        <el-table-column v-if="hasDuration" :label="$t('hyeval.duration')" width="90" sortable="custom" prop="duration">
+          <template #default="{ row }">
+            <span v-if="getRowDuration(row) != null" :class="{ 'duration-warn': getRowDuration(row) > 7200 }">{{ formatDuration(getRowDuration(row)) }}</span>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="Object.keys(diagMap).length" label="Diag" width="180">
           <template #default="{ row }">
             <template v-if="diagMap[String(row.question_id)]">
@@ -247,7 +257,7 @@
           </div>
           <div class="detail-cell">
             <div class="detail-label">{{ $t('hyeval.modelOutput') }}</div>
-            <div class="detail-content scrollable prediction">{{ selectedRow.final_answer || selectedRow.prediction || selectedRow.answer || '-' }}</div>
+            <div class="detail-content scrollable prediction">{{ getModelOutput(selectedRow) }}</div>
           </div>
           <div class="detail-cell">
             <div class="detail-label">
@@ -364,7 +374,28 @@ import jsonLang from 'highlight.js/lib/languages/json';
 
 hljs.registerLanguage('json', jsonLang);
 
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 9;
+
+function countSlowCalls(rawCalls) {
+  const durations = rawCalls.map(c => c.duration_ms).filter(d => d != null && d > 0);
+  const gaps = rawCalls.map(c => c.gap_ms).filter(d => d != null && d > 0);
+  let llm = 0, tool = 0;
+  if (durations.length >= 4) {
+    const sorted = [...durations].sort((a, b) => a - b);
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const threshold = q3 + 1.5 * (q3 - q1);
+    llm = durations.filter(d => d > threshold).length;
+  }
+  if (gaps.length >= 4) {
+    const sorted = [...gaps].sort((a, b) => a - b);
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const threshold = q3 + 1.5 * (q3 - q1);
+    tool = gaps.filter(d => d > threshold).length;
+  }
+  return llm + tool > 0 ? { llm, tool } : null;
+}
 
 export default {
   components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, Check, ArrowDown, Close, FolderOpened },
@@ -392,6 +423,8 @@ export default {
       msgCountMap: {},
       diagMap: {},
       toolCallMap: {},
+      answerMap: {},
+      timingMap: {},
       evalLoadProgress: 0,
       evalLoadTotal: 0,
       evalLoading: false,
@@ -407,6 +440,8 @@ export default {
       sidebarWidth: 0,
       loadGeneration: 0,
       loadedSubDirs: new Set(),
+      batchLoading: false,
+      batchProgress: null,
     };
   },
 
@@ -418,6 +453,7 @@ export default {
     hasRefAnswer() { return this.rows.some(r => r.ref_answer); },
     hasAnswer() { return this.rows.some(r => r.answer); },
     hasPrediction() { return this.rows.some(r => r.prediction); },
+    hasDuration() { return Object.keys(this.timingMap).length > 0; },
     hasTrajectoryPaths() { return this.rows.some(r => r.trajectory_path || r.trajectory_chat_path || r.masked_content_path); },
     trajectoryCount() { return Object.keys(this.trajectoryIndex).length; },
     selectedRowRaw() {
@@ -495,8 +531,16 @@ export default {
       const sorted = [...rows];
       const dir = order === 'ascending' ? 1 : -1;
       sorted.sort((a, b) => {
-        const va = a[prop] ?? '';
-        const vb = b[prop] ?? '';
+        let va, vb;
+        if (prop === 'duration') {
+          va = this.getRowDuration(a);
+          vb = this.getRowDuration(b);
+        } else {
+          va = a[prop] ?? '';
+          vb = b[prop] ?? '';
+        }
+        if (va == null) va = '';
+        if (vb == null) vb = '';
         if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
         return String(va).localeCompare(String(vb)) * dir;
       });
@@ -645,22 +689,28 @@ export default {
         const tx = db.transaction('handles', 'readwrite');
         const store = tx.objectStore('handles');
         store.delete(`dir_${name}`);
-        store.delete(`hyeval_judge_${name}`);
-        store.delete(`hyeval_msgcount_${name}`);
-        store.delete(`hyeval_diag_${name}`);
-        store.delete(`hyeval_diag2_${name}`);
         if (item && item.mode === 'directory') {
           const allKeys = await new Promise((r, j) => {
             const req = store.getAllKeys();
             req.onsuccess = () => r(req.result);
             req.onerror = j;
           });
-          const prefixes = ['hyeval_judge_', 'hyeval_msgcount_', 'hyeval_diag_', 'hyeval_diag2_'];
           for (const key of allKeys) {
-            if (prefixes.some(p => typeof key === 'string' && key.startsWith(p))) {
+            if (typeof key === 'string' && (key.startsWith('hyeval_') || key.startsWith(`hyeval_v`))) {
               store.delete(key);
             }
           }
+        } else {
+          store.delete(`hyeval_v${CACHE_VERSION}_judge_${name}`);
+          store.delete(`hyeval_v${CACHE_VERSION}_msgcount_${name}`);
+          store.delete(`hyeval_v${CACHE_VERSION}_diag_${name}`);
+          store.delete(`hyeval_v${CACHE_VERSION}_toolcalls_${name}`);
+          store.delete(`hyeval_v${CACHE_VERSION}_answer_${name}`);
+          store.delete(`hyeval_v${CACHE_VERSION}_timing_${name}`);
+          store.delete(`hyeval_judge_${name}`);
+          store.delete(`hyeval_msgcount_${name}`);
+          store.delete(`hyeval_diag_${name}`);
+          store.delete(`hyeval_diag2_${name}`);
         }
         await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
         db.close();
@@ -683,6 +733,8 @@ export default {
         this.msgCountMap = {};
         this.diagMap = {};
         this.toolCallMap = {};
+        this.answerMap = {};
+        this.timingMap = {};
         this.trajectoryIndex = {};
         this.selectedRow = null;
         this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
@@ -753,6 +805,8 @@ export default {
       this.msgCountMap = {};
       this.diagMap = {};
       this.toolCallMap = {};
+        this.answerMap = {};
+        this.timingMap = {};
       this.selectedRow = null;
       this.trajectoryMessages = [];
       this.trajectoryConversations = [];
@@ -781,6 +835,8 @@ export default {
       }
       try {
         const handle = await window.showDirectoryPicker({ mode: 'read' });
+        this.loadGeneration++;
+        this.batchLoading = false;
         this.parentDirHandle = handle;
         this.fileName = '';
         this.rows = [];
@@ -789,6 +845,8 @@ export default {
         this.msgCountMap = {};
         this.diagMap = {};
         this.toolCallMap = {};
+        this.answerMap = {};
+        this.timingMap = {};
         this.trajectoryIndex = {};
         this.selectedRow = null;
         this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
@@ -845,6 +903,7 @@ export default {
 
     async onSelectSubDir(node) {
       this.loadGeneration++;
+      this.batchLoading = false;
       this.currentSubDir = node.id;
       localStorage.setItem('hyeval_current_subdir', node.id);
       this.dirHandle = node.handle;
@@ -855,6 +914,8 @@ export default {
       this.msgCountMap = {};
       this.diagMap = {};
       this.toolCallMap = {};
+      this.answerMap = {};
+      this.timingMap = {};
       this.trajectoryIndex = {};
       this.selectedRow = null;
       this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
@@ -878,12 +939,159 @@ export default {
       }
     },
 
+    async batchLoadAll() {
+      if (this.batchLoading || !this.subDirs.length) return;
+      const root = this.subDirs[0];
+      const children = root.children || [];
+      const unloaded = children.filter(c => !this.loadedSubDirs.has(c.id));
+      if (unloaded.length === 0) return;
+
+      this.batchLoading = true;
+      const batchGen = this.loadGeneration;
+
+      for (let i = 0; i < unloaded.length; i++) {
+        if (this.loadGeneration !== batchGen) break;
+        const node = unloaded[i];
+        this.batchProgress = { current: i + 1, total: unloaded.length, name: node.label };
+        await this.batchCacheDirectory(node.handle, node.label, batchGen);
+        if (this.loadGeneration !== batchGen) break;
+      }
+
+      this.batchLoading = false;
+      this.batchProgress = null;
+    },
+
+    async batchCacheDirectory(dirHandle, fileName, batchGen) {
+      const cacheKey = `hyeval_v${CACHE_VERSION}_judge_${fileName}`;
+      const cachedCheck = await this.getJudgeCache(cacheKey);
+      if (cachedCheck) {
+        this.loadedSubDirs.add(fileName);
+        this.updateSidebarLabel();
+        return;
+      }
+
+      let trajDir = null;
+      for await (const entry of dirHandle.values()) {
+        if (this.loadGeneration !== batchGen) return;
+        if (entry.kind === 'directory' && entry.name === 'trajectory') {
+          trajDir = entry;
+          break;
+        }
+      }
+      if (!trajDir || this.loadGeneration !== batchGen) return;
+
+      const index = {};
+      for await (const entry of trajDir.values()) {
+        if (this.loadGeneration !== batchGen) return;
+        if (entry.kind !== 'file') continue;
+        const match = entry.name.match(/_(\d+)_[0-9a-f-]+\.jsonl\.zst$/);
+        if (match) index[match[1]] = entry;
+      }
+      if (this.loadGeneration !== batchGen) return;
+
+      const entries = Object.entries(index);
+      if (entries.length === 0) return;
+
+      const map = {};
+      const msgMap = {};
+      const diagMapLocal = {};
+      const toolMap = {};
+      const ansMap = {};
+      const timMap = {};
+      const BATCH_SIZE = 5;
+
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        if (this.loadGeneration !== batchGen) return;
+        const batch = entries.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async ([qid, fileHandle]) => {
+          try {
+            const file = await fileHandle.getFile();
+            const text = await readTextWithDecompression(file);
+            const result = trajectoryParse.process(text, {});
+            if (result.rows.length > 0) {
+              const traj = result.rows[0];
+              const agentConv = traj.conversations ? traj.conversations[0] : traj.conversation;
+              if (traj.conversations) {
+                const evalObj = this.extractJudgeEval(traj.conversations);
+                if (evalObj) map[qid] = evalObj;
+              }
+              const rawCalls = traj.rawCallsList ? traj.rawCallsList[0] : (traj.rawCalls || []);
+              if (rawCalls.length > 0) {
+                const total = rawCalls.length;
+                const effective = rawCalls.filter(c => {
+                  const reason = c.native_finish_reason || c.finish_reason;
+                  return !reason || reason === 'stop' || reason === 'tool_calls';
+                }).length;
+                msgMap[qid] = { effective, total };
+              } else if (Array.isArray(agentConv)) {
+                const total = agentConv.filter(m => m.role === 'assistant').length;
+                msgMap[qid] = { effective: total, total };
+              }
+              if (traj.rawSpans) {
+                const toolSpans = traj.rawSpans.filter(s => s.type === 'START' && s.attributes && s.attributes.type === 'tool');
+                toolMap[qid] = toolSpans.length;
+              }
+              if (traj.diagnostics) diagMapLocal[qid] = traj.diagnostics;
+              if (traj.timing) {
+                const slowCount = countSlowCalls(rawCalls);
+                timMap[qid] = { ...traj.timing, slowCount };
+              }
+              if (Array.isArray(agentConv)) {
+                for (let j = agentConv.length - 1; j >= 0; j--) {
+                  if (agentConv[j].role === 'assistant' && agentConv[j].content) {
+                    ansMap[qid] = agentConv[j].content;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) { /* skip */ }
+        }));
+      }
+
+      if (this.loadGeneration !== batchGen) return;
+      const msgCacheKey = `hyeval_v${CACHE_VERSION}_msgcount_${fileName}`;
+      const diagCacheKey = `hyeval_v${CACHE_VERSION}_diag_${fileName}`;
+      const toolCacheKey = `hyeval_v${CACHE_VERSION}_toolcalls_${fileName}`;
+      const answerCacheKey = `hyeval_v${CACHE_VERSION}_answer_${fileName}`;
+      const timingCacheKey = `hyeval_v${CACHE_VERSION}_timing_${fileName}`;
+      await this.setJudgeCache(cacheKey, map);
+      await this.setJudgeCache(msgCacheKey, msgMap);
+      await this.setJudgeCache(diagCacheKey, diagMapLocal);
+      await this.setJudgeCache(toolCacheKey, toolMap);
+      await this.setJudgeCache(answerCacheKey, ansMap);
+      await this.setJudgeCache(timingCacheKey, timMap);
+      this.loadedSubDirs.add(fileName);
+      this.updateSidebarLabel();
+    },
+
     formatTime(ts) {
       if (!ts) return '';
       const d = new Date(ts);
       const pad = n => String(n).padStart(2, '0');
       return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
+
+    formatDuration(sec) {
+      if (sec == null) return '-';
+      if (sec < 60) return `${sec}s`;
+      if (sec < 3600) return `${Math.round(sec / 60)}m`;
+      const h = Math.floor(sec / 3600);
+      const m = Math.round((sec % 3600) / 60);
+      return m > 0 ? `${h}h${m}m` : `${h}h`;
+    },
+
+    getRowDuration(row) {
+      const t = this.timingMap[String(row.question_id)];
+      if (t && t.wall_ms) return Math.round(t.wall_ms / 1000);
+      return null;
+    },
+
+    getSlowCount(row) {
+      const t = this.timingMap[String(row.question_id)];
+      return t && t.slowCount ? t.slowCount : null;
+    },
+
     async openDirectory() {
       if (!window.showDirectoryPicker) {
         alert('Directory picker not supported. Use Chrome/Edge.');
@@ -891,6 +1099,8 @@ export default {
       }
       try {
         const dirHandle = await window.showDirectoryPicker();
+        this.loadGeneration++;
+        this.batchLoading = false;
         this.dirHandle = dirHandle;
         this.fileName = dirHandle.name;
         this.browseMode = 'file';
@@ -902,6 +1112,8 @@ export default {
         this.msgCountMap = {};
         this.diagMap = {};
         this.toolCallMap = {};
+        this.answerMap = {};
+        this.timingMap = {};
         this.trajectoryIndex = {};
         this.selectedRow = null;
         this.filters = { agent: '', questionId: '', questionText: '', answerText: '' };
@@ -1108,6 +1320,17 @@ export default {
       return evalObj['模型回复的答案总结'] || evalObj['answer'] || evalObj['model_answer'] || null;
     },
 
+    getModelOutput(row) {
+      if (row.final_answer) return row.final_answer;
+      if (row.prediction) return row.prediction;
+      if (row.answer) return row.answer;
+      const judgeAnswer = this.getJudgeAnswer(row);
+      if (judgeAnswer) return judgeAnswer;
+      const cached = this.answerMap[String(row.question_id)];
+      if (cached) return cached;
+      return '-';
+    },
+
     async loadJudgeEvalsAsync() {
       const gen = this.loadGeneration;
       const fn = this.fileName;
@@ -1115,22 +1338,28 @@ export default {
       const msgCacheKey = `hyeval_v${CACHE_VERSION}_msgcount_${fn}`;
       const diagCacheKey = `hyeval_v${CACHE_VERSION}_diag_${fn}`;
       const toolCacheKey = `hyeval_v${CACHE_VERSION}_toolcalls_${fn}`;
+      const answerCacheKey = `hyeval_v${CACHE_VERSION}_answer_${fn}`;
+      const timingCacheKey = `hyeval_v${CACHE_VERSION}_timing_${fn}`;
 
       // Try versioned cache first, fallback to legacy keys
       let cached = await this.getJudgeCache(cacheKey);
       let cachedMsg = await this.getJudgeCache(msgCacheKey);
       let cachedDiag = await this.getJudgeCache(diagCacheKey);
       let cachedTool = await this.getJudgeCache(toolCacheKey);
+      let cachedAnswer = await this.getJudgeCache(answerCacheKey);
+      let cachedTiming = await this.getJudgeCache(timingCacheKey);
       if (!cached) cached = await this.getJudgeCache(`hyeval_judge_${fn}`);
       if (!cachedMsg) cachedMsg = await this.getJudgeCache(`hyeval_msgcount_${fn}`);
       if (!cachedDiag) cachedDiag = await this.getJudgeCache(`hyeval_diag2_${fn}`);
 
       if (gen !== this.loadGeneration) return;
-      if (cached && cachedMsg && cachedDiag && cachedTool) {
+      if (cached && cachedMsg && cachedDiag && cachedTool && cachedAnswer) {
         this.judgeEvalMap = cached;
         this.msgCountMap = cachedMsg;
         this.diagMap = cachedDiag;
         this.toolCallMap = cachedTool;
+        this.answerMap = cachedAnswer;
+        if (cachedTiming) this.timingMap = cachedTiming;
         if (this.browseMode === 'directory' && fn) {
           this.loadedSubDirs.add(fn);
           this.updateSidebarLabel();
@@ -1148,6 +1377,8 @@ export default {
       const msgMap = {};
       const diagMapLocal = {};
       const toolMap = {};
+      const ansMap = {};
+      const timMap = {};
 
       const BATCH_SIZE = 5;
       for (let i = 0; i < entries.length; i += BATCH_SIZE) {
@@ -1182,6 +1413,18 @@ export default {
                 toolMap[qid] = toolSpans.length;
               }
               if (traj.diagnostics) diagMapLocal[qid] = traj.diagnostics;
+              if (traj.timing) {
+                const slowCount = countSlowCalls(rawCalls);
+                timMap[qid] = { ...traj.timing, slowCount };
+              }
+              if (Array.isArray(agentConv)) {
+                for (let j = agentConv.length - 1; j >= 0; j--) {
+                  if (agentConv[j].role === 'assistant' && agentConv[j].content) {
+                    ansMap[qid] = agentConv[j].content;
+                    break;
+                  }
+                }
+              }
             }
           } catch (e) { /* skip failed */ }
         }));
@@ -1191,6 +1434,8 @@ export default {
         this.msgCountMap = { ...msgMap };
         this.diagMap = { ...diagMapLocal };
         this.toolCallMap = { ...toolMap };
+        this.answerMap = { ...ansMap };
+        this.timingMap = { ...timMap };
       }
 
       this.evalLoading = false;
@@ -1198,6 +1443,8 @@ export default {
       await this.setJudgeCache(msgCacheKey, msgMap);
       await this.setJudgeCache(diagCacheKey, diagMapLocal);
       await this.setJudgeCache(toolCacheKey, toolMap);
+      await this.setJudgeCache(answerCacheKey, ansMap);
+      await this.setJudgeCache(timingCacheKey, timMap);
       if (this.browseMode === 'directory' && fn) {
         this.loadedSubDirs.add(fn);
         this.updateSidebarLabel();
@@ -1269,6 +1516,10 @@ export default {
 }
 .diag-abort, .diag-server_error { background: rgba(245, 108, 108, 0.12); color: #e45656; }
 .diag-kvcache_no_enough, .diag-length, .diag-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+
+.duration-warn { color: #e45656; font-weight: 600; }
+.slow-badge { font-size: 10px; color: #e45656 !important; background: rgba(228, 86, 86, 0.1) !important; padding: 1px 4px; border-radius: 3px; white-space: nowrap; margin-left: 4px; }
+.slow-badge-tool { color: #c48a20 !important; background: rgba(230, 162, 60, 0.1) !important; }
 
 .recent-dropdown-menu {
   max-height: 400px;
