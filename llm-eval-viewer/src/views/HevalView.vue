@@ -6,6 +6,7 @@
       :visible="showSidebar"
       :dir-tree="subDirs"
       :current-node-key="currentSubDir"
+      :loaded-keys="loadedSubDirs"
       @select-run="onSelectSubDir"
       @resize="w => sidebarWidth = w"
     />
@@ -25,7 +26,7 @@
                     <el-tag v-if="d.mode === 'directory'" size="small" type="info" style="margin-left: 6px">{{ $t('hyeval.browseDirectory') }}</el-tag>
                   </div>
                   <div class="recent-item-meta">
-                    <template v-if="d.mode === 'directory'">{{ $t('hyeval.subDirCount', { count: d.records }) }}</template>
+                    <template v-if="d.mode === 'directory'">{{ $t('hyeval.subDirCount', { count: d.records }) }}<template v-if="d.loaded"> · {{ $t('hyeval.loaded', { count: d.loaded }) }}</template></template>
                     <template v-else>{{ d.records }} {{ $t('hyeval.records') }}</template>
                     · {{ formatTime(d.time) }}
                   </div>
@@ -405,6 +406,7 @@ export default {
       currentSubDir: localStorage.getItem('hyeval_current_subdir') || '',
       sidebarWidth: 0,
       loadGeneration: 0,
+      loadedSubDirs: new Set(),
     };
   },
 
@@ -621,7 +623,9 @@ export default {
     updateRecentDirs(name, recordCount, mode) {
       const MAX = 40;
       const list = this.recentDirs.filter(d => d.name !== name);
-      list.unshift({ name, time: Date.now(), records: recordCount || 0, mode: mode || 'file' });
+      const entry = { name, time: Date.now(), records: recordCount || 0, mode: mode || 'file' };
+      if (mode === 'directory') entry.loaded = this.loadedSubDirs.size;
+      list.unshift(entry);
       if (list.length > MAX) list.length = MAX;
       this.recentDirs = list;
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(list));
@@ -820,9 +824,16 @@ export default {
         return;
       }
       dirs.sort((a, b) => b.label.localeCompare(a.label));
+      const loaded = new Set();
+      await Promise.all(dirs.map(async (d) => {
+        const cached = await this.getJudgeCache(`hyeval_v${CACHE_VERSION}_judge_${d.label}`);
+        if (cached) loaded.add(d.label);
+      }));
+      this.loadedSubDirs = loaded;
+      const parentLabel = `${parentHandle.name} (${loaded.size}/${dirs.length})`;
       this.subDirs = [{
         id: `parent_${parentHandle.name}`,
-        label: parentHandle.name,
+        label: parentLabel,
         children: dirs,
       }];
       this.browseMode = 'directory';
@@ -851,6 +862,20 @@ export default {
       this.sortState = { prop: null, order: null };
       this.currentPage = 1;
       await this.loadDirectory(node.handle);
+    },
+
+    updateSidebarLabel() {
+      if (!this.subDirs.length) return;
+      const root = this.subDirs[0];
+      const total = root.children ? root.children.length : 0;
+      const name = this.parentDirHandle ? this.parentDirHandle.name : root.label.replace(/ \(.*\)$/, '');
+      root.label = `${name} (${this.loadedSubDirs.size}/${total})`;
+      this.subDirs = [...this.subDirs];
+      const idx = this.recentDirs.findIndex(d => d.name === name && d.mode === 'directory');
+      if (idx !== -1) {
+        this.recentDirs[idx].loaded = this.loadedSubDirs.size;
+        localStorage.setItem('hyeval_recent_dirs', JSON.stringify(this.recentDirs));
+      }
     },
 
     formatTime(ts) {
@@ -1106,6 +1131,10 @@ export default {
         this.msgCountMap = cachedMsg;
         this.diagMap = cachedDiag;
         this.toolCallMap = cachedTool;
+        if (this.browseMode === 'directory' && fn) {
+          this.loadedSubDirs.add(fn);
+          this.updateSidebarLabel();
+        }
         return;
       }
 
@@ -1169,6 +1198,10 @@ export default {
       await this.setJudgeCache(msgCacheKey, msgMap);
       await this.setJudgeCache(diagCacheKey, diagMapLocal);
       await this.setJudgeCache(toolCacheKey, toolMap);
+      if (this.browseMode === 'directory' && fn) {
+        this.loadedSubDirs.add(fn);
+        this.updateSidebarLabel();
+      }
     },
 
     async getJudgeCache(key) {

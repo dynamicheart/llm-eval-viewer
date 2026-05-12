@@ -40,8 +40,9 @@
               <el-icon v-if="!data.isLeaf" style="margin-right: 4px">
                 <Folder />
               </el-icon>
-              <el-icon v-else style="margin-right: 4px">
-                <Document />
+              <el-icon v-else style="margin-right: 4px" :color="loadedKeys.has(data.id) ? 'var(--ev-color-success, #67c23a)' : undefined">
+                <Check v-if="loadedKeys.has(data.id)" />
+                <Document v-else />
               </el-icon>
               {{ node.label }}
             </span>
@@ -56,7 +57,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-import { Folder, Document, ArrowLeft, ArrowRight, QuestionFilled } from '@element-plus/icons-vue';
+import { Folder, Document, ArrowLeft, ArrowRight, QuestionFilled, Check } from '@element-plus/icons-vue';
 
 const STORAGE_KEY = 'dir_sidebar_width';
 const COLLAPSED_KEY = 'dir_sidebar_collapsed';
@@ -69,6 +70,7 @@ defineProps({
   dirTree: { type: Array, default: () => [] },
   currentNodeKey: { type: String, default: '' },
   hint: { type: String, default: '' },
+  loadedKeys: { type: Set, default: () => new Set() },
 });
 
 const emit = defineEmits(['select-run', 'resize']);
