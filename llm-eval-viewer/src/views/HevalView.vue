@@ -179,10 +179,7 @@
         <el-table-column v-if="Object.keys(msgCountMap).length" :label="$t('hyeval.turns')" width="80">
           <template #default="{ row }">
             <template v-if="msgCountMap[String(row.question_id)]">
-              <span v-if="msgCountMap[String(row.question_id)].effective !== msgCountMap[String(row.question_id)].total">
-                {{ msgCountMap[String(row.question_id)].effective }}/{{ msgCountMap[String(row.question_id)].total }}
-              </span>
-              <span v-else>{{ msgCountMap[String(row.question_id)].total }}</span>
+              {{ msgCountMap[String(row.question_id)].effective }}/{{ msgCountMap[String(row.question_id)].total }}
             </template>
             <span v-else class="text-muted">-</span>
           </template>
@@ -366,7 +363,7 @@ import jsonLang from 'highlight.js/lib/languages/json';
 
 hljs.registerLanguage('json', jsonLang);
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 export default {
   components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, Check, ArrowDown, Close, FolderOpened },
