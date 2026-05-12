@@ -80,6 +80,11 @@
           <el-tag size="small" type="info">max: {{ turnStats.max }}</el-tag>
           <el-tag size="small" type="info">min: {{ turnStats.min }}</el-tag>
         </div>
+        <div v-if="diagStats" class="stats-section">
+          <span class="stats-label">Diag:</span>
+          <el-tag size="small" type="info">{{ diagStats.affected }}/{{ diagStats.total }} affected</el-tag>
+          <el-tag v-for="(count, reason) in diagStats.totals" :key="reason" size="small" :type="reason === 'abort' || reason === 'server_error' ? 'danger' : 'warning'">{{ reason }}: {{ count }}</el-tag>
+        </div>
       </div>
       <div v-if="evalLoading" class="eval-progress">
         <span class="eval-progress-text">{{ $t('hyeval.loadingJudge', { progress: evalLoadProgress, total: evalLoadTotal }) }}</span>
@@ -468,6 +473,19 @@ export default {
       const max = Math.max(...vals);
       const min = Math.min(...vals);
       return { avg: (sum / vals.length).toFixed(1), max, min };
+    },
+    diagStats() {
+      const entries = Object.values(this.diagMap);
+      if (entries.length === 0) return null;
+      const totals = {};
+      let affectedCount = 0;
+      for (const diag of entries) {
+        affectedCount++;
+        for (const [reason, count] of Object.entries(diag)) {
+          totals[reason] = (totals[reason] || 0) + count;
+        }
+      }
+      return { totals, affected: affectedCount, total: Object.keys(this.trajectoryIndex).length };
     },
   },
 
