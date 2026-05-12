@@ -611,6 +611,7 @@ export default {
 
     function spanFinishReason(span) {
       if (span.type === 'UPDATE') {
+        if (span.status?.code === 'ERROR') return 'server_error';
         const choice = span.attributes?.outputs?.choices?.[0];
         if (!choice) return null;
         const reason = choice.provider_specific_fields?.native_finish_reason || choice.finish_reason;
@@ -1241,7 +1242,7 @@ export default {
   font-weight: 500;
   letter-spacing: 0.3px;
 }
-.jsonl-finish-reason.finish-abort { background: rgba(245, 108, 108, 0.12); color: #e45656; }
+.jsonl-finish-reason.finish-abort, .jsonl-finish-reason.finish-server_error { background: rgba(245, 108, 108, 0.12); color: #e45656; }
 .jsonl-finish-reason.finish-kvcache_no_enough { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .jsonl-finish-reason.finish-length { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .jsonl-finish-reason.finish-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
@@ -1258,7 +1259,7 @@ export default {
   background: var(--el-fill-color-light);
   color: var(--el-text-color-secondary);
 }
-.finish-stat-item.finish-abort { background: rgba(245, 108, 108, 0.12); color: #e45656; }
+.finish-stat-item.finish-abort, .finish-stat-item.finish-server_error { background: rgba(245, 108, 108, 0.12); color: #e45656; }
 .finish-stat-item.finish-kvcache_no_enough { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .finish-stat-item.finish-length { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 .finish-stat-item.finish-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }

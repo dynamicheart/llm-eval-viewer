@@ -28,8 +28,12 @@ function extractTrajectoryRow(spans) {
 
   // Build span_id → UPDATE outputs map (assistant responses)
   const outputsBySpanId = {};
+  const errorSpanIds = new Set();
   for (const s of spans) {
     if (s.type === 'UPDATE' && s.span_id) {
+      if (s.status?.code === 'ERROR') {
+        errorSpanIds.add(s.span_id);
+      }
       const outputs = s.attributes?.outputs;
       if (outputs && outputs.choices) {
         const choice = outputs.choices[0];
@@ -57,10 +61,10 @@ function extractTrajectoryRow(spans) {
   }
 
   const conversation = buildConversation(agentCompletions, outputsBySpanId);
-  const rawCalls = buildRawCalls(agentCompletions, outputsBySpanId);
+  const rawCalls = buildRawCalls(agentCompletions, outputsBySpanId, errorSpanIds);
   const spanTree = buildSpanTree(spans, outputsBySpanId);
   const judgeConversation = judgeCompletions.length > 0 ? buildConversation(judgeCompletions, outputsBySpanId) : null;
-  const judgeRawCalls = judgeCompletions.length > 0 ? buildRawCalls(judgeCompletions, outputsBySpanId) : [];
+  const judgeRawCalls = judgeCompletions.length > 0 ? buildRawCalls(judgeCompletions, outputsBySpanId, errorSpanIds) : [];
 
   // Model config from first completion span
   let modelConfig = {};
@@ -106,17 +110,12 @@ function extractTrajectoryRow(spans) {
     completion_count: completionSpans.length,
   };
 
-  // Diagnostics: collect non-standard finish reasons + server errors
+  // Diagnostics: collect non-standard finish reasons (server_error already in rawCalls)
   const diag = {};
   for (const c of rawCalls) {
     const reason = c.native_finish_reason || c.finish_reason || 'no_response';
     if (reason !== 'stop' && reason !== 'tool_calls') {
       diag[reason] = (diag[reason] || 0) + 1;
-    }
-  }
-  for (const s of spans) {
-    if (s.type === 'UPDATE' && s.status?.code === 'ERROR') {
-      diag['server_error'] = (diag['server_error'] || 0) + 1;
     }
   }
   if (Object.keys(diag).length) row.diagnostics = diag;
@@ -178,13 +177,14 @@ function buildConversation(completionSpans, outputsBySpanId) {
   return conversation;
 }
 
-function buildRawCalls(completionSpans, outputsBySpanId) {
+function buildRawCalls(completionSpans, outputsBySpanId, errorSpanIds) {
   const calls = [];
   for (let i = 0; i < completionSpans.length; i++) {
     const cs = completionSpans[i];
     const msgs = cs.attributes?.inputs?.messages;
     const outputInfo = outputsBySpanId[cs.span_id] || null;
     const output = outputInfo?.message || null;
+    const isError = errorSpanIds.has(cs.span_id);
 
     // Extract only new messages (after the last assistant in input)
     let newMsgs = [];
@@ -208,7 +208,7 @@ function buildRawCalls(completionSpans, outputsBySpanId) {
         tool_calls: output.tool_calls ?? null,
       } : null,
       empty: !hasOutput,
-      finish_reason: outputInfo?.finish_reason || null,
+      finish_reason: isError && !outputInfo ? 'server_error' : (outputInfo?.finish_reason || null),
       native_finish_reason: outputInfo?.native_finish_reason || null,
     });
   }

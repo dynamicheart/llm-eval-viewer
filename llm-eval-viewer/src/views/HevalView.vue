@@ -26,6 +26,7 @@
         </template>
       </el-dropdown>
       <span v-if="fileName" class="file-name">{{ fileName }}</span>
+      <el-button v-if="rows.length" size="small" plain @click="resetView">{{ $t('common.reset') }}</el-button>
       <el-divider v-if="rows.length" direction="vertical" />
       <span v-if="rows.length" class="stats-text">
         {{ rows.length }} {{ $t('hyeval.records') }}
@@ -83,7 +84,7 @@
         <div v-if="diagStats" class="stats-section">
           <span class="stats-label">Diag:</span>
           <el-tag size="small" type="info">{{ diagStats.affected }}/{{ diagStats.total }} affected</el-tag>
-          <el-tag v-for="(count, reason) in diagStats.totals" :key="reason" size="small" :type="reason === 'abort' || reason === 'server_error' ? 'danger' : 'warning'">{{ reason }}: {{ count }}</el-tag>
+          <el-tag v-for="(count, reason) in diagStats.totals" :key="reason" size="small" :type="reason === 'abort' || reason === 'server_error' ? 'danger' : 'warning'">{{ reason }}: {{ count }}{{ diagStats.totalTurns ? ` (${(count / diagStats.totalTurns * 100).toFixed(1)}%)` : '' }}</el-tag>
         </div>
       </div>
       <div v-if="evalLoading" class="eval-progress">
@@ -485,7 +486,8 @@ export default {
           totals[reason] = (totals[reason] || 0) + count;
         }
       }
-      return { totals, affected: affectedCount, total: Object.keys(this.trajectoryIndex).length };
+      const totalTurns = Object.values(this.msgCountMap).reduce((a, b) => a + (b || 0), 0);
+      return { totals, affected: affectedCount, total: Object.keys(this.trajectoryIndex).length, totalTurns };
     },
   },
 
@@ -523,6 +525,10 @@ export default {
     },
     async tryRestoreDirectory() {
       if (this.recentDirs.length === 0) return;
+      if (sessionStorage.getItem('hyeval_reset')) {
+        sessionStorage.removeItem('hyeval_reset');
+        return;
+      }
       const last = this.recentDirs[0];
       const handle = await this.loadDirHandle(last.name);
       if (!handle) return;
@@ -568,6 +574,7 @@ export default {
         store.delete(`hyeval_judge_${name}`);
         store.delete(`hyeval_msgcount_${name}`);
         store.delete(`hyeval_diag_${name}`);
+        store.delete(`hyeval_diag2_${name}`);
         await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
         db.close();
       } catch (e) { /* ignore */ }
@@ -627,6 +634,29 @@ export default {
       });
     },
 
+    resetView() {
+      this.rows = [];
+      this.rawRows = [];
+      this.fileName = '';
+      this.dirHandle = null;
+      this.trajDirHandle = null;
+      this.trajectoryIndex = {};
+      this.judgeEvalMap = {};
+      this.msgCountMap = {};
+      this.diagMap = {};
+      this.selectedRow = null;
+      this.trajectoryMessages = [];
+      this.trajectoryConversations = [];
+      this.trajectoryRawCalls = [];
+      this.trajectoryRawSpans = [];
+      this.trajectorySpanTree = [];
+      this.showTrajectory = false;
+      this.judgeEval = null;
+      this.columnFilters = {};
+      this.sortState = { prop: null, order: null };
+      this.currentPage = 1;
+      sessionStorage.setItem('hyeval_reset', '1');
+    },
     async openDirectory() {
       if (!window.showDirectoryPicker) {
         alert('Directory picker not supported. Use Chrome/Edge.');
@@ -827,7 +857,7 @@ export default {
     async loadJudgeEvalsAsync() {
       const cacheKey = `hyeval_judge_${this.fileName}`;
       const msgCacheKey = `hyeval_msgcount_${this.fileName}`;
-      const diagCacheKey = `hyeval_diag_${this.fileName}`;
+      const diagCacheKey = `hyeval_diag2_${this.fileName}`;
       const cached = await this.getJudgeCache(cacheKey);
       const cachedMsg = await this.getJudgeCache(msgCacheKey);
       const cachedDiag = await this.getJudgeCache(diagCacheKey);
