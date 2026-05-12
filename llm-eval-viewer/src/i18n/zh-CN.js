@@ -512,5 +512,7 @@ export default {
     loaded: '已加载 {count}',
     toolCount: '工具调用数',
     duration: '耗时',
+    diag: '异常调用',
+    diagAffected: '{affected}/{total} 条受影响',
   },
 };

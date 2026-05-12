@@ -104,8 +104,8 @@
           <el-tag size="small" type="info">min: {{ toolCallStats.min }}</el-tag>
         </div>
         <div v-if="diagStats" class="stats-section">
-          <span class="stats-label">Diag:</span>
-          <el-tag size="small" type="info">{{ diagStats.affected }}/{{ diagStats.total }} affected</el-tag>
+          <span class="stats-label">{{ $t('hyeval.diag') }}:</span>
+          <el-tag size="small" type="info">{{ $t('hyeval.diagAffected', { affected: diagStats.affected, total: diagStats.total }) }}</el-tag>
           <el-tag v-for="(count, reason) in diagStats.totals" :key="reason" size="small" :type="reason === 'abort' || reason === 'server_error' ? 'danger' : 'warning'">{{ reason }}: {{ count }}{{ diagStats.totalTurns ? ` (${(count / diagStats.totalTurns * 100).toFixed(1)}%)` : '' }}</el-tag>
         </div>
       </div>
@@ -201,7 +201,7 @@
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="Object.keys(diagMap).length" label="Diag" width="180">
+        <el-table-column v-if="Object.keys(diagMap).length" :label="$t('hyeval.diag')" width="180">
           <template #default="{ row }">
             <template v-if="diagMap[String(row.question_id)]">
               <span v-for="(count, reason) in diagMap[String(row.question_id)]" :key="reason" class="diag-tag" :class="'diag-' + reason">{{ reason }}: {{ count }}</span>

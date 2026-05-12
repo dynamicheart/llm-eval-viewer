@@ -513,5 +513,7 @@ export default {
     loaded: '{count} loaded',
     toolCount: 'Tool Count',
     duration: 'Duration',
+    diag: 'Anomalous Calls',
+    diagAffected: '{affected}/{total} affected',
   },
 };
