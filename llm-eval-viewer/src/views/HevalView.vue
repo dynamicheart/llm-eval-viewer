@@ -15,7 +15,7 @@
       <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
         <el-button>{{ $t('hyeval.recent') }} <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
         <template #dropdown>
-          <el-dropdown-menu>
+          <el-dropdown-menu class="recent-dropdown-menu">
             <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
               <div class="recent-item">
                 <span>{{ d.name }} <span class="recent-meta">{{ d.records }} {{ $t('hyeval.records') }}</span></span>
@@ -550,7 +550,7 @@ export default {
     },
 
     updateRecentDirs(name, recordCount) {
-      const MAX = 10;
+      const MAX = 40;
       const list = this.recentDirs.filter(d => d.name !== name);
       list.unshift({ name, time: Date.now(), records: recordCount || 0 });
       if (list.length > MAX) list.length = MAX;
@@ -978,6 +978,11 @@ export default {
   color: var(--el-text-color-placeholder);
   font-size: 12px;
   margin-left: 8px;
+}
+
+.recent-dropdown-menu {
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .recent-item {
