@@ -32,7 +32,14 @@ function extractTrajectoryRow(spans) {
     if (s.type === 'UPDATE' && s.span_id) {
       const outputs = s.attributes?.outputs;
       if (outputs && outputs.choices) {
-        outputsBySpanId[s.span_id] = outputs.choices[0]?.message || null;
+        const choice = outputs.choices[0];
+        const msg = choice?.message || null;
+        const psf = choice?.provider_specific_fields || {};
+        outputsBySpanId[s.span_id] = {
+          message: msg,
+          finish_reason: choice?.finish_reason || null,
+          native_finish_reason: psf.native_finish_reason || null,
+        };
       }
     }
   }
@@ -124,9 +131,17 @@ function buildConversation(completionSpans, outputsBySpanId) {
     pendingToolCallId = getPendingToolCallId(conversation);
   }
 
-  const output = outputsBySpanId[last.span_id];
-  if (output) {
-    appendMessage(output, conversation, seenMsgKeys, pendingToolCallId);
+  const outputInfo = outputsBySpanId[last.span_id];
+  if (outputInfo && outputInfo.message) {
+    appendMessage(outputInfo.message, conversation, seenMsgKeys, pendingToolCallId);
+    if (outputInfo.native_finish_reason) {
+      const lastMsg = conversation[conversation.length - 1];
+      if (lastMsg) lastMsg.native_finish_reason = outputInfo.native_finish_reason;
+    }
+    if (outputInfo.finish_reason) {
+      const lastMsg = conversation[conversation.length - 1];
+      if (lastMsg) lastMsg.finish_reason = outputInfo.finish_reason;
+    }
   }
 
   // Dedup warning: check if earlier completions had messages not in the last one
@@ -153,7 +168,8 @@ function buildRawCalls(completionSpans, outputsBySpanId) {
   for (let i = 0; i < completionSpans.length; i++) {
     const cs = completionSpans[i];
     const msgs = cs.attributes?.inputs?.messages;
-    const output = outputsBySpanId[cs.span_id] || null;
+    const outputInfo = outputsBySpanId[cs.span_id] || null;
+    const output = outputInfo?.message || null;
 
     // Extract only new messages (after the last assistant in input)
     let newMsgs = [];
@@ -168,6 +184,7 @@ function buildRawCalls(completionSpans, outputsBySpanId) {
     const hasOutput = output && (output.content || output.tool_calls);
     calls.push({
       index: i + 1,
+      span_id: cs.span_id,
       input: newMsgs,
       output: output ? {
         role: 'assistant',
@@ -176,6 +193,8 @@ function buildRawCalls(completionSpans, outputsBySpanId) {
         tool_calls: output.tool_calls ?? null,
       } : null,
       empty: !hasOutput,
+      finish_reason: outputInfo?.finish_reason || null,
+      native_finish_reason: outputInfo?.native_finish_reason || null,
     });
   }
   return calls;
@@ -190,7 +209,8 @@ function buildSpanTree(spans, outputsBySpanId) {
     const node = { name: s.name, span_id: s.span_id, parent_span_id: s.parent_span_id, children: [] };
 
     if (s.name === 'openai_completion') {
-      const output = outputsBySpanId[s.span_id];
+      const outputInfo = outputsBySpanId[s.span_id];
+      const output = outputInfo?.message || null;
       if (output) {
         if (output.tool_calls && output.tool_calls.length > 0) {
           node.result = output.tool_calls.map(tc => tc.function?.name || 'tool_call').join(', ');
@@ -233,6 +253,8 @@ function buildSpanTree(spans, outputsBySpanId) {
             parts.push(`${tc.function?.name}(${args.length > 80 ? args.slice(0, 80) + '...' : args})`);
           }
         }
+        const effectiveReason = outputInfo?.native_finish_reason || outputInfo?.finish_reason;
+        if (effectiveReason && effectiveReason !== 'stop' && effectiveReason !== 'tool_calls') parts.push(`[${effectiveReason}]`);
         node.outputPreview = parts.join('\n') || null;
       }
     }

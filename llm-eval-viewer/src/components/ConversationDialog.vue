@@ -59,8 +59,11 @@
 
     <div v-if="viewMode === 'jsonl' && rawSpans.length" class="chat-scroll-wrapper" :class="{ 'code-wrap': codeWrap }">
       <div class="raw-jsonl-container">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
           <span class="raw-calls-summary" style="margin-bottom: 0;">{{ $t('custom.rawSpans', { count: rawSpans.length }) }}</span>
+          <span v-if="finishReasonStats" class="finish-reason-stats">
+            <span v-for="(count, reason) in finishReasonStats" :key="reason" class="finish-stat-item" :class="'finish-' + reason">{{ reason }}: {{ count }} ({{ Math.round(count / activeRawCalls.length * 100) }}%)</span>
+          </span>
         </div>
         <!-- Raw span rows (indented by tree depth, collapsible) -->
         <template v-for="(span, si) in rawSpans" :key="si">
@@ -81,11 +84,13 @@
               <span v-if="span.name" class="jsonl-row-name">{{ span.name }}</span>
               <span class="jsonl-row-id">{{ span.span_id?.slice(0, 8) }}</span>
               <span v-if="span.parent_span_id" class="jsonl-row-parent">← {{ span.parent_span_id?.slice(0, 8) }}</span>
+              <span v-if="spanCallIndexMap[span.span_id]" class="jsonl-call-idx">#{{ spanCallIndexMap[span.span_id] }}</span>
               <!-- Type tags on UPDATE spans (where the output lives) -->
               <span v-if="isSpanEmpty(span) === true" class="jsonl-empty-tag">EMPTY</span>
               <span v-else-if="isSpanEmpty(span) === 'reasoning'" class="jsonl-empty-tag jsonl-reasoning-tag">REASONING ONLY</span>
               <span v-else-if="spanOutputType(span) === 'tool_call'" class="jsonl-tag jsonl-tag-tool">TOOL</span>
               <span v-else-if="spanOutputType(span) === 'content'" class="jsonl-tag jsonl-tag-content">CONTENT</span>
+              <span v-if="spanFinishReason(span)" class="jsonl-finish-reason" :class="'finish-' + spanFinishReason(span)">{{ spanFinishReason(span) }}</span>
             </div>
             <pre v-if="expandedJsonlIdx[si]" class="jsonl-row-detail tool-code"><code v-html="highlightJson(JSON.stringify(span, null, 2))"></code></pre>
           </div>
@@ -204,6 +209,9 @@
         </div>
         <div class="raw-calls-summary">
           {{ $t('custom.rawApiCalls', { count: activeRawCalls.length }) }}
+          <span v-if="finishReasonStats" class="finish-reason-stats">
+            <span v-for="(count, reason) in finishReasonStats" :key="reason" class="finish-stat-item" :class="'finish-' + reason">{{ reason }}: {{ count }} ({{ Math.round(count / activeRawCalls.length * 100) }}%)</span>
+          </span>
         </div>
         <div
           v-for="call in activeRawCalls"
@@ -213,6 +221,8 @@
         >
           <div class="raw-call-header">
             <span class="raw-call-num">#{{ call.index }}</span>
+            <span v-if="(call.native_finish_reason || call.finish_reason) && (call.native_finish_reason || call.finish_reason) !== 'stop' && (call.native_finish_reason || call.finish_reason) !== 'tool_calls'" class="jsonl-finish-reason" :class="'finish-' + (call.native_finish_reason || call.finish_reason)">{{ call.native_finish_reason || call.finish_reason }}</span>
+            <span v-else-if="!call.native_finish_reason && !call.finish_reason" class="jsonl-finish-reason finish-no_response">no_response</span>
             <span v-if="call.empty" class="jsonl-empty-tag">EMPTY</span>
             <span v-else-if="call.output?.tool_calls" class="raw-call-result">→ {{ call.output.tool_calls.map(tc => tc.function?.name).join(', ') }}</span>
             <span v-else-if="call.output?.content" class="raw-call-result">→ content</span>
@@ -411,6 +421,26 @@ export default {
       return list;
     });
 
+    const finishReasonStats = computed(() => {
+      const calls = activeRawCalls.value;
+      if (!calls.length) return null;
+      const counts = {};
+      for (const c of calls) {
+        const reason = c.native_finish_reason || c.finish_reason || 'no_response';
+        counts[reason] = (counts[reason] || 0) + 1;
+      }
+      if (Object.keys(counts).length === 1 && (counts['stop'] || counts['tool_calls'])) return null;
+      return counts;
+    });
+
+    const spanCallIndexMap = computed(() => {
+      const map = {};
+      for (const c of activeRawCalls.value) {
+        if (c.span_id) map[c.span_id] = c.index;
+      }
+      return map;
+    });
+
     // Messages JSON (for JSON view mode)
     const messagesJson = computed(() => {
       let data;
@@ -576,6 +606,21 @@ export default {
       if (!msg) return null;
       if (msg.tool_calls && msg.tool_calls.length > 0) return 'tool_call';
       if (msg.content) return 'content';
+      return null;
+    }
+
+    function spanFinishReason(span) {
+      if (span.type === 'UPDATE') {
+        const choice = span.attributes?.outputs?.choices?.[0];
+        if (!choice) return null;
+        const reason = choice.provider_specific_fields?.native_finish_reason || choice.finish_reason;
+        if (!reason || reason === 'stop' || reason === 'tool_calls') return null;
+        return reason;
+      }
+      if (span.type === 'START' && span.name === 'openai_completion') {
+        const call = activeRawCalls.value.find(c => c.span_id === span.span_id);
+        if (call && !call.native_finish_reason && !call.finish_reason) return 'no_response';
+      }
       return null;
     }
 
@@ -1062,7 +1107,7 @@ export default {
       }
     };
 
-    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml, codeWrap, viewMode, messagesJson, rawCallsTab, activeRawCalls, showPipeline, showTimeline, showSpanTree, flatSpanTree, spanDepthMap, spanHasChildren, spanTypeMap, collapsedSpanIds, toggleSpanCollapse, isSpanHidden, isSpanEmpty, spanOutputType, pipelineStats, timelineBarClass, timelineTooltip, expandedSpanIdx, expandedJsonlIdx };
+    return { chatContainerRef, parsed, blockCount, itemCountText, filteredBlocks, filterText, renderedHtmlMap, sectionHtmlMap, isCollapsible, isCollapsed, toggleCollapse, highlightJson, copyContent, copyText, toolBlocks, isCollapsibleTool, isToolCollapsed, toggleToolCollapse, activeConvIdx, conversationTabs, getSectionParts, escapeHtml, codeWrap, viewMode, messagesJson, rawCallsTab, activeRawCalls, finishReasonStats, spanCallIndexMap, showPipeline, showTimeline, showSpanTree, flatSpanTree, spanDepthMap, spanHasChildren, spanTypeMap, collapsedSpanIds, toggleSpanCollapse, isSpanHidden, isSpanEmpty, spanOutputType, spanFinishReason, pipelineStats, timelineBarClass, timelineTooltip, expandedSpanIdx, expandedJsonlIdx };
   },
 };
 </script>
@@ -1187,6 +1232,36 @@ export default {
   opacity: 0.6;
   margin-left: auto;
 }
+
+.jsonl-finish-reason {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+.jsonl-finish-reason.finish-abort { background: rgba(245, 108, 108, 0.12); color: #e45656; }
+.jsonl-finish-reason.finish-kvcache_no_enough { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+.jsonl-finish-reason.finish-length { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+.jsonl-finish-reason.finish-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+
+.finish-reason-stats {
+  margin-left: 8px;
+}
+.finish-stat-item {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: 500;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+}
+.finish-stat-item.finish-abort { background: rgba(245, 108, 108, 0.12); color: #e45656; }
+.finish-stat-item.finish-kvcache_no_enough { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+.finish-stat-item.finish-length { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
+.finish-stat-item.finish-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 
 .fn-name {
   font-size: 11px;
@@ -1665,6 +1740,14 @@ html.dark .jsonl-row-header:hover {
   color: var(--el-text-color-secondary);
   font-size: 10px;
   opacity: 0.6;
+}
+
+.jsonl-call-idx {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--el-color-primary);
+  opacity: 0.7;
+  margin-left: 2px;
 }
 
 .jsonl-collapse-toggle {
