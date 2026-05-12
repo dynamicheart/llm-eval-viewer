@@ -504,5 +504,9 @@ export default {
     id: 'ID',
     conversations: '{count} 段对话',
     messages: '{count} 条消息',
+    browseDirectory: '浏览目录',
+    scanning: '正在扫描...',
+    noValidSubDirs: '未找到有效的子目录（子目录需包含 .jsonl.gz 文件）',
+    subDirCount: '{count} 个子目录',
   },
 };

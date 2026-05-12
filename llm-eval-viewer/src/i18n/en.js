@@ -505,5 +505,9 @@ export default {
     id: 'ID',
     conversations: '{count} conversations',
     messages: '{count} messages',
+    browseDirectory: 'Browse Directory',
+    scanning: 'Scanning...',
+    noValidSubDirs: 'No valid subdirectories found (must contain .jsonl.gz files)',
+    subDirCount: '{count} subdirectories',
   },
 };

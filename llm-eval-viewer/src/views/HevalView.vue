@@ -1,24 +1,35 @@
 <!-- Copyright (c) 2026 dynamicheart. Licensed under the MIT License. -->
 
 <template>
-  <div class="heval-view">
+  <div class="heval-view" :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0' }">
+    <DirBrowserDrawer
+      :visible="showSidebar"
+      :dir-tree="subDirs"
+      :current-node-key="currentSubDir"
+      @select-run="onSelectSubDir"
+      @resize="w => sidebarWidth = w"
+    />
     <div class="heval-toolbar">
-      <el-button type="primary" @click="openDirectory">{{ $t('hyeval.selectDirectory') }}</el-button>
-      <el-upload
-        :auto-upload="false"
-        :on-change="handleFileChange"
-        :show-file-list="false"
-        accept=".jsonl,.jsonl.gz,.gz"
-      >
-        <el-button>{{ $t('hyeval.orSingleFile') }}</el-button>
-      </el-upload>
+      <el-button :type="browseMode !== 'directory' ? 'primary' : ''" @click="openDirectory">{{ $t('hyeval.selectDirectory') }}</el-button>
+      <el-button :type="browseMode === 'directory' ? 'primary' : ''" @click="browseParentDirectory">{{ $t('hyeval.browseDirectory') }}</el-button>
       <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
-        <el-button>{{ $t('hyeval.recent') }} <el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+        <el-button size="small" plain>{{ $t('hyeval.recent') }} <el-icon><ArrowDown /></el-icon></el-button>
         <template #dropdown>
           <el-dropdown-menu class="recent-dropdown-menu">
             <el-dropdown-item v-for="d in recentDirs" :key="d.name" :command="d.name">
-              <div class="recent-item">
-                <span>{{ d.name }} <span class="recent-meta">{{ d.records }} {{ $t('hyeval.records') }}</span></span>
+              <div class="recent-item-row">
+                <div class="recent-item-info">
+                  <div class="recent-item-name">
+                    <el-icon style="margin-right: 4px; vertical-align: middle"><FolderOpened /></el-icon>
+                    {{ d.name }}
+                    <el-tag v-if="d.mode === 'directory'" size="small" type="info" style="margin-left: 6px">{{ $t('hyeval.browseDirectory') }}</el-tag>
+                  </div>
+                  <div class="recent-item-meta">
+                    <template v-if="d.mode === 'directory'">{{ $t('hyeval.subDirCount', { count: d.records }) }}</template>
+                    <template v-else>{{ d.records }} {{ $t('hyeval.records') }}</template>
+                    · {{ formatTime(d.time) }}
+                  </div>
+                </div>
                 <el-icon class="recent-delete" @click.stop="removeRecentDir(d.name)"><Close /></el-icon>
               </div>
             </el-dropdown-item>
@@ -330,14 +341,16 @@ import trajectoryParse from '@/plugins/trajectoryParse';
 import ConversationDialog from '@/components/ConversationDialog.vue';
 import JsonViewer from '@/components/JsonViewer.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
+import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 import { Check, ArrowDown, Close } from '@element-plus/icons-vue';
+import { FolderOpened } from '@element-plus/icons-vue';
 import hljs from 'highlight.js/lib/core';
 import jsonLang from 'highlight.js/lib/languages/json';
 
 hljs.registerLanguage('json', jsonLang);
 
 export default {
-  components: { ConversationDialog, JsonViewer, TableHeaderSearch, Check, ArrowDown, Close },
+  components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, Check, ArrowDown, Close, FolderOpened },
 
   data() {
     return {
@@ -369,10 +382,16 @@ export default {
       currentPage: 1,
       pageSize: 50,
       recentDirs: JSON.parse(localStorage.getItem('hyeval_recent_dirs') || '[]'),
+      parentDirHandle: null,
+      subDirs: [],
+      browseMode: localStorage.getItem('hyeval_browse_mode') || 'file',
+      currentSubDir: localStorage.getItem('hyeval_current_subdir') || '',
+      sidebarWidth: 0,
     };
   },
 
   computed: {
+    showSidebar() { return this.browseMode === 'directory' && this.subDirs.length > 0; },
     passCount() { return this.rows.filter(r => r.score >= 1).length; },
     failCount() { return this.rows.filter(r => r.score < 1).length; },
     hasAgentData() { return this.rows.some(r => r.agent_name); },
@@ -529,30 +548,45 @@ export default {
         sessionStorage.removeItem('hyeval_reset');
         return;
       }
+
+      if (this.browseMode === 'directory') {
+        const parentName = localStorage.getItem('hyeval_parent_dir');
+        if (parentName) {
+          const handle = await this.loadDirHandle(parentName);
+          if (!handle) return;
+          try {
+            let perm = await handle.queryPermission({ mode: 'read' });
+            if (perm === 'prompt') perm = await handle.requestPermission({ mode: 'read' });
+            if (perm !== 'granted') return;
+            this.parentDirHandle = handle;
+            await this.scanSubDirs(handle);
+            if (this.currentSubDir && this.subDirs.length > 0) {
+              const children = this.subDirs[0]?.children || [];
+              const target = children.find(d => d.id === this.currentSubDir);
+              if (target) await this.onSelectSubDir(target);
+            }
+          } catch { /* ignore */ }
+        }
+        return;
+      }
+
       const last = this.recentDirs[0];
       const handle = await this.loadDirHandle(last.name);
       if (!handle) return;
       try {
-        const permission = await handle.queryPermission({ mode: 'read' });
-        if (permission === 'granted') {
-          this.dirHandle = handle;
-          this.fileName = handle.name;
-          await this.loadDirectory(handle);
-        } else if (permission === 'prompt') {
-          const granted = await handle.requestPermission({ mode: 'read' });
-          if (granted === 'granted') {
-            this.dirHandle = handle;
-            this.fileName = handle.name;
-            await this.loadDirectory(handle);
-          }
-        }
+        let perm = await handle.queryPermission({ mode: 'read' });
+        if (perm === 'prompt') perm = await handle.requestPermission({ mode: 'read' });
+        if (perm !== 'granted') return;
+        this.dirHandle = handle;
+        this.fileName = handle.name;
+        await this.loadDirectory(handle);
       } catch (e) { /* permission denied or handle invalid */ }
     },
 
-    updateRecentDirs(name, recordCount) {
+    updateRecentDirs(name, recordCount, mode) {
       const MAX = 40;
       const list = this.recentDirs.filter(d => d.name !== name);
-      list.unshift({ name, time: Date.now(), records: recordCount || 0 });
+      list.unshift({ name, time: Date.now(), records: recordCount || 0, mode: mode || 'file' });
       if (list.length > MAX) list.length = MAX;
       this.recentDirs = list;
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(list));
@@ -564,6 +598,7 @@ export default {
       });
     },
     async removeRecentDir(name) {
+      const item = this.recentDirs.find(d => d.name === name);
       this.recentDirs = this.recentDirs.filter(d => d.name !== name);
       localStorage.setItem('hyeval_recent_dirs', JSON.stringify(this.recentDirs));
       try {
@@ -575,6 +610,19 @@ export default {
         store.delete(`hyeval_msgcount_${name}`);
         store.delete(`hyeval_diag_${name}`);
         store.delete(`hyeval_diag2_${name}`);
+        if (item && item.mode === 'directory') {
+          const allKeys = await new Promise((r, j) => {
+            const req = store.getAllKeys();
+            req.onsuccess = () => r(req.result);
+            req.onerror = j;
+          });
+          const prefixes = ['hyeval_judge_', 'hyeval_msgcount_', 'hyeval_diag_', 'hyeval_diag2_'];
+          for (const key of allKeys) {
+            if (prefixes.some(p => typeof key === 'string' && key.startsWith(p))) {
+              store.delete(key);
+            }
+          }
+        }
         await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
         db.close();
       } catch (e) { /* ignore */ }
@@ -590,9 +638,18 @@ export default {
       try {
         const permission = await handle.requestPermission({ mode: 'read' });
         if (permission !== 'granted') return;
-        this.dirHandle = handle;
-        this.fileName = handle.name;
-        await this.loadDirectory(handle);
+        if (item.mode === 'directory') {
+          this.parentDirHandle = handle;
+          await this.scanSubDirs(handle);
+        } else {
+          this.dirHandle = handle;
+          this.fileName = handle.name;
+          this.browseMode = 'file';
+          this.subDirs = [];
+          this.currentSubDir = '';
+          localStorage.setItem('hyeval_browse_mode', 'file');
+          await this.loadDirectory(handle);
+        }
       } catch (e) {
         this.$message.error('Failed to access directory');
       }
@@ -655,7 +712,78 @@ export default {
       this.columnFilters = {};
       this.sortState = { prop: null, order: null };
       this.currentPage = 1;
+      this.parentDirHandle = null;
+      this.subDirs = [];
+      this.browseMode = 'file';
+      this.currentSubDir = '';
+      localStorage.setItem('hyeval_browse_mode', 'file');
+      localStorage.removeItem('hyeval_current_subdir');
+      localStorage.removeItem('hyeval_parent_dir');
       sessionStorage.setItem('hyeval_reset', '1');
+    },
+
+    async browseParentDirectory() {
+      if (!window.showDirectoryPicker) {
+        alert('Directory picker not supported. Use Chrome/Edge.');
+        return;
+      }
+      try {
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
+        this.parentDirHandle = handle;
+        await this.scanSubDirs(handle);
+      } catch (e) {
+        if (e.name !== 'AbortError') console.error(e);
+      }
+    },
+
+    async scanSubDirs(parentHandle) {
+      const dirs = [];
+      for await (const entry of parentHandle.values()) {
+        if (entry.kind !== 'directory') continue;
+        if (entry.name.startsWith('.')) continue;
+        let hasJsonlGz = false;
+        try {
+          for await (const child of entry.values()) {
+            if (child.kind === 'file' && child.name.endsWith('.jsonl.gz')) {
+              hasJsonlGz = true;
+              break;
+            }
+          }
+        } catch { /* skip inaccessible */ }
+        if (hasJsonlGz) {
+          dirs.push({ id: entry.name, label: entry.name, handle: entry, isLeaf: true });
+        }
+      }
+      if (dirs.length === 0) {
+        this.$message.warning(this.$t('hyeval.noValidSubDirs'));
+        return;
+      }
+      dirs.sort((a, b) => b.label.localeCompare(a.label));
+      this.subDirs = [{
+        id: `parent_${parentHandle.name}`,
+        label: parentHandle.name,
+        children: dirs,
+      }];
+      this.browseMode = 'directory';
+      localStorage.setItem('hyeval_browse_mode', 'directory');
+      localStorage.setItem('hyeval_parent_dir', parentHandle.name);
+      await this.storeDirHandle(parentHandle);
+      this.updateRecentDirs(parentHandle.name, dirs.length, 'directory');
+    },
+
+    async onSelectSubDir(node) {
+      this.currentSubDir = node.id;
+      localStorage.setItem('hyeval_current_subdir', node.id);
+      this.dirHandle = node.handle;
+      this.fileName = node.label;
+      await this.loadDirectory(node.handle);
+    },
+
+    formatTime(ts) {
+      if (!ts) return '';
+      const d = new Date(ts);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     },
     async openDirectory() {
       if (!window.showDirectoryPicker) {
@@ -666,6 +794,10 @@ export default {
         const dirHandle = await window.showDirectoryPicker();
         this.dirHandle = dirHandle;
         this.fileName = dirHandle.name;
+        this.browseMode = 'file';
+        this.subDirs = [];
+        this.currentSubDir = '';
+        localStorage.setItem('hyeval_browse_mode', 'file');
         await this.storeDirHandle(dirHandle);
         await this.loadDirectory(dirHandle);
       } catch (e) {
@@ -947,14 +1079,19 @@ export default {
 .heval-view {
   padding: 16px 24px;
   overflow-x: hidden;
+  transition: margin-left 0.25s ease;
 }
 
 .heval-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+}
+
+.heval-toolbar :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .file-name {
@@ -974,18 +1111,12 @@ export default {
 .diag-abort, .diag-server_error { background: rgba(245, 108, 108, 0.12); color: #e45656; }
 .diag-kvcache_no_enough, .diag-length, .diag-no_response { background: rgba(230, 162, 60, 0.12); color: #c48a20; }
 
-.recent-meta {
-  color: var(--el-text-color-placeholder);
-  font-size: 12px;
-  margin-left: 8px;
-}
-
 .recent-dropdown-menu {
   max-height: 400px;
   overflow-y: auto;
 }
 
-.recent-item {
+.recent-item-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -993,10 +1124,29 @@ export default {
   gap: 12px;
 }
 
+.recent-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-item-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent-item-meta {
+  font-size: 11px;
+  color: var(--el-text-color-placeholder);
+  margin-top: 2px;
+}
+
 .recent-delete {
   color: var(--el-text-color-placeholder);
   cursor: pointer;
   font-size: 14px;
+  flex-shrink: 0;
 }
 .recent-delete:hover {
   color: var(--el-color-danger);
