@@ -53,6 +53,16 @@
       </span>
       <div class="toolbar-right">
         <el-select
+          v-if="filterOptions.datasets.length > 1"
+          v-model="filters.dataset"
+          clearable
+          placeholder="Dataset"
+          size="small"
+          style="width: 200px; margin-right: 8px"
+        >
+          <el-option v-for="d in filterOptions.datasets" :key="d" :label="d" :value="d" />
+        </el-select>
+        <el-select
           v-if="filterOptions.agents.length > 1"
           v-model="filters.agent"
           clearable
@@ -442,7 +452,7 @@ export default {
       fileName: '',
       rows: [],
       selectedRow: null,
-      filters: { agent: '', questionId: '', questionText: '', answerText: '' },
+      filters: { agent: '', dataset: '', questionId: '', questionText: '', answerText: '' },
       trajectoryMessages: [],
       trajectoryConversations: [],
       trajectoryRawCalls: [],
@@ -568,8 +578,9 @@ export default {
     },
     filterOptions() {
       const agents = [...new Set(this.rows.map(r => r.agent_name).filter(Boolean))];
+      const datasets = [...new Set(this.rows.map(r => r.dataset).filter(Boolean))].sort();
       const exitStatuses = [...new Set(this.rows.map(r => r.exit_status).filter(Boolean))];
-      return { agents, exitStatuses };
+      return { agents, datasets, exitStatuses };
     },
     filteredRows() {
       return this.rows.filter(r => {
@@ -580,6 +591,7 @@ export default {
           if (!answer.toLowerCase().includes(this.filters.answerText.toLowerCase())) return false;
         }
         if (this.filters.agent && r.agent_name !== this.filters.agent) return false;
+        if (this.filters.dataset && r.dataset !== this.filters.dataset) return false;
         const exitFilter = this.columnFilters.exit_status;
         if (exitFilter && exitFilter.length) {
           if (!exitFilter.includes(r.exit_status)) return false;
@@ -1220,13 +1232,13 @@ export default {
 
     async loadDirectory(dirHandle) {
       const gen = this.loadGeneration;
-      let mainFile = null;
+      const jsonlFiles = [];
       let trajDir = null;
 
       for await (const entry of dirHandle.values()) {
         if (gen !== this.loadGeneration) return;
         if (entry.kind === 'file' && entry.name.endsWith('.jsonl.gz')) {
-          mainFile = entry;
+          jsonlFiles.push(entry);
         }
         if (entry.kind === 'directory' && entry.name === 'trajectory') {
           trajDir = entry;
@@ -1234,37 +1246,51 @@ export default {
       }
       if (gen !== this.loadGeneration) return;
 
-      if (!mainFile) {
+      if (jsonlFiles.length === 0) {
         this.$message.warning(this.$t('hyeval.noJsonlGz'));
         return;
       }
 
-      const file = await mainFile.getFile();
-      const text = await readTextWithDecompression(file);
-      if (gen !== this.loadGeneration) return;
+      let allRows = [];
+      let allRawRows = [];
+      for (const fileEntry of jsonlFiles) {
+        if (gen !== this.loadGeneration) return;
+        const dataset = fileEntry.name.replace(/__\d+__task_\d+\.jsonl\.gz$/, '');
+        const file = await fileEntry.getFile();
+        const text = await readTextWithDecompression(file);
+        if (gen !== this.loadGeneration) return;
+        const result = hyevalParse.process(text, {}, {});
+        for (const row of result.rows) {
+          row.dataset = row.dataset || dataset;
+        }
+        allRows = allRows.concat(result.rows);
+        const rawRows = this.parseRawRows(text);
+        for (const raw of rawRows) {
+          raw._dataset = dataset;
+        }
+        allRawRows = allRawRows.concat(rawRows);
+      }
 
-      const result = hyevalParse.process(text, {}, {});
-
-      if (result.rows.length === 0) {
+      if (allRows.length === 0) {
         this.$message.warning(this.$t('hyeval.parseEmpty'));
         return;
       }
 
       this.trajDirHandle = trajDir;
       this.trajectoryIndex = {};
-      this.rows = result.rows;
-      this.rawRows = this.parseRawRows(text);
+      this.rows = allRows;
+      this.rawRows = allRawRows;
       this.selectedRow = null;
       this.trajectoryMessages = [];
       if (this.browseMode !== 'directory') {
-        this.updateRecentDirs(dirHandle.name, result.rows.length);
+        this.updateRecentDirs(dirHandle.name, allRows.length);
       }
 
       if (this.trajDirHandle) {
         await this.indexTrajectories(gen);
       } else {
-        this.populateJudgeFromRows(result.rows);
-        this.$message.info(this.$t('hyeval.loaded', { count: result.rows.length }));
+        this.populateJudgeFromRows(allRows);
+        this.$message.info(this.$t('hyeval.loaded', { count: allRows.length }));
       }
     },
 

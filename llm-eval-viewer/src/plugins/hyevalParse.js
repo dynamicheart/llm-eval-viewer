@@ -65,6 +65,7 @@ function extractAgentRow(obj, payload, trialDetails, messages) {
     difficulty: null,
     source: null,
     language: null,
+    dataset: null,
     infer_status: null,
     judge_status: null,
     avg_completion_tokens: null,
