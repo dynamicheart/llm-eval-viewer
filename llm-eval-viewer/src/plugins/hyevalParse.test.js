@@ -141,6 +141,32 @@ const VARIANT_C_WITH_DIFFICULTY = JSON.stringify({
   },
 });
 
+const VARIANT_A_WITH_USAGE = JSON.stringify({
+  taskId: 'task_1',
+  questionId: '12345',
+  payload: {
+    messages: [{ role: 'user', content: 'Who painted the Mona Lisa?' }],
+    ref_answer: 'Leonardo da Vinci',
+    avg_score: 1,
+    score: [[1]],
+    avg_completion_tokens: 512,
+    avg_prompt_tokens: 128,
+    usage: [[{ finish_reason: 'stop', stop_reason: '', result: {} }]],
+    trial_details: {
+      run_input_data: { agent_name: 'browser_agent', task_config: {} },
+      run_output_data: {
+        agent_output: {},
+        task_output: {
+          answer: 'leonardo da vinci',
+          prediction: 'Based on my research, the Mona Lisa was painted by Leonardo da Vinci.',
+          score: 1,
+        },
+      },
+      trajectory_info: { trajectory_path: '/traces/trace1.jsonl' },
+    },
+  },
+});
+
 const HYEVAL_TEXT = VARIANT_A_LINE + '\n' + VARIANT_B_LINE;
 
 describe('hyevalParse', () => {
@@ -223,6 +249,19 @@ describe('hyevalParse', () => {
       expect(result.rows).toHaveLength(2);
       expect(result.rows[0].ref_answer).toBe('Leonardo da Vinci');
       expect(result.rows[1].agent_name).toBe('terminus2');
+    });
+
+    it('extracts finish_reason from agent data with usage', () => {
+      const result = hyevalParse.process(VARIANT_A_WITH_USAGE, {}, {});
+      const row = result.rows[0];
+      expect(row.finish_reason).toBe('stop');
+      expect(row.avg_completion_tokens).toBe(512);
+      expect(row.avg_prompt_tokens).toBe(128);
+    });
+
+    it('finish_reason is null for agent data without usage', () => {
+      const result = hyevalParse.process(VARIANT_A_LINE, {}, {});
+      expect(result.rows[0].finish_reason).toBeNull();
     });
 
     it('sets _detectedFormat to hyeval', () => {

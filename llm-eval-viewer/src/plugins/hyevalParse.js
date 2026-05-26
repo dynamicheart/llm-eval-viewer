@@ -30,6 +30,7 @@ function extractAgentRow(obj, payload, trialDetails, messages) {
   const agentConfig = runInput.agent_config || {};
   const taskConfig = runInput.task_config || {};
   const trajectoryInfo = trialDetails.trajectory_info || {};
+  const usage = payload.usage;
 
   const question = (messages.length > 0 && messages[0].content)
     ? messages[0].content
@@ -68,9 +69,12 @@ function extractAgentRow(obj, payload, trialDetails, messages) {
     dataset: null,
     infer_status: null,
     judge_status: null,
-    avg_completion_tokens: null,
-    avg_prompt_tokens: null,
-    finish_reason: null,
+    avg_completion_tokens: payload.avg_completion_tokens ?? null,
+    avg_prompt_tokens: payload.avg_prompt_tokens ?? null,
+    finish_reason: (Array.isArray(usage) && Array.isArray(usage[0]) && usage[0][0] && usage[0][0].finish_reason)
+      ? usage[0][0].finish_reason
+      : null,
+    infer_time: (payload.time_info && payload.time_info.infer_complete_time) || null,
   };
 }
 
@@ -124,6 +128,7 @@ function extractStandardRow(obj, payload, messages) {
     avg_completion_tokens: payload.avg_completion_tokens ?? null,
     avg_prompt_tokens: payload.avg_prompt_tokens ?? null,
     finish_reason: finishReason,
+    infer_time: (payload.time_info && payload.time_info.infer_complete_time) || null,
   };
 }
 

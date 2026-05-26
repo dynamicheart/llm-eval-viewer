@@ -27,7 +27,28 @@ export default defineConfig({
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
     __COMMIT_HASH__: JSON.stringify(getGitCommitHash()),
   },
-  base: '/llm-eval-viewer/',
+  base: process.env.VIEWER_BASE || '/llm-eval-viewer/',
+  build: process.env.BUILD_LIB
+    ? {
+        lib: {
+          entry: fileURLToPath(new URL('./src/index.js', import.meta.url)),
+          name: 'LlmEvalViewer',
+          formats: ['es'],
+          fileName: 'llm-eval-viewer',
+        },
+        rollupOptions: {
+          external: ['vue', 'vue-router', 'element-plus', 'vue-i18n'],
+          output: {
+            globals: {
+              vue: 'Vue',
+              'vue-router': 'VueRouter',
+              'element-plus': 'ElementPlus',
+              'vue-i18n': 'VueI18n',
+            },
+          },
+        },
+      }
+    : undefined,
   test: {
     include: ['src/**/*.test.js'],
   },

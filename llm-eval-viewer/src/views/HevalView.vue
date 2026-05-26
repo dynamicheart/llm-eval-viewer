@@ -124,6 +124,22 @@
         <template v-if="showStatsPanel">
           <DistributionCard :items="finishReasonDist" :field-label="'Finish Reason'" />
           <HistogramCard :histogram-data="tokenHistogramData" :fields="tokenHistogramFields" :total-samples="rows.length" />
+          <div v-if="hasFinishReason" class="scatter-chart-section">
+            <div class="scatter-charts-row">
+              <div class="scatter-chart-col">
+                <div class="chart-title">Completion Tokens by Time (red = truncated)</div>
+                <div class="scatter-chart-wrapper">
+                  <canvas ref="tokenTimeScatterCanvas"></canvas>
+                </div>
+              </div>
+              <div class="scatter-chart-col">
+                <div class="chart-title">Completion Tokens by Sample Index</div>
+                <div class="scatter-chart-wrapper">
+                  <canvas ref="tokenScatterCanvas"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
         </template>
       </div>
       <div v-if="evalLoading" class="eval-progress">
@@ -405,6 +421,9 @@
 </template>
 
 <script>
+import { Chart, registerables } from 'chart.js';
+import 'chartjs-adapter-date-fns';
+Chart.register(...registerables);
 import { readTextWithDecompression, isCompressedFile, decompressBuffer } from '@/utils/decompressFile';
 import hyevalParse from '@/plugins/hyevalParse';
 import trajectoryParse from '@/plugins/trajectoryParse';
@@ -687,7 +706,13 @@ export default {
   },
 
   watch: {
-    showStatsPanel(val) { localStorage.setItem('hyeval_showStats', val); },
+    showStatsPanel(val) {
+      localStorage.setItem('hyeval_showStats', val);
+      if (val) this.$nextTick(() => this.renderTokenScatter());
+    },
+    filteredRows() {
+      if (this.showStatsPanel) this.$nextTick(() => this.renderTokenScatter());
+    },
     'filters': {
       deep: true,
       handler() { this.currentPage = 1; },
@@ -696,6 +721,11 @@ export default {
 
   async mounted() {
     await this.tryRestoreDirectory();
+  },
+
+  beforeUnmount() {
+    if (this._tokenScatterChart) this._tokenScatterChart.destroy();
+    if (this._tokenTimeScatterChart) this._tokenTimeScatterChart.destroy();
   },
 
   methods: {
@@ -1464,6 +1494,100 @@ export default {
       }
     },
 
+    renderTokenScatter() {
+      this.renderIndexScatter();
+      this.renderTimeScatter();
+    },
+
+    renderIndexScatter() {
+      const canvas = this.$refs.tokenScatterCanvas;
+      if (!canvas) return;
+      if (this._tokenScatterChart) {
+        this._tokenScatterChart.destroy();
+        this._tokenScatterChart = null;
+      }
+      const rows = this.filteredRows;
+      if (!rows.length) return;
+      const stopData = [];
+      const lengthData = [];
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (r.avg_completion_tokens == null) continue;
+        const point = { x: i, y: r.avg_completion_tokens };
+        if (r.finish_reason === 'length') {
+          lengthData.push(point);
+        } else {
+          stopData.push(point);
+        }
+      }
+      this._tokenScatterChart = new Chart(canvas, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { label: 'stop', data: stopData, backgroundColor: 'rgba(103,194,58,0.5)', pointRadius: 2 },
+            { label: 'length', data: lengthData, backgroundColor: 'rgba(245,108,108,0.7)', pointRadius: 3 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 11 } } } },
+          scales: {
+            x: { title: { display: true, text: 'Sample Index', font: { size: 11 } }, ticks: { font: { size: 10 } } },
+            y: { title: { display: true, text: 'Completion Tokens', font: { size: 11 } }, ticks: { font: { size: 10 } } },
+          },
+        },
+      });
+    },
+
+    renderTimeScatter() {
+      const canvas = this.$refs.tokenTimeScatterCanvas;
+      if (!canvas) return;
+      if (this._tokenTimeScatterChart) {
+        this._tokenTimeScatterChart.destroy();
+        this._tokenTimeScatterChart = null;
+      }
+      const rows = this.filteredRows;
+      if (!rows.length) return;
+      const stopData = [];
+      const lengthData = [];
+      for (const r of rows) {
+        if (r.avg_completion_tokens == null || !r.infer_time) continue;
+        const t = new Date(r.infer_time.replace(' ', 'T')).getTime();
+        if (isNaN(t)) continue;
+        const point = { x: t, y: r.avg_completion_tokens };
+        if (r.finish_reason === 'length') {
+          lengthData.push(point);
+        } else {
+          stopData.push(point);
+        }
+      }
+      if (!stopData.length && !lengthData.length) return;
+      this._tokenTimeScatterChart = new Chart(canvas, {
+        type: 'scatter',
+        data: {
+          datasets: [
+            { label: 'stop', data: stopData, backgroundColor: 'rgba(103,194,58,0.5)', pointRadius: 2 },
+            { label: 'length', data: lengthData, backgroundColor: 'rgba(245,108,108,0.7)', pointRadius: 3 },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 11 } } } },
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+              title: { display: true, text: 'Time', font: { size: 11 } },
+              ticks: { font: { size: 10 } },
+            },
+            y: { title: { display: true, text: 'Completion Tokens', font: { size: 11 } }, ticks: { font: { size: 10 } } },
+          },
+        },
+      });
+    },
+
     async loadJudgeEvalsAsync() {
       const gen = this.loadGeneration;
       const fn = this.fileName;
@@ -1743,6 +1867,26 @@ export default {
 }
 .eval-stats-panel :deep(.charts-row) {
   gap: 8px;
+}
+.scatter-chart-section {
+  margin-top: 8px;
+}
+.scatter-charts-row {
+  display: flex;
+  gap: 12px;
+}
+.scatter-chart-col {
+  flex: 1;
+  min-width: 0;
+}
+.scatter-chart-section .chart-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--el-text-color-secondary);
+}
+.scatter-chart-wrapper {
+  height: 150px;
 }
 
 .stats-panel {

@@ -3,9 +3,19 @@
   "private": true,
   "version": "1.0.1",
   "type": "module",
+  "main": "./dist/llm-eval-viewer.js",
+  "module": "./dist/llm-eval-viewer.js",
+  "exports": {
+    ".": {
+      "import": "./dist/llm-eval-viewer.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:lib": "BUILD_LIB=1 vite build",
+    "build:viewer": "VIEWER_BASE=/viewer/ vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -15,6 +25,8 @@
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "chart.js": "^4.5.1",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "date-fns": "^4.3.0",
     "element-plus": "^2.11.2",
     "fflate": "^0.8.2",
     "fzstd": "^0.1.1",
