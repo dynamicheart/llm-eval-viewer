@@ -109,6 +109,13 @@
           <el-tag v-for="(count, reason) in diagStats.totals" :key="reason" size="small" :type="reason === 'abort' || reason === 'server_error' ? 'danger' : 'warning'">{{ reason }}: {{ count }}{{ diagStats.totalTurns ? ` (${(count / diagStats.totalTurns * 100).toFixed(1)}%)` : '' }}</el-tag>
         </div>
       </div>
+      <div v-if="hasStandardEvalData" class="eval-stats-panel">
+        <el-checkbox v-model="showStatsPanel" class="stats-toggle">{{ $t('custom.numericDistribution') }}</el-checkbox>
+        <template v-if="showStatsPanel">
+          <DistributionCard :items="finishReasonDist" :field-label="'Finish Reason'" />
+          <HistogramCard :histogram-data="tokenHistogramData" :fields="tokenHistogramFields" :total-samples="rows.length" />
+        </template>
+      </div>
       <div v-if="evalLoading" class="eval-progress">
         <span class="eval-progress-text">{{ $t('hyeval.loadingJudge', { progress: evalLoadProgress, total: evalLoadTotal }) }}</span>
         <el-progress :percentage="Math.round((evalLoadProgress / evalLoadTotal) * 100)" :stroke-width="6" />
@@ -149,7 +156,7 @@
             <TableHeaderSearch :label="$t('hyeval.answer')" v-model="filters.answerText" :placeholder="$t('hyeval.search')" />
           </template>
           <template #default="{ row }">
-            <span v-if="getJudgeAnswer(row)">{{ truncate(getJudgeAnswer(row), 50) }}</span>
+            <span v-if="getModelOutput(row) !== '-'">{{ truncate(getModelOutput(row), 50) }}</span>
             <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
@@ -161,15 +168,18 @@
           </template>
         </el-table-column>
         <el-table-column
-          :label="$t('hyeval.status')"
-          width="100"
-          column-key="status"
-          :filters="[{ text: 'PASS', value: 'pass' }, { text: 'FAIL', value: 'fail' }]"
-          :filter-multiple="false"
+          v-if="hasFinishReason"
+          prop="finish_reason"
+          label="Finish Reason"
+          width="120"
+          column-key="finish_reason"
+          :filters="finishReasonFilters"
+          :filter-multiple="true"
         >
           <template #default="{ row }">
-            <el-tag v-if="row.score < 1" type="danger" size="small">FAIL</el-tag>
-            <span v-else class="text-muted">PASS</span>
+            <el-tag v-if="row.finish_reason === 'length'" type="warning" size="small">length</el-tag>
+            <span v-else-if="row.finish_reason" class="text-muted">{{ row.finish_reason }}</span>
+            <span v-else class="text-muted">-</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -252,12 +262,21 @@
 
         <div class="detail-grid">
           <div class="detail-cell">
-            <div class="detail-label">{{ $t('hyeval.question') }}</div>
+            <div class="detail-label">
+              {{ $t('hyeval.question') }}
+              <el-button size="small" text @click="copyText(JSON.stringify((selectedRowRaw && selectedRowRaw.payload && selectedRowRaw.payload.messages) || [], null, 2))">{{ $t('common.copy') }}</el-button>
+            </div>
             <div class="detail-content scrollable">{{ selectedRow.question }}</div>
           </div>
           <div class="detail-cell">
             <div class="detail-label">{{ $t('hyeval.modelOutput') }}</div>
-            <div class="detail-content scrollable prediction">{{ getModelOutput(selectedRow) }}</div>
+            <div class="detail-content scrollable prediction">
+              <div v-if="selectedRow.thinking" class="thinking-block">
+                <div class="thinking-label">Thinking</div>
+                <div class="thinking-content">{{ selectedRow.thinking }}</div>
+              </div>
+              <div>{{ getModelOutput(selectedRow) }}</div>
+            </div>
           </div>
           <div class="detail-cell">
             <div class="detail-label">
@@ -292,7 +311,7 @@
               </template>
             </div>
           </div>
-          <div class="detail-cell">
+          <div v-if="hasTrajectory(selectedRow) || trajectoryMessages.length || trajectoryConversations.length || loadingTrajectory" class="detail-cell">
             <div class="detail-label">
               Trajectory
               <template v-if="!hasTrajectory(selectedRow)">
@@ -321,10 +340,26 @@
                   {{ $t('hyeval.loadTrajectory') }}
                 </el-button>
               </div>
-              <span v-else class="text-muted">{{ $t('hyeval.noTrajectory') }}</span>
               <div v-if="judgeEval" class="judge-eval">
                 <div class="judge-eval-title">{{ $t('hyeval.judgeEvaluation') }}</div>
                 <div v-for="(val, key) in judgeEval" :key="key" class="judge-eval-item">
+                  <span class="judge-eval-key">{{ key }}:</span>
+                  <span class="judge-eval-val" :class="{ 'judge-fail': val === 0, 'judge-pass': val === 1 }">{{ val }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="selectedRow.judge_response || selectedRow.avg_completion_tokens" class="detail-cell">
+            <div class="detail-label">Usage & Judge</div>
+            <div class="detail-content scrollable">
+              <div v-if="selectedRow.avg_completion_tokens || selectedRow.avg_prompt_tokens" class="usage-info">
+                <el-tag size="small" type="info">Completion: {{ selectedRow.avg_completion_tokens }}</el-tag>
+                <el-tag size="small" type="info">Prompt: {{ selectedRow.avg_prompt_tokens }}</el-tag>
+                <el-tag v-if="selectedRow.finish_reason" size="small" :type="selectedRow.finish_reason === 'length' ? 'warning' : 'success'">{{ selectedRow.finish_reason }}</el-tag>
+              </div>
+              <div v-if="parsedJudgeResponse" class="judge-eval">
+                <div class="judge-eval-title">{{ $t('hyeval.judgeEvaluation') }}</div>
+                <div v-for="(val, key) in parsedJudgeResponse" :key="key" class="judge-eval-item">
                   <span class="judge-eval-key">{{ key }}:</span>
                   <span class="judge-eval-val" :class="{ 'judge-fail': val === 0, 'judge-pass': val === 1 }">{{ val }}</span>
                 </div>
@@ -367,6 +402,8 @@ import ConversationDialog from '@/components/ConversationDialog.vue';
 import JsonViewer from '@/components/JsonViewer.vue';
 import TableHeaderSearch from '@/components/TableHeaderSearch.vue';
 import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
+import DistributionCard from '@/components/DistributionCard.vue';
+import HistogramCard from '@/components/HistogramCard.vue';
 import { Check, ArrowDown, Close } from '@element-plus/icons-vue';
 import { FolderOpened } from '@element-plus/icons-vue';
 import hljs from 'highlight.js/lib/core';
@@ -398,7 +435,7 @@ function countSlowCalls(rawCalls) {
 }
 
 export default {
-  components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, Check, ArrowDown, Close, FolderOpened },
+  components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, DistributionCard, HistogramCard, Check, ArrowDown, Close, FolderOpened },
 
   data() {
     return {
@@ -417,6 +454,7 @@ export default {
       dirHandle: null,
       trajDirHandle: null,
       showRawJson: false,
+      showStatsPanel: localStorage.getItem('hyeval_showStats') !== 'false',
       rawRows: [],
       judgeEval: null,
       judgeEvalMap: {},
@@ -453,6 +491,48 @@ export default {
     hasRefAnswer() { return this.rows.some(r => r.ref_answer); },
     hasAnswer() { return this.rows.some(r => r.answer); },
     hasPrediction() { return this.rows.some(r => r.prediction); },
+    hasFinishReason() { return this.rows.some(r => r.finish_reason); },
+    hasStandardEvalData() { return this.rows.some(r => r.finish_reason || r.avg_completion_tokens); },
+    finishReasonDist() {
+      const counts = {};
+      for (const r of this.rows) {
+        const key = r.finish_reason || 'unknown';
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      const total = this.rows.length;
+      return Object.entries(counts).map(([key, count]) => ({
+        key,
+        label: key,
+        count,
+        percentage: total ? ((count / total) * 100).toFixed(1) : '0',
+      }));
+    },
+    tokenHistogramFields() {
+      return [
+        { key: 'completionTokens', label: 'Completion Tokens', color: '#67C23A' },
+        { key: 'promptTokens', label: 'Prompt Tokens', color: '#409EFF' },
+      ];
+    },
+    tokenHistogramData() {
+      const comp = [];
+      const prompt = [];
+      for (const r of this.rows) {
+        if (r.avg_completion_tokens != null) comp.push(r.avg_completion_tokens);
+        if (r.avg_prompt_tokens != null) prompt.push(r.avg_prompt_tokens);
+      }
+      const avg = arr => arr.length ? (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(0) : '0';
+      return {
+        completionTokens: { values: comp, avg: avg(comp) },
+        promptTokens: { values: prompt, avg: avg(prompt) },
+      };
+    },
+    parsedJudgeResponse() {
+      if (!this.selectedRow || !this.selectedRow.judge_response) return null;
+      try {
+        const parsed = JSON.parse(this.selectedRow.judge_response);
+        return (parsed && typeof parsed === 'object') ? parsed : null;
+      } catch { return null; }
+    },
     hasDuration() { return Object.keys(this.timingMap).length > 0; },
     hasTrajectoryPaths() { return this.rows.some(r => r.trajectory_path || r.trajectory_chat_path || r.masked_content_path); },
     trajectoryCount() { return Object.keys(this.trajectoryIndex).length; },
@@ -496,15 +576,10 @@ export default {
         if (this.filters.questionId && !String(r.question_id).includes(this.filters.questionId)) return false;
         if (this.filters.questionText && !(r.question || '').toLowerCase().includes(this.filters.questionText.toLowerCase())) return false;
         if (this.filters.answerText) {
-          const answer = String(this.getJudgeAnswer(r) || '');
+          const answer = String(this.getModelOutput(r) || '');
           if (!answer.toLowerCase().includes(this.filters.answerText.toLowerCase())) return false;
         }
         if (this.filters.agent && r.agent_name !== this.filters.agent) return false;
-        const statusFilter = this.columnFilters.status;
-        if (statusFilter && statusFilter.length) {
-          const isPass = r.score >= 1;
-          if (!statusFilter.includes(isPass ? 'pass' : 'fail')) return false;
-        }
         const exitFilter = this.columnFilters.exit_status;
         if (exitFilter && exitFilter.length) {
           if (!exitFilter.includes(r.exit_status)) return false;
@@ -513,12 +588,20 @@ export default {
         if (scoreFilter && scoreFilter.length) {
           if (!scoreFilter.includes(r.score)) return false;
         }
+        const frFilter = this.columnFilters.finish_reason;
+        if (frFilter && frFilter.length) {
+          if (!frFilter.includes(r.finish_reason)) return false;
+        }
         return true;
       });
     },
     exitStatusFilters() {
       const statuses = [...new Set(this.rows.map(r => r.exit_status).filter(Boolean))];
       return statuses.map(s => ({ text: s, value: s }));
+    },
+    finishReasonFilters() {
+      const reasons = [...new Set(this.rows.map(r => r.finish_reason).filter(Boolean))];
+      return reasons.map(s => ({ text: s, value: s }));
     },
     scoreFilters() {
       const scores = [...new Set(this.rows.map(r => r.score))].sort((a, b) => a - b);
@@ -592,6 +675,7 @@ export default {
   },
 
   watch: {
+    showStatsPanel(val) { localStorage.setItem('hyeval_showStats', val); },
     'filters': {
       deep: true,
       handler() { this.currentPage = 1; },
@@ -603,6 +687,12 @@ export default {
   },
 
   methods: {
+    copyText(text) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        this.$message.success({ message: this.$t('common.copied'), duration: 1000 });
+      });
+    },
     onSortChange({ prop, order }) {
       this.sortState = { prop, order };
       this.currentPage = 1;
@@ -1173,6 +1263,7 @@ export default {
       if (this.trajDirHandle) {
         await this.indexTrajectories(gen);
       } else {
+        this.populateJudgeFromRows(result.rows);
         this.$message.info(this.$t('hyeval.loaded', { count: result.rows.length }));
       }
     },
@@ -1329,6 +1420,22 @@ export default {
       const cached = this.answerMap[String(row.question_id)];
       if (cached) return cached;
       return '-';
+    },
+
+    populateJudgeFromRows(rows) {
+      const map = {};
+      for (const row of rows) {
+        if (!row.judge_response || !row.question_id) continue;
+        try {
+          const parsed = JSON.parse(row.judge_response);
+          if (parsed && typeof parsed === 'object') {
+            map[String(row.question_id)] = parsed;
+          }
+        } catch { /* skip non-JSON judge responses */ }
+      }
+      if (Object.keys(map).length) {
+        this.judgeEvalMap = map;
+      }
     },
 
     async loadJudgeEvalsAsync() {
@@ -1596,6 +1703,22 @@ export default {
 }
 .empty-state .hint { font-size: 12px; margin-top: 8px; }
 
+.eval-stats-panel {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--el-fill-color-lighter);
+  border-radius: 6px;
+}
+.eval-stats-panel .stats-toggle {
+  margin-bottom: 8px;
+}
+.eval-stats-panel :deep(.chart-wrapper) {
+  height: 120px;
+}
+.eval-stats-panel :deep(.charts-row) {
+  gap: 8px;
+}
+
 .stats-panel {
   display: flex;
   flex-wrap: wrap;
@@ -1705,6 +1828,26 @@ export default {
   font-family: var(--el-font-family);
 }
 
+.thinking-block {
+  background: var(--el-color-info-light-9);
+  padding: 8px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.thinking-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-info);
+  margin-bottom: 4px;
+}
+.thinking-content {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .ref-answer {
   background: var(--el-color-success-light-9);
   padding: 8px;
@@ -1734,6 +1877,13 @@ export default {
 .test-message { width: 100%; font-size: 11px; color: var(--el-color-danger); margin-left: 52px; }
 
 .traj-info { display: flex; align-items: center; gap: 12px; }
+
+.usage-info {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
 
 .judge-eval {
   margin-top: 10px;
