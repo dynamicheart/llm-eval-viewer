@@ -25,6 +25,20 @@ function getLastUserContent(messages) {
   return getFirstUserContent(messages);
 }
 
+/**
+ * Prefer the normalized export field, then fall back to the dataset-owned
+ * ground truth carried in payload.details. The latter is input metadata, not
+ * model output (for example MRCR's prefixed target response).
+ */
+function getReferenceAnswer(payload) {
+  if (payload.ref_answer != null) return payload.ref_answer;
+  const details = payload.details;
+  if (details && typeof details === 'object' && details.answer != null) {
+    return details.answer;
+  }
+  return null;
+}
+
 function extractHyevalRow(obj) {
   const payload = obj.payload || {};
   const trialDetails = payload.trial_details;
@@ -60,7 +74,7 @@ function extractAgentRow(obj, payload, trialDetails, messages) {
   return {
     question_id: obj.questionId || null,
     question,
-    ref_answer: payload.ref_answer !== undefined ? payload.ref_answer : null,
+    ref_answer: getReferenceAnswer(payload),
     prediction: taskOutput.prediction || null,
     answer: taskOutput.answer || null,
     score,
@@ -117,7 +131,7 @@ function extractStandardRow(obj, payload, messages) {
   return {
     question_id: obj.questionId || null,
     question,
-    ref_answer: payload.ref_answer !== undefined ? payload.ref_answer : null,
+    ref_answer: getReferenceAnswer(payload),
     prediction,
     answer: null,
     score: payload.avg_score ?? null,

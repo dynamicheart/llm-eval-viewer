@@ -325,6 +325,44 @@ describe('hyevalParse', () => {
       expect(result.rows[0].score).toBe(0.5);
     });
 
+    it('uses payload.details.answer as the dataset reference answer', () => {
+      const expected = 'P6OO0wALYL🌟 Need a helping hand? We\'re all in this together! 🌟';
+      const line = JSON.stringify({
+        questionId: 'mrcr-1',
+        payload: {
+          messages: [{ role: 'user', content: 'Find and prepend the requested string.' }],
+          responses: [['model output']],
+          avg_score: 1,
+          details: {
+            answer: expected,
+            random_string_to_prepend: 'P6OO0wALYL',
+            desired_msg_index: 5,
+            n_needles: 8,
+            n_chars: 89432,
+            total_messages: 102,
+            date_added: '04-12-2025',
+          },
+        },
+      });
+
+      const result = hyevalParse.process(line, {}, {});
+      expect(result.rows[0].ref_answer).toBe(expected);
+    });
+
+    it('prefers payload.ref_answer over payload.details.answer', () => {
+      const line = JSON.stringify({
+        questionId: 'with-normalized-ref',
+        payload: {
+          messages: [{ role: 'user', content: 'test' }],
+          ref_answer: 'normalized answer',
+          details: { answer: 'dataset fallback' },
+        },
+      });
+
+      const result = hyevalParse.process(line, {}, {});
+      expect(result.rows[0].ref_answer).toBe('normalized answer');
+    });
+
     describe('variant C (standard eval)', () => {
       it('parses basic standard eval correctly', () => {
         const result = hyevalParse.process(VARIANT_C_LINE, {}, {});
