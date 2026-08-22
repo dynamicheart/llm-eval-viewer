@@ -458,11 +458,12 @@ export default {
 
   // === Hyeval View ===
   hyeval: {
+    selectFile: '选择文件',
     selectDirectory: '选择目录',
-    orSingleFile: '或上传 .jsonl.gz',
+    orSingleFile: '支持 .jsonl.gz、.tar.gz 等格式',
     recent: '最近',
-    emptyPrompt: '选择 hyeval 导出目录以开始分析',
-    emptyHint: '目录应包含 .jsonl.gz 文件和 trajectory/ 子目录',
+    emptyPrompt: '选择文件或浏览目录以开始分析',
+    emptyHint: '支持 .jsonl.gz、.tar.gz 文件及包含多个评测运行的目录',
     exitStatus: '退出状态',
     iterations: '迭代次数',
     turns: '回合数',
@@ -496,6 +497,9 @@ export default {
     text: '文本',
     copied: '已复制',
     dirExpired: '目录句柄已过期，请重新选择',
+    accessSourceFailed: '无法访问文件或目录，请重新选择',
+    filePickerUnsupported: '文件选择功能需要使用 Chrome 或 Edge 浏览器',
+    loadFileFailed: '文件加载失败，请检查文件格式',
     noJsonlGz: '未找到 .jsonl.gz 或 .tar.gz 文件。请选择包含 hyeval 导出数据的目录（应含 .jsonl.gz 文件、task_*.tar.gz 归档或 trajectory/ 子目录）',
     parseEmpty: '文件解析为空，可能不是 hyeval 导出格式',
     loaded: '已加载 {count} 条记录。未找到 trajectory/ 目录，轨迹功能不可用',

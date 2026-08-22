@@ -20,7 +20,7 @@
       @load-all="batchLoadAll"
     />
     <div class="heval-toolbar">
-      <el-button :type="browseMode !== 'directory' ? 'primary' : ''" @click="openDirectory">{{ $t('hyeval.selectDirectory') }}</el-button>
+      <el-button :type="browseMode !== 'directory' ? 'primary' : ''" @click="openFile">{{ $t('hyeval.selectFile') }}</el-button>
       <el-button :type="browseMode === 'directory' ? 'primary' : ''" @click="browseParentDirectory">{{ $t('hyeval.browseDirectory') }}</el-button>
       <el-dropdown v-if="recentDirs.length" trigger="click" @command="onRecentCommand">
         <el-button size="small" plain>{{ $t('hyeval.recent') }} <el-icon><ArrowDown /></el-icon></el-button>
@@ -884,9 +884,13 @@ export default {
         let perm = await handle.queryPermission({ mode: 'read' });
         if (perm === 'prompt') perm = await handle.requestPermission({ mode: 'read' });
         if (perm !== 'granted') return;
-        this.dirHandle = handle;
         this.fileName = handle.name;
-        await this.loadDirectory(handle);
+        if (handle.kind === 'file' || last.mode === 'single-file') {
+          await this.loadSingleFile(handle);
+        } else {
+          this.dirHandle = handle;
+          await this.loadDirectory(handle);
+        }
       } catch (e) { /* permission denied or handle invalid */ }
     },
 
@@ -971,16 +975,23 @@ export default {
           this.parentDirHandle = handle;
           await this.scanSubDirs(handle);
         } else {
-          this.dirHandle = handle;
           this.fileName = handle.name;
           this.browseMode = 'file';
           this.subDirs = [];
           this.currentSubDir = '';
           localStorage.setItem('hyeval_browse_mode', 'file');
-          await this.loadDirectory(handle);
+          if (handle.kind === 'file' || item.mode === 'single-file') {
+            this.dirHandle = null;
+            await this.loadSingleFile(handle);
+          } else {
+            // Compatibility with recent entries created before the file picker
+            // replaced the old single-run directory picker.
+            this.dirHandle = handle;
+            await this.loadDirectory(handle);
+          }
         }
       } catch (e) {
-        this.$message.error('Failed to access directory');
+        this.$message.error(this.$t('hyeval.accessSourceFailed'));
       }
     },
 
@@ -1388,17 +1399,31 @@ export default {
       return t && t.slowCount ? t.slowCount : null;
     },
 
-    async openDirectory() {
-      if (!window.showDirectoryPicker) {
-        alert('Directory picker not supported. Use Chrome/Edge.');
+    async openFile() {
+      if (!window.showOpenFilePicker) {
+        alert(this.$t('hyeval.filePickerUnsupported'));
         return;
       }
       try {
-        const dirHandle = await window.showDirectoryPicker();
+        const [fileHandle] = await window.showOpenFilePicker({
+          multiple: false,
+          excludeAcceptAllOption: true,
+          types: [{
+            description: 'Hyeval data',
+            accept: {
+              'application/octet-stream': [
+                '.jsonl', '.ndjson', '.jsonl.gz', '.ndjson.gz',
+                '.jsonl.zst', '.ndjson.zst', '.tar', '.tar.gz',
+                '.tar.zst', '.tgz',
+              ],
+            },
+          }],
+        });
         this.loadGeneration++;
         this.batchLoading = false;
-        this.dirHandle = dirHandle;
-        this.fileName = dirHandle.name;
+        this.dirHandle = null;
+        this.trajDirHandle = null;
+        this.fileName = fileHandle.name;
         this.browseMode = 'file';
         this.subDirs = [];
         this.currentSubDir = '';
@@ -1417,10 +1442,52 @@ export default {
         this.sortState = { prop: null, order: null };
         this.currentPage = 1;
         localStorage.setItem('hyeval_browse_mode', 'file');
-        await this.storeDirHandle(dirHandle);
-        await this.loadDirectory(dirHandle);
+        await this.storeDirHandle(fileHandle);
+        await this.loadSingleFile(fileHandle);
       } catch (e) {
         if (e.name !== 'AbortError') console.error(e);
+      }
+    },
+
+    async loadSingleFile(fileHandle) {
+      const gen = this.loadGeneration;
+      this.dirLoading = true;
+      this.loadStageText = this.$t('hyeval.loadingDecompress', { name: fileHandle.name });
+      try {
+        const file = await fileHandle.getFile();
+        if (gen !== this.loadGeneration) return;
+
+        const acc = { rows: [], rawRows: [] };
+        if (isTarFile(file.name)) {
+          const members = await readJsonlFromTarAsync(await file.arrayBuffer(), file.name);
+          for (const { name, text } of members) {
+            if (gen !== this.loadGeneration) return;
+            const base = name.split('/').pop();
+            const dataset = base.replace(/__\d+__task_\d+\.(jsonl|ndjson)(\.(gz|zst))?$/i, '');
+            await this.ingestEvalText(text, dataset, acc, name);
+          }
+        } else {
+          const text = await readTextWithDecompressionAsync(file);
+          if (gen !== this.loadGeneration) return;
+          const dataset = file.name.replace(/__\d+__task_\d+\.(jsonl|ndjson)(\.(gz|zst))?$/i, '');
+          await this.ingestEvalText(text, dataset, acc, file.name);
+        }
+
+        if (acc.rows.length === 0) {
+          this.$message.warning(this.$t('hyeval.parseEmpty'));
+          return;
+        }
+
+        this.rows = acc.rows;
+        this.rawRows = acc.rawRows;
+        this.trajectoryIndex = {};
+        this.populateJudgeFromRows(acc.rows);
+        this.updateRecentDirs(fileHandle.name, acc.rows.length, 'single-file');
+      } catch (e) {
+        console.error('Failed to load hyeval file:', fileHandle.name, e);
+        this.$message.error(this.$t('hyeval.loadFileFailed'));
+      } finally {
+        if (gen === this.loadGeneration) this.dirLoading = false;
       }
     },
 

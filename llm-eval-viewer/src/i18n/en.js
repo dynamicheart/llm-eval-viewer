@@ -459,11 +459,12 @@ export default {
 
   // === Hyeval View ===
   hyeval: {
+    selectFile: 'Select File',
     selectDirectory: 'Select Directory',
-    orSingleFile: 'Or single .jsonl.gz',
+    orSingleFile: 'Supports .jsonl.gz, .tar.gz, and more',
     recent: 'Recent',
-    emptyPrompt: 'Select a hyeval export directory to start analysis',
-    emptyHint: 'Directory should contain a .jsonl.gz and a trajectory/ folder',
+    emptyPrompt: 'Select a file or browse a directory to start analysis',
+    emptyHint: 'Supports .jsonl.gz and .tar.gz files, or directories containing multiple evaluation runs',
     exitStatus: 'Exit Status',
     iterations: 'Iterations',
     turns: 'Turns',
@@ -497,6 +498,9 @@ export default {
     text: 'Text',
     copied: 'Copied',
     dirExpired: 'Directory handle expired, please re-select',
+    accessSourceFailed: 'Cannot access the file or directory, please select it again',
+    filePickerUnsupported: 'File selection requires Chrome or Edge',
+    loadFileFailed: 'Failed to load file; please check its format',
     noJsonlGz: 'No .jsonl.gz or .tar.gz file found. Please select a directory containing hyeval export data (should have .jsonl.gz files, task_*.tar.gz archives or a trajectory/ subfolder)',
     parseEmpty: 'File parsed empty, may not be hyeval export format',
     loaded: 'Loaded {count} records. No trajectory/ directory found, trajectory feature unavailable',
