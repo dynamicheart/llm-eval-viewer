@@ -135,6 +135,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import NewsBanner from '@/components/NewsBanner.vue';
 import { useDirBrowser } from '@/composables/useDirBrowser';
 import { useCustomDirBrowser } from '@/composables/useCustomDirBrowser';
+import { useHevalSidebar } from '@/composables/useHevalSidebar';
 import { useDebugMode } from '@/composables/useDebugMode';
 import { setLocale, getLocale } from '@/i18n';
 import { useI18n } from 'vue-i18n';
@@ -147,6 +148,7 @@ export default {
   setup() {
     const { showSidebar, sidebarWidth } = useDirBrowser();
     const customDir = useCustomDirBrowser();
+    const hevalSidebar = useHevalSidebar();
     const { debugMode } = useDebugMode();
     const { t } = useI18n();
 
@@ -207,7 +209,7 @@ export default {
       }
     }
 
-    return { showSidebar, sidebarWidth, customDir, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick, debugMode };
+    return { showSidebar, sidebarWidth, customDir, hevalSidebar, currentLocale: getLocale(), themeMode, cycleTheme, themeTip, onFooterBuildClick, debugMode };
   },
   watch: {
     '$i18n.locale': {
@@ -231,10 +233,18 @@ export default {
       const path = this.$route.path;
       const isEvalscope = path === '/evalscope/reviews' || path === '/evalscope/predictions';
       const isCustom = path === '/custom';
-      const active = (isEvalscope && this.showSidebar) || (isCustom && this.customDir.showSidebar.value);
+      const isHyeval = path === '/hyeval';
+      const active =
+        (isEvalscope && this.showSidebar) ||
+        (isCustom && this.customDir.showSidebar.value) ||
+        (isHyeval && this.hevalSidebar.showSidebar.value);
       if (!active) return {};
-      const width = isCustom ? this.customDir.sidebarWidth.value : this.sidebarWidth;
-      return { marginLeft: width + 'px', transition: 'margin-left 0.3s' };
+      const width = isCustom
+        ? this.customDir.sidebarWidth.value
+        : isHyeval
+          ? this.hevalSidebar.sidebarWidth.value
+          : this.sidebarWidth;
+      return { marginLeft: width + 'px', transition: 'margin-left 0.25s ease' };
     },
     buildTime() {
       return typeof __BUILD_TIME__ !== 'undefined'

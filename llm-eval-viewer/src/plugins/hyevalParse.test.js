@@ -167,6 +167,34 @@ const VARIANT_A_WITH_USAGE = JSON.stringify({
   },
 });
 
+const VARIANT_M_LINE = JSON.stringify({
+  taskId: 'task_136017',
+  questionId: 2520416201,
+  payload: {
+    __infer_status__: 'infer_success',
+    __judge_status__: 'judge_success',
+    avg_score: 0.03,
+    avg_completion_tokens: 2053,
+    avg_prompt_tokens: 20016,
+    messages: [
+      { role: 'system', content: '' },
+      { role: 'user', content: '🌟 Need a helping hand? We\'re all in this together! 🌟' },
+      { role: 'assistant', content: 'Sure, what seems to be the problem?' },
+      { role: 'user', content: 'Prepend P6OO0wALYL to the 1st (1 indexed) social media post about assistance.' },
+    ],
+    responses: [['P6OO0wALYL🌟 Need a helping hand?']],
+    thinking_responses: [['Locating the first social media post...']],
+    score: [[0.03]],
+    usage: [[{ finish_reason: 'stop' }]],
+    // Standard export with a telemetry-only trial_details stub (no run_input_data)
+    trial_details: {
+      run_output_data: {
+        processor_results: { langfuse: { model: 'p800-hy4', total_steps: 1 } },
+      },
+    },
+  },
+});
+
 const HYEVAL_TEXT = VARIANT_A_LINE + '\n' + VARIANT_B_LINE;
 
 describe('hyevalParse', () => {
@@ -418,7 +446,7 @@ describe('hyevalParse', () => {
           questionId: 200,
           payload: {
             __infer_status__: 'infer_success',
-            __judge_status__: 'judge_success',
+            __judge_status: 'judge_success',
             messages: [{ role: 'user', content: 'q' }],
             score: [[0.5]],
             avg_score: 0.5,
@@ -428,6 +456,27 @@ describe('hyevalParse', () => {
         expect(result.rows[0].prediction).toBeNull();
         expect(result.rows[0].thinking).toBeNull();
         expect(result.rows[0].judge_response).toBeNull();
+      });
+
+      it('takes standard path for telemetry-only trial_details (MRCR exports)', () => {
+        const result = hyevalParse.process(VARIANT_M_LINE, {}, {});
+        expect(result.rows).toHaveLength(1);
+        const row = result.rows[0];
+        expect(row.agent_name).toBeNull();
+        expect(row.exit_status).toBeNull();
+        expect(row.prediction).toBe('P6OO0wALYL🌟 Need a helping hand?');
+        expect(row.thinking).toBe('Locating the first social media post...');
+        expect(row.score).toBe(0.03);
+        expect(row.finish_reason).toBe('stop');
+        expect(row.avg_completion_tokens).toBe(2053);
+        expect(row.avg_prompt_tokens).toBe(20016);
+      });
+
+      it('uses the last user message as question for multi-turn conversations', () => {
+        const result = hyevalParse.process(VARIANT_M_LINE, {}, {});
+        expect(result.rows[0].question).toBe(
+          'Prepend P6OO0wALYL to the 1st (1 indexed) social media post about assistance.'
+        );
       });
     });
   });

@@ -1,17 +1,22 @@
 <!-- Copyright (c) 2026 dynamicheart. Licensed under the MIT License. -->
 
 <template>
-  <div class="heval-view" :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0' }">
+  <div
+    class="heval-view"
+    :style="{ marginLeft: showSidebar ? sidebarWidth + 'px' : '0' }"
+    v-loading="dirLoading"
+    :element-loading-text="loadStageText"
+  >
     <DirBrowserDrawer
       :visible="showSidebar"
       :dir-tree="subDirs"
       :current-node-key="currentSubDir"
       :loaded-keys="loadedSubDirs"
-      :show-load-all="showSidebar && subDirs.length > 0 && (!subDirs[0].children || loadedSubDirs.size < subDirs[0].children.length)"
+      :show-load-all="showSidebar && subDirs.length > 0 && loadedSubDirs.size < runNodeCount"
       :batch-loading="batchLoading"
       :batch-progress="batchProgress"
       @select-run="onSelectSubDir"
-      @resize="w => sidebarWidth = w"
+      @resize="onSidebarResize"
       @load-all="batchLoadAll"
     />
     <div class="heval-toolbar">
@@ -289,13 +294,32 @@
         <div class="detail-grid">
           <div class="detail-cell">
             <div class="detail-label">
-              {{ $t('hyeval.question') }}
-              <el-button size="small" text @click="copyText(JSON.stringify((selectedRowRaw && selectedRowRaw.payload && selectedRowRaw.payload.messages) || [], null, 2))">{{ $t('common.copy') }}</el-button>
+              <span>{{ $t('hyeval.question') }}</span>
+              <span v-if="inputMessages.length || selectedRow.question" class="label-actions">
+                <el-tooltip v-if="inputMessages.length" :content="$t('hyeval.viewConversation')" placement="top" :show-after="300">
+                  <el-icon class="label-action-icon" @click.stop="showInputDialog = true"><ChatDotRound /></el-icon>
+                </el-tooltip>
+                <el-tooltip :content="$t('common.copy')" placement="top" :show-after="300">
+                  <el-icon class="label-action-icon" @click.stop="copyText(selectedRow.question)"><CopyDocument /></el-icon>
+                </el-tooltip>
+              </span>
             </div>
-            <div class="detail-content scrollable">{{ selectedRow.question }}</div>
+            <div
+              class="detail-content scrollable"
+              :class="{ clickable: inputMessages.length }"
+              :title="inputMessages.length ? $t('hyeval.viewConversation') : ''"
+              @click="inputMessages.length && (showInputDialog = true)"
+            >{{ selectedRow.question }}</div>
           </div>
           <div class="detail-cell">
-            <div class="detail-label">{{ $t('hyeval.modelOutput') }}</div>
+            <div class="detail-label">
+              <span>{{ $t('hyeval.modelOutput') }}</span>
+              <span v-if="fullOutputText" class="label-actions">
+                <el-tooltip :content="$t('hyeval.viewFullText')" placement="top" :show-after="300">
+                  <el-icon class="label-action-icon" @click.stop="showOutputDialog = true"><FullScreen /></el-icon>
+                </el-tooltip>
+              </span>
+            </div>
             <div class="detail-content scrollable prediction">
               <div v-if="selectedRow.thinking" class="thinking-block">
                 <div class="thinking-label">Thinking</div>
@@ -407,6 +431,42 @@
       :show-filter="true"
     />
 
+    <ConversationDialog
+      :visible="showInputDialog"
+      @update:visible="showInputDialog = $event"
+      :messages="inputMessages"
+      :title="$t('hyeval.inputConversation')"
+      :show-filter="true"
+    />
+
+    <el-dialog
+      v-model="showOutputDialog"
+      :title="$t('hyeval.modelOutput')"
+      width="60%"
+      top="6vh"
+    >
+      <div class="raw-json-content">
+        <div class="output-dialog-toolbar">
+          <el-button size="small" type="primary" plain @click="copyText(fullOutputText)">
+            <el-icon style="margin-right: 4px"><CopyDocument /></el-icon>{{ $t('common.copy') }}
+          </el-button>
+        </div>
+        <template v-if="selectedRow">
+          <div v-if="selectedRow.thinking" class="thinking-block dialog-thinking">
+            <div class="thinking-header">
+              <span class="thinking-label">Thinking</span>
+              <el-button size="small" text @click="outputThinkingExpanded = !outputThinkingExpanded">
+                {{ outputThinkingExpanded ? $t('common.collapse') : $t('common.expand') }}
+              </el-button>
+            </div>
+            <div v-show="outputThinkingExpanded" class="thinking-content">{{ selectedRow.thinking }}</div>
+          </div>
+          <div class="output-body-label">{{ $t('hyeval.responseText') }}</div>
+          <div class="output-full-text">{{ fullOutputText }}</div>
+        </template>
+      </div>
+    </el-dialog>
+
     <el-dialog
       v-model="showRawJson"
       :title="$t('hyeval.rawJson')"
@@ -424,7 +484,9 @@
 import { Chart, registerables } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 Chart.register(...registerables);
-import { readTextWithDecompression, isCompressedFile, decompressBuffer } from '@/utils/decompressFile';
+import { readTextWithDecompression, readTextWithDecompressionAsync, isCompressedFile, decompressBuffer } from '@/utils/decompressFile';
+import { isTarFile, readJsonlFromTarAsync } from '@/utils/tarFile';
+import { useHevalSidebar } from '@/composables/useHevalSidebar';
 import hyevalParse from '@/plugins/hyevalParse';
 import trajectoryParse from '@/plugins/trajectoryParse';
 import ConversationDialog from '@/components/ConversationDialog.vue';
@@ -434,6 +496,7 @@ import DirBrowserDrawer from '@/components/DirBrowserDrawer.vue';
 import DistributionCard from '@/components/DistributionCard.vue';
 import HistogramCard from '@/components/HistogramCard.vue';
 import { Check, ArrowDown, Close } from '@element-plus/icons-vue';
+import { ChatDotRound, CopyDocument, FullScreen } from '@element-plus/icons-vue';
 import { FolderOpened } from '@element-plus/icons-vue';
 import hljs from 'highlight.js/lib/core';
 import jsonLang from 'highlight.js/lib/languages/json';
@@ -464,7 +527,12 @@ function countSlowCalls(rawCalls) {
 }
 
 export default {
-  components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, DistributionCard, HistogramCard, Check, ArrowDown, Close, FolderOpened },
+  components: { ConversationDialog, JsonViewer, TableHeaderSearch, DirBrowserDrawer, DistributionCard, HistogramCard, Check, ArrowDown, Close, FolderOpened, ChatDotRound, CopyDocument, FullScreen },
+
+  setup() {
+    const hevalSidebar = useHevalSidebar();
+    return { hevalSidebar };
+  },
 
   data() {
     return {
@@ -478,6 +546,9 @@ export default {
       trajectoryRawSpans: [],
       trajectorySpanTree: [],
       showTrajectory: false,
+      showInputDialog: false,
+      showOutputDialog: false,
+      outputThinkingExpanded: true,
       loadingTrajectory: false,
       trajectoryIndex: {},
       dirHandle: null,
@@ -509,11 +580,14 @@ export default {
       loadedSubDirs: new Set(),
       batchLoading: false,
       batchProgress: null,
+      dirLoading: false,
+      loadStageText: '',
     };
   },
 
   computed: {
     showSidebar() { return this.browseMode === 'directory' && this.subDirs.length > 0; },
+    runNodeCount() { return this.subDirs.length ? this.collectLeaves(this.subDirs[0].children || []).length : 0; },
     passCount() { return this.rows.filter(r => r.score >= 1).length; },
     failCount() { return this.rows.filter(r => r.score < 1).length; },
     hasAgentData() { return this.rows.some(r => r.agent_name); },
@@ -570,6 +644,16 @@ export default {
       const qid = String(this.selectedRow.question_id);
       const raw = this.rawRows.find(r => String(r.questionId) === qid);
       return raw || this.selectedRow;
+    },
+    inputMessages() {
+      const raw = this.selectedRowRaw;
+      const messages = raw && raw.payload && raw.payload.messages;
+      return Array.isArray(messages) ? messages : [];
+    },
+    fullOutputText() {
+      if (!this.selectedRow) return '';
+      const text = this.getModelOutput(this.selectedRow);
+      return text === '-' ? '' : text;
     },
     exitStatusDist() {
       const dist = {};
@@ -710,6 +794,12 @@ export default {
       localStorage.setItem('hyeval_showStats', val);
       if (val) this.$nextTick(() => this.renderTokenScatter());
     },
+    showSidebar: {
+      handler(val) {
+        this.hevalSidebar.showSidebar.value = val;
+      },
+      immediate: true,
+    },
     filteredRows() {
       if (this.showStatsPanel) this.$nextTick(() => this.renderTokenScatter());
     },
@@ -729,6 +819,11 @@ export default {
   },
 
   methods: {
+    onSidebarResize(width) {
+      this.sidebarWidth = width;
+      this.hevalSidebar.sidebarWidth.value = width;
+    },
+
     copyText(text) {
       if (!text) return;
       navigator.clipboard.writeText(text).then(() => {
@@ -774,8 +869,7 @@ export default {
             this.parentDirHandle = handle;
             await this.scanSubDirs(handle);
             if (this.currentSubDir && this.subDirs.length > 0) {
-              const children = this.subDirs[0]?.children || [];
-              const target = children.find(d => d.id === this.currentSubDir);
+              const target = this.findLeafById(this.subDirs[0].children || [], this.currentSubDir);
               if (target) await this.onSelectSubDir(target);
             }
           } catch { /* ignore */ }
@@ -992,39 +1086,23 @@ export default {
     },
 
     async scanSubDirs(parentHandle) {
-      const dirs = [];
-      for await (const entry of parentHandle.values()) {
-        if (entry.kind !== 'directory') continue;
-        if (entry.name.startsWith('.')) continue;
-        let hasJsonlGz = false;
-        try {
-          for await (const child of entry.values()) {
-            if (child.kind === 'file' && child.name.endsWith('.jsonl.gz')) {
-              hasJsonlGz = true;
-              break;
-            }
-          }
-        } catch { /* skip inaccessible */ }
-        if (hasJsonlGz) {
-          dirs.push({ id: entry.name, label: entry.name, handle: entry, isLeaf: true });
-        }
-      }
-      if (dirs.length === 0) {
+      const children = await this.scanDirChildren(parentHandle, '', 1);
+      if (children.length === 0) {
         this.$message.warning(this.$t('hyeval.noValidSubDirs'));
         return;
       }
-      dirs.sort((a, b) => b.label.localeCompare(a.label));
+      const dirs = this.collectLeaves(children);
       const loaded = new Set();
       await Promise.all(dirs.map(async (d) => {
-        const cached = await this.getJudgeCache(`hyeval_v${CACHE_VERSION}_judge_${d.label}`);
-        if (cached) loaded.add(d.label);
+        const cached = await this.getJudgeCache(`hyeval_v${CACHE_VERSION}_judge_${d.id}`);
+        if (cached) loaded.add(d.id);
       }));
       this.loadedSubDirs = loaded;
       const parentLabel = `${parentHandle.name} (${loaded.size}/${dirs.length})`;
       this.subDirs = [{
         id: `parent_${parentHandle.name}`,
         label: parentLabel,
-        children: dirs,
+        children,
       }];
       this.browseMode = 'directory';
       localStorage.setItem('hyeval_browse_mode', 'directory');
@@ -1033,13 +1111,94 @@ export default {
       this.updateRecentDirs(parentHandle.name, dirs.length, 'directory');
     },
 
+    /**
+     * Check if a directory directly contains eval data files
+     * (.jsonl.gz exports or task tar archives).
+     */
+    async hasDataFiles(handle) {
+      try {
+        for await (const child of handle.values()) {
+          if (child.kind === 'file' && (child.name.endsWith('.jsonl.gz') || isTarFile(child.name))) {
+            return true;
+          }
+        }
+      } catch { /* skip inaccessible */ }
+      return false;
+    },
+
+    /**
+     * Recursively scan directory children into tree nodes (depth-capped).
+     * A directory directly containing data files becomes a leaf; otherwise
+     * its subdirectories are scanned and wrapped as an intermediate node.
+     * Node ids are relative paths from the picked root, so they stay unique
+     * across nesting levels (e.g. "exp03_dev25-high/run").
+     */
+    async scanDirChildren(dirHandle, relPath, depth) {
+      const entries = [];
+      try {
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind !== 'directory') continue;
+          if (entry.name.startsWith('.')) continue;
+          entries.push(entry);
+        }
+      } catch { /* skip inaccessible */ }
+
+      const nodes = [];
+      for (const entry of entries) {
+        const childRel = relPath ? `${relPath}/${entry.name}` : entry.name;
+        if (await this.hasDataFiles(entry)) {
+          nodes.push({ id: childRel, label: entry.name, handle: entry, isLeaf: true });
+        } else if (depth < 3) {
+          const children = await this.scanDirChildren(entry, childRel, depth + 1);
+          if (children.length > 0) {
+            nodes.push({ id: `dir_${childRel}`, label: entry.name, children });
+          }
+        }
+      }
+
+      // Intermediate dirs first (ascending), then leaves (descending, newest first)
+      nodes.sort((a, b) => {
+        const aLeaf = a.isLeaf ? 1 : 0;
+        const bLeaf = b.isLeaf ? 1 : 0;
+        if (aLeaf !== bLeaf) return aLeaf - bLeaf;
+        return aLeaf ? b.label.localeCompare(a.label) : a.label.localeCompare(b.label);
+      });
+      return nodes;
+    },
+
+    /**
+     * Flatten a tree into its leaf nodes.
+     */
+    collectLeaves(nodes) {
+      const leaves = [];
+      for (const node of nodes) {
+        if (node.isLeaf) leaves.push(node);
+        else if (node.children) leaves.push(...this.collectLeaves(node.children));
+      }
+      return leaves;
+    },
+
+    /**
+     * Find a leaf node by id anywhere in the tree.
+     */
+    findLeafById(nodes, id) {
+      for (const node of nodes) {
+        if (node.isLeaf && node.id === id) return node;
+        if (node.children) {
+          const found = this.findLeafById(node.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    },
+
     async onSelectSubDir(node) {
       this.loadGeneration++;
       this.batchLoading = false;
       this.currentSubDir = node.id;
       localStorage.setItem('hyeval_current_subdir', node.id);
       this.dirHandle = node.handle;
-      this.fileName = node.label;
+      this.fileName = node.id;
       this.rows = [];
       this.rawRows = [];
       this.judgeEvalMap = {};
@@ -1060,7 +1219,7 @@ export default {
     updateSidebarLabel() {
       if (!this.subDirs.length) return;
       const root = this.subDirs[0];
-      const total = root.children ? root.children.length : 0;
+      const total = this.collectLeaves(root.children || []).length;
       const name = this.parentDirHandle ? this.parentDirHandle.name : root.label.replace(/ \(.*\)$/, '');
       root.label = `${name} (${this.loadedSubDirs.size}/${total})`;
       this.subDirs = [...this.subDirs];
@@ -1073,9 +1232,8 @@ export default {
 
     async batchLoadAll() {
       if (this.batchLoading || !this.subDirs.length) return;
-      const root = this.subDirs[0];
-      const children = root.children || [];
-      const unloaded = children.filter(c => !this.loadedSubDirs.has(c.id));
+      const leaves = this.collectLeaves(this.subDirs[0].children || []);
+      const unloaded = leaves.filter(c => !this.loadedSubDirs.has(c.id));
       if (unloaded.length === 0) return;
 
       this.batchLoading = true;
@@ -1084,8 +1242,8 @@ export default {
       for (let i = 0; i < unloaded.length; i++) {
         if (this.loadGeneration !== batchGen) break;
         const node = unloaded[i];
-        this.batchProgress = { current: i + 1, total: unloaded.length, name: node.label };
-        await this.batchCacheDirectory(node.handle, node.label, batchGen);
+        this.batchProgress = { current: i + 1, total: unloaded.length, name: node.id };
+        await this.batchCacheDirectory(node.handle, node.id, batchGen);
         if (this.loadGeneration !== batchGen) break;
       }
 
@@ -1110,7 +1268,13 @@ export default {
           break;
         }
       }
-      if (!trajDir || this.loadGeneration !== batchGen) return;
+      if (this.loadGeneration !== batchGen) return;
+      if (!trajDir) {
+        // No trajectory data (standard eval exports): nothing to cache, mark as done
+        this.loadedSubDirs.add(fileName);
+        this.updateSidebarLabel();
+        return;
+      }
 
       const index = {};
       for await (const entry of trajDir.values()) {
@@ -1263,65 +1427,119 @@ export default {
     async loadDirectory(dirHandle) {
       const gen = this.loadGeneration;
       const jsonlFiles = [];
+      const tarFiles = [];
       let trajDir = null;
 
-      for await (const entry of dirHandle.values()) {
+      this.dirLoading = true;
+      this.loadStageText = this.$t('hyeval.loadingScan');
+      try {
+        for await (const entry of dirHandle.values()) {
+          if (gen !== this.loadGeneration) return;
+          if (entry.kind === 'file' && entry.name.endsWith('.jsonl.gz')) {
+            jsonlFiles.push(entry);
+          }
+          if (entry.kind === 'file' && isTarFile(entry.name)) {
+            tarFiles.push(entry);
+          }
+          if (entry.kind === 'directory' && entry.name === 'trajectory') {
+            trajDir = entry;
+          }
+        }
         if (gen !== this.loadGeneration) return;
-        if (entry.kind === 'file' && entry.name.endsWith('.jsonl.gz')) {
-          jsonlFiles.push(entry);
+
+        if (jsonlFiles.length === 0 && tarFiles.length === 0) {
+          this.$message.warning(this.$t('hyeval.noJsonlGz'));
+          return;
         }
-        if (entry.kind === 'directory' && entry.name === 'trajectory') {
-          trajDir = entry;
+
+        const acc = { rows: [], rawRows: [] };
+        for (const fileEntry of jsonlFiles) {
+          if (gen !== this.loadGeneration) return;
+          this.loadStageText = this.$t('hyeval.loadingDecompress', { name: fileEntry.name });
+          await this.yieldToUi();
+          const dataset = fileEntry.name.replace(/__\d+__task_\d+\.jsonl(\.gz)?$/, '');
+          const file = await fileEntry.getFile();
+          const text = await readTextWithDecompressionAsync(file);
+          if (gen !== this.loadGeneration) return;
+          await this.ingestEvalText(text, dataset, acc, fileEntry.name);
         }
-      }
-      if (gen !== this.loadGeneration) return;
 
-      if (jsonlFiles.length === 0) {
-        this.$message.warning(this.$t('hyeval.noJsonlGz'));
-        return;
-      }
-
-      let allRows = [];
-      let allRawRows = [];
-      for (const fileEntry of jsonlFiles) {
-        if (gen !== this.loadGeneration) return;
-        const dataset = fileEntry.name.replace(/__\d+__task_\d+\.jsonl\.gz$/, '');
-        const file = await fileEntry.getFile();
-        const text = await readTextWithDecompression(file);
-        if (gen !== this.loadGeneration) return;
-        const result = hyevalParse.process(text, {}, {});
-        for (const row of result.rows) {
-          row.dataset = row.dataset || dataset;
+        for (const tarEntry of tarFiles) {
+          if (gen !== this.loadGeneration) return;
+          try {
+            this.loadStageText = this.$t('hyeval.loadingDecompress', { name: tarEntry.name });
+            await this.yieldToUi();
+            const buffer = await (await tarEntry.getFile()).arrayBuffer();
+            if (gen !== this.loadGeneration) return;
+            // Each archive holds one dataset export (plus a README); handle any
+            // .jsonl members found inside so multi-dataset archives also work
+            const members = await readJsonlFromTarAsync(buffer, tarEntry.name);
+            for (const { name: memberName, text } of members) {
+              if (gen !== this.loadGeneration) return;
+              const base = memberName.split('/').pop();
+              const dataset = base.replace(/__\d+__task_\d+\.jsonl(\.gz)?$/, '');
+              await this.ingestEvalText(text, dataset, acc, memberName);
+            }
+          } catch (e) {
+            console.error('Failed to read archive:', tarEntry.name, e);
+          }
         }
-        allRows = allRows.concat(result.rows);
-        const rawRows = this.parseRawRows(text);
-        for (const raw of rawRows) {
-          raw._dataset = dataset;
+
+        if (acc.rows.length === 0) {
+          this.$message.warning(this.$t('hyeval.parseEmpty'));
+          return;
         }
-        allRawRows = allRawRows.concat(rawRows);
-      }
 
-      if (allRows.length === 0) {
-        this.$message.warning(this.$t('hyeval.parseEmpty'));
-        return;
-      }
+        this.trajDirHandle = trajDir;
+        this.trajectoryIndex = {};
+        this.rows = acc.rows;
+        this.rawRows = acc.rawRows;
+        this.selectedRow = null;
+        this.trajectoryMessages = [];
+        if (this.browseMode !== 'directory') {
+          this.updateRecentDirs(dirHandle.name, acc.rows.length);
+        }
 
-      this.trajDirHandle = trajDir;
-      this.trajectoryIndex = {};
-      this.rows = allRows;
-      this.rawRows = allRawRows;
-      this.selectedRow = null;
-      this.trajectoryMessages = [];
-      if (this.browseMode !== 'directory') {
-        this.updateRecentDirs(dirHandle.name, allRows.length);
+        if (this.trajDirHandle) {
+          await this.indexTrajectories(gen);
+        } else {
+          this.populateJudgeFromRows(acc.rows);
+          if (this.browseMode === 'directory') {
+            this.loadedSubDirs.add(this.fileName);
+            this.updateSidebarLabel();
+          }
+          this.$message.info(this.$t('hyeval.loaded', { count: acc.rows.length }));
+        }
+      } finally {
+        // A newer load may have started; let it manage its own loading state
+        if (gen === this.loadGeneration) this.dirLoading = false;
       }
+    },
 
-      if (this.trajDirHandle) {
-        await this.indexTrajectories(gen);
-      } else {
-        this.populateJudgeFromRows(allRows);
-        this.$message.info(this.$t('hyeval.loaded', { count: allRows.length }));
+    /**
+     * Give the browser a chance to paint the loading overlay between
+     * heavy synchronous steps (parse loops still block while running).
+     */
+    yieldToUi() {
+      return new Promise((resolve) => setTimeout(resolve, 0));
+    },
+
+    /**
+     * Parse one eval jsonl text and append rows/raw rows to acc.
+     */
+    async ingestEvalText(text, dataset, acc, sourceName) {
+      this.loadStageText = this.$t('hyeval.loadingParse', { name: sourceName || dataset || '' });
+      await this.yieldToUi();
+      const result = hyevalParse.process(text, {}, {});
+      for (const row of result.rows) {
+        row.dataset = row.dataset || dataset;
       }
+      acc.rows = acc.rows.concat(result.rows);
+      const rawRows = await this.parseRawRows(text);
+      for (const raw of rawRows) {
+        raw._dataset = dataset;
+      }
+      acc.rawRows = acc.rawRows.concat(rawRows);
     },
 
     async indexTrajectories(gen) {
@@ -1386,7 +1604,7 @@ export default {
       const text = await readTextWithDecompression(file);
       const result = hyevalParse.process(text, {}, {});
       this.rows = result.rows;
-      this.rawRows = this.parseRawRows(text);
+      this.rawRows = await this.parseRawRows(text);
     },
 
     selectRow(row) {
@@ -1394,6 +1612,8 @@ export default {
       this.trajectoryMessages = [];
       this.trajectoryConversations = [];
       this.judgeEval = null;
+      this.showInputDialog = false;
+      this.showOutputDialog = false;
     },
 
     rowClassName({ row }) {
@@ -1432,11 +1652,19 @@ export default {
       return str.length > len ? str.slice(0, len) + '...' : str;
     },
 
-    parseRawRows(text) {
+    async parseRawRows(text) {
+      const lines = text.split('\n');
       const rows = [];
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        try { rows.push(JSON.parse(line)); } catch (e) { /* skip */ }
+      const CHUNK = 100;
+      for (let i = 0; i < lines.length; i += CHUNK) {
+        const end = Math.min(i + CHUNK, lines.length);
+        for (let j = i; j < end; j++) {
+          const line = lines[j].trim();
+          if (!line) continue;
+          try { rows.push(JSON.parse(line)); } catch (e) { /* skip */ }
+        }
+        // Yield between chunks so the loading spinner keeps animating
+        if (end < lines.length) await this.yieldToUi();
       }
       return rows;
     },
@@ -1978,11 +2206,31 @@ export default {
 }
 
 .detail-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 12px;
   font-weight: 600;
   color: var(--el-text-color-secondary);
   margin-bottom: 8px;
   text-transform: uppercase;
+}
+
+.label-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.label-action-icon {
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--el-text-color-placeholder);
+  transition: color 0.15s;
+}
+
+.label-action-icon:hover {
+  color: var(--el-color-primary);
 }
 
 .detail-content.scrollable {
@@ -2090,6 +2338,45 @@ export default {
 .raw-json-content {
   max-height: 70vh;
   overflow: auto;
+}
+
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  background: var(--el-fill-color-light);
+}
+
+.output-dialog-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.dialog-thinking {
+  max-height: none;
+}
+
+.thinking-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.output-body-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-color-success);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.output-full-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .raw-text-pre {

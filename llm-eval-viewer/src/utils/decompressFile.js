@@ -2,6 +2,7 @@
 
 import { decompressSync } from 'fflate';
 import { decompress } from 'fzstd';
+import { gunzipInWorker } from './gunzipWorker';
 
 const COMPRESSED_EXTENSIONS = new Set(['.gz', '.zst']);
 
@@ -42,5 +43,20 @@ export async function readTextWithDecompression(file) {
   const ext = isCompressedFile(file.name);
   if (!ext) return file.text();
   const buffer = await file.arrayBuffer();
+  return decompressBuffer(buffer, ext);
+}
+
+/**
+ * Like readTextWithDecompression, but gzip layers are inflated in a Web
+ * Worker so the main thread stays responsive on large (~100MB) files.
+ */
+export async function readTextWithDecompressionAsync(file) {
+  const ext = isCompressedFile(file.name);
+  if (!ext) return file.text();
+  const buffer = await file.arrayBuffer();
+  if (ext === '.gz') {
+    const out = await gunzipInWorker(new Uint8Array(buffer));
+    return new TextDecoder().decode(out);
+  }
   return decompressBuffer(buffer, ext);
 }

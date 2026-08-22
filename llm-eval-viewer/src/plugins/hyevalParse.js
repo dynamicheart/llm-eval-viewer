@@ -11,12 +11,29 @@ function getFirstUserContent(messages) {
   return null;
 }
 
+/**
+ * The question is the last user message: multi-turn datasets (e.g. MRCR) carry
+ * the whole dialogue as context and only ask the actual question at the end.
+ * Single-turn exports are unaffected (first == last user message).
+ */
+function getLastUserContent(messages) {
+  if (!messages || !messages.length) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'user' && m.content) return m.content;
+  }
+  return getFirstUserContent(messages);
+}
+
 function extractHyevalRow(obj) {
   const payload = obj.payload || {};
   const trialDetails = payload.trial_details;
   const messages = payload.messages || [];
 
-  if (trialDetails && typeof trialDetails === 'object') {
+  // Agent-eval exports carry run_input_data in trial_details; some standard
+  // exports still include a trial_details stub holding telemetry only
+  // (run_output_data.processor_results), which must take the standard path
+  if (trialDetails && typeof trialDetails === 'object' && trialDetails.run_input_data) {
     return extractAgentRow(obj, payload, trialDetails, messages);
   }
   return extractStandardRow(obj, payload, messages);
@@ -79,7 +96,7 @@ function extractAgentRow(obj, payload, trialDetails, messages) {
 }
 
 function extractStandardRow(obj, payload, messages) {
-  const question = getFirstUserContent(messages);
+  const question = getLastUserContent(messages);
   const responses = payload.responses;
   const prediction = (Array.isArray(responses) && Array.isArray(responses[0]) && responses[0][0])
     ? responses[0][0]
